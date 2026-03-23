@@ -1,0 +1,10 @@
+labels:
+  - pairs:
+      # This provider serves v1alpha1 APIs but implements the Cluster API v1beta2 contract.
+      cluster.x-k8s.io/v1beta2: v1beta2
+
+resources:
+  - bases/infrastructure.cluster.x-k8s.io_nicoclusters.yaml
+  - bases/infrastructure.cluster.x-k8s.io_nicoclustertemplates.yaml
+  - bases/infrastructure.cluster.x-k8s.io_nicomachines.yaml
+  - bases/infrastructure.cluster.x-k8s.io_nicomachinetemplates.yaml
