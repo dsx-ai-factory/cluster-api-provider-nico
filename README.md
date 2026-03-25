@@ -1,6 +1,6 @@
 # cluster-api-provider-nico
 
-`cluster-api-provider-nico` is a Cluster API infrastructure provider that provisions bare metal instances in [NCX Infra Controller (NICo)](https://github.com/NVIDIA/ncx-infra-controller-core) through its [REST API](https://github.com/NVIDIA/ncx-infra-controller-rest).
+Kubernetes Cluster API (CAPI) infrastructure provider to provision bare metal nodes in [NCX Infra Controller (NICo)](https://github.com/NVIDIA/ncx-infra-controller-core).
 
 * `NicoCluster` holds shared NICo configuration such as site, VPC, and a Secret reference for API credentials.
 * `NicoMachine` represents one NICo instance managed by Cluster API.
