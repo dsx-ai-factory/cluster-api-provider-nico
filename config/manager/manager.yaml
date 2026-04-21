@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: controller-manager
-  namespace: cluster-api-provider-nico-system
+  namespace: capnico-system
   labels:
     control-plane: controller-manager
     app.kubernetes.io/name: cluster-api-provider-nico
