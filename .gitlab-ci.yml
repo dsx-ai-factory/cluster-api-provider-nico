@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+default:
+  tags:
+    - nvpark-ngc-nke-prod
+
+include:
+  - project: nke/gitlab-ci-cd
+    ref: main
+    file:
+      - /templates/defaults.gitlab-ci.yml
+      - /templates/pipeline/versioning.gitlab-ci.yml
+      - /templates/publish/common.gitlab-ci.yml
+      - /templates/publish/multi-arch.gitlab-ci.yml
+
+stages:
+  - versioning
+  - build
+  - publish
+
+.golang:
+  rules:
+    - changes:
+        - .gitlab-ci.yml
+        - Dockerfile
+        - Makefile
+        - api/**/*
+        - cmd/**/*
+        - config/**/*
+        - controllers/**/*
+        - internal/**/*
+        - go.mod
+        - go.sum
+
+container-image:
+  stage: build
+  extends:
+    - .build-image-multi-arch-kaniko
+  variables:
+    KUBERNETES_CPU_LIMIT: "2000m"
+    KUBERNETES_MEMORY_LIMIT: "8Gi"
+
+publish-image-nvcr:
+  stage: publish
+  extends:
+    - .publish-multi-arch-manifest-nvcr
