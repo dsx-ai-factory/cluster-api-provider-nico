@@ -27,6 +27,7 @@ const (
 	SecretKeyScopes                = "scopes"
 	SecretKeyCA                    = "ca.crt"
 	SecretKeyInsecureSkipTLSVerify = "insecureSkipTLSVerify"
+	SecretKeyAPIName               = "apiName"
 	defaultHTTPClientTimeout       = 30 * time.Second
 )
 
@@ -41,6 +42,7 @@ type SecretConfig struct {
 	Scopes                []string
 	CA                    []byte
 	InsecureSkipTLSVerify bool
+	APIName               string
 }
 
 // LoadSecretConfig loads NICo client settings from a Secret.
@@ -57,6 +59,7 @@ func LoadSecretConfig(secret *corev1.Secret) (SecretConfig, error) {
 		ClientID:     string(secret.Data[SecretKeyClientID]),
 		ClientSecret: string(secret.Data[SecretKeyClientSecret]),
 		CA:           secret.Data[SecretKeyCA],
+		APIName:      string(secret.Data[SecretKeyAPIName]),
 	}
 	if cfg.Endpoint == "" {
 		return SecretConfig{}, fmt.Errorf("identity secret missing %q", SecretKeyEndpoint)
