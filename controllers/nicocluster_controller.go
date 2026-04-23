@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -44,7 +45,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	defer func() {
 		if err := patchHelper.Patch(ctx, &nicoCluster, patch.WithOwnedConditions{Conditions: []string{clusterv1.ReadyCondition}}); err != nil && retErr == nil {
-			retErr = err
+			retErr = fmt.Errorf("failed to patch NicoCluster: %w", err)
 		}
 	}()
 
@@ -67,7 +68,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Message: err.Error(),
 		})
 		nicoCluster.Status.Ready = false
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
 	// NicoCluster has no cluster-scoped NICo resources to reconcile, so readiness here is a validation check:
@@ -80,7 +81,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Message: err.Error(),
 		})
 		nicoCluster.Status.Ready = false
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to validate nico client readiness: %w", err)
 	}
 
 	provisioned := true

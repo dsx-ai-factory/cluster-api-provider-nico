@@ -54,7 +54,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	ownerMachine, err := util.GetOwnerMachine(ctx, r.Client, nicoMachine.ObjectMeta)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to get owner machine: %w", err)
 	}
 	if ownerMachine == nil {
 		log.Info("Waiting for Machine controller to set OwnerRef on NicoMachine")
@@ -63,7 +63,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	cluster, err := util.GetClusterFromMetadata(ctx, r.Client, ownerMachine.ObjectMeta)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to get cluster from metadata: %w", err)
 	}
 	if cluster == nil {
 		log.Info("Waiting for Machine to have Cluster set")
@@ -79,16 +79,16 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Namespace: cluster.Namespace,
 		Name:      cluster.Spec.InfrastructureRef.Name,
 	}, &nicoCluster); err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to get nico cluster: %w", err)
 	}
 
 	patchHelper, err := patch.NewHelper(&nicoMachine, r.Client)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
 	}
 	defer func() {
 		if err := patchHelper.Patch(ctx, &nicoMachine, patch.WithOwnedConditions{Conditions: []string{clusterv1.ReadyCondition}}); err != nil && retErr == nil {
-			retErr = err
+			retErr = fmt.Errorf("failed to patch NicoMachine: %w", err)
 		}
 	}()
 
@@ -131,7 +131,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			nicoMachine.Status.Ready = false
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
 	tenantID, err := nicoClient.ResolveTenantID(ctx)
@@ -143,7 +143,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Message: err.Error(),
 		})
 		nicoMachine.Status.Ready = false
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
 	}
 
 	if nicoMachine.Status.InstanceID == "" {
@@ -171,23 +171,23 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				nicoMachine.Status.Ready = false
 				return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 			}
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap secret: %w", err)
 		}
 
 		bootstrapCloudConfig, err := bootstrapCloudConfigFromSecret(&bootstrapSecret)
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap cloud config: %w", err)
 		}
 		if nicoMachine.Spec.CloudInitInjectHostname {
 			bootstrapCloudConfig, err = nico.InjectHostnameCloudConfig(bootstrapCloudConfig, ownerMachine.Name)
 			if err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("failed to inject hostname cloud config: %w", err)
 			}
 		}
 
 		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoCluster, &nicoMachine, cluster.Name, bootstrapCloudConfig)
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
 		}
 
 		log.Info("creating NICo instance", "machine", ownerMachine.Name)
@@ -201,7 +201,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				})
 			}
 			if err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("failed to find instance by name: %w", err)
 			}
 		}
 
@@ -226,7 +226,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			})
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	if machineID := instance.GetMachineId(); machineID != "" {
