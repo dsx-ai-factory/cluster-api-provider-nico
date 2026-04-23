@@ -75,8 +75,8 @@ spec:
                     description: NicoClusterSpec defines the desired state of NicoCluster.
                     properties:
                       identityRef:
-                        description: IdentityRef points at a Secret in the same namespace
-                          with NICo client credentials.
+                        description: IdentityRef points to the Secret with NICo endpoint
+                          and authentication settings.
                         properties:
                           name:
                             default: ""
@@ -90,11 +90,12 @@ spec:
                         type: object
                         x-kubernetes-map-type: atomic
                       siteId:
-                        description: SiteID constrains reconciliation and idempotent
-                          lookups to a site.
+                        description: SiteID is the site where this provider should
+                          create and look up instances.
                         type: string
                       vpcId:
-                        description: VPCID is the target VPC for provisioned machines.
+                        description: VPCID is the VPC where this provider should create
+                          instances.
                         type: string
                     required:
                     - identityRef

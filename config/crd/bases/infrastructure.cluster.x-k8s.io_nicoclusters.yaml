@@ -44,8 +44,8 @@ spec:
             description: NicoClusterSpec defines the desired state of NicoCluster.
             properties:
               identityRef:
-                description: IdentityRef points at a Secret in the same namespace
-                  with NICo client credentials.
+                description: IdentityRef points to the Secret with NICo endpoint and
+                  authentication settings.
                 properties:
                   name:
                     default: ""
@@ -59,11 +59,11 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               siteId:
-                description: SiteID constrains reconciliation and idempotent lookups
-                  to a site.
+                description: SiteID is the site where this provider should create
+                  and look up instances.
                 type: string
               vpcId:
-                description: VPCID is the target VPC for provisioned machines.
+                description: VPCID is the VPC where this provider should create instances.
                 type: string
             required:
             - identityRef
@@ -74,7 +74,7 @@ spec:
             description: NicoClusterStatus defines the observed state of NicoCluster.
             properties:
               conditions:
-                description: Conditions defines current service state of the NicoCluster.
+                description: Conditions describes the current cluster state.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -131,18 +131,18 @@ spec:
                   type: object
                 type: array
               initialization:
-                description: Initialization provides observations of the NicoCluster
-                  initialization process.
+                description: Initialization provides provisioning observations for
+                  this NICo-backed cluster.
                 minProperties: 1
                 properties:
                   provisioned:
-                    description: Provisioned is true when the infrastructure provider
-                      reports that the Cluster's infrastructure is fully provisioned.
+                    description: Provisioned is true once the provider has validated
+                      NICo access for this cluster.
                     type: boolean
                 type: object
               ready:
-                description: Ready is true when the infrastructure provider reports
-                  that the Cluster's infrastructure is fully provisioned.
+                description: Ready is true once the provider can reach NICo and resolve
+                  tenant context for this cluster.
                 type: boolean
             type: object
         type: object
