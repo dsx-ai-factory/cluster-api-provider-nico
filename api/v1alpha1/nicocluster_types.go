@@ -63,7 +63,7 @@ type NicoClusterList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&NicoCluster{}, &NicoClusterList{})
+	objectTypes = append(objectTypes, &NicoCluster{}, &NicoClusterList{})
 }
 
 // GetConditions returns the set of conditions for this object.

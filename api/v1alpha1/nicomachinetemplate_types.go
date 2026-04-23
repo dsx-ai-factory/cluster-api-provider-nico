@@ -41,5 +41,5 @@ type NicoMachineTemplateList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&NicoMachineTemplate{}, &NicoMachineTemplateList{})
+	objectTypes = append(objectTypes, &NicoMachineTemplate{}, &NicoMachineTemplateList{})
 }
