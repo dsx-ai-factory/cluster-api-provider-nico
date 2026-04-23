@@ -214,8 +214,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if errors.Is(err, nico.ErrNotFound) {
 			nicoMachine.Status.InstanceID = ""
 			nicoMachine.Spec.ProviderID = ""
+			nicoMachine.Status.MachineID = ""
 			nicoMachine.Status.Ready = false
 			nicoMachine.Status.Addresses = nil
+			nicoMachine.Status.TpmEkPubHash = ""
 			conditions.Set(&nicoMachine, metav1.Condition{
 				Type:    clusterv1.ReadyCondition,
 				Status:  metav1.ConditionFalse,
@@ -227,11 +229,26 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	if machineID := instance.GetMachineId(); machineID != "" {
+		nicoMachine.Status.MachineID = machineID
+	}
+
 	if ip := firstIPv4FromInstance(instance); ip != "" {
 		nicoMachine.Status.Addresses = []clusterv1.MachineAddress{{
 			Type:    clusterv1.MachineInternalIP,
 			Address: ip,
 		}}
+	}
+
+	tpmEkCert := instance.GetTpmEkCertificate()
+	if tpmEkCert != "" {
+		tpmEkPubHash, err := nico.ComputePublicKeyHash(tpmEkCert)
+		if err != nil {
+			// Log error, but don't return an error, which would prevent provisioning progress, even if the TPM is not used.
+			log.Error(err, "failed to compute TPM EK public hash")
+		} else {
+			nicoMachine.Status.TpmEkPubHash = tpmEkPubHash
+		}
 	}
 
 	provisioned := true

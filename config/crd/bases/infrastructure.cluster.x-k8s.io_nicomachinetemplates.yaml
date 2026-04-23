@@ -86,8 +86,9 @@ spec:
                         description: InstanceTypeID is the instance type ID to provision.
                         type: string
                       interfaces:
-                        description: Interfaces are the NICo interface attachment
-                          requests for the instance.
+                        description: |-
+                          Interfaces are the interface attachment requests for the instance.
+                          Use subnet-based attachments for Ethernet network virtualization and VPC prefix-based attachments for next-generation networking.
                         items:
                           description: NicoMachineInterface defines one NICo interface
                             attachment request.
@@ -108,11 +109,13 @@ spec:
                             subnetId:
                               description: |-
                                 SubnetID is the subnet ID for this attachment.
+                                Use SubnetID for Ethernet network virtualization.
                                 Exactly one of SubnetID or VPCPrefixID must be set.
                               type: string
                             vpcPrefixId:
                               description: |-
                                 VPCPrefixID is the VPC prefix ID for this attachment.
+                                Use VPCPrefixID for next-generation networking.
                                 Exactly one of SubnetID or VPCPrefixID must be set.
                               type: string
                           type: object
@@ -138,8 +141,8 @@ spec:
                         minLength: 1
                         type: string
                       sshKeyGroupIds:
-                        description: SSHKeyGroupIDs are the SSH key group IDs for
-                          Serial over LAN access.
+                        description: SSHKeyGroupIDs are the allowed SSH key group
+                          IDs for Serial over LAN access.
                         items:
                           type: string
                         type: array

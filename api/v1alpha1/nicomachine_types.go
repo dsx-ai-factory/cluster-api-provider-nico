@@ -100,6 +100,14 @@ type NicoMachineStatus struct {
 	// +optional
 	InstanceID string `json:"instanceId,omitempty"`
 
+	// MachineID is the machine ID for this machine.
+	// +optional
+	MachineID string `json:"machineId,omitempty"`
+
+	// TpmEkPubHash is the TPM EK public hash for this machine.
+	// +optional
+	TpmEkPubHash string `json:"tpmEkPubHash,omitempty"`
+
 	// Addresses contains addresses observed on the backing instance.
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
