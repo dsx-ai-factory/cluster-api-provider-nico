@@ -136,7 +136,7 @@ type NicoMachineList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&NicoMachine{}, &NicoMachineList{})
+	objectTypes = append(objectTypes, &NicoMachine{}, &NicoMachineList{})
 }
 
 // GetConditions returns the set of conditions for this object.

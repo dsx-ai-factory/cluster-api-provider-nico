@@ -41,5 +41,5 @@ type NicoClusterTemplateList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&NicoClusterTemplate{}, &NicoClusterTemplateList{})
+	objectTypes = append(objectTypes, &NicoClusterTemplate{}, &NicoClusterTemplateList{})
 }
