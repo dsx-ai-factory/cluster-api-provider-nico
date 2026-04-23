@@ -12,6 +12,8 @@ github.com/Masterminds/sprig/v3 v3.3.0 h1:mQh0Yrg1XPo6vjYXgtf5OtijNAKJRNcTdOOGZe
 github.com/Masterminds/sprig/v3 v3.3.0/go.mod h1:Zy1iXRYNqNLUolqCpL4uhk6SHUMAOSCzdgBfDb35Lz0=
 github.com/NVIDIA/ncx-infra-controller-rest v1.1.0 h1:JiPqyMsr7j0dgNlmmnELizjQ2fLzADwWS+YAs2ItURY=
 github.com/NVIDIA/ncx-infra-controller-rest v1.1.0/go.mod h1:Tzjd+qjUu29RLCsDHBg6EZeDCHC6hm6yfKOw6S69ILs=
+github.com/NVIDIA/ncx-infra-controller-rest v1.3.0 h1:CqwfQHex1j7oaRhZcX6ACAFBnB7knOMY16c1hSYQs1Q=
+github.com/NVIDIA/ncx-infra-controller-rest v1.3.0/go.mod h1:Tzjd+qjUu29RLCsDHBg6EZeDCHC6hm6yfKOw6S69ILs=
 github.com/NYTimes/gziphandler v1.1.1 h1:ZUDjpQae29j0ryrS0u/B8HZfJBtBQHjqw2rQ2cqUQ3I=
 github.com/NYTimes/gziphandler v1.1.1/go.mod h1:n/CVRwUEOgIxrgPvAQhUUr9oeUtvrhMomdKFjzJNB0c=
 github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8TVTI=

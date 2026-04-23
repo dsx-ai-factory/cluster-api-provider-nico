@@ -53,6 +53,12 @@ func NewClient(ctx context.Context, secretConfig SecretConfig) (*Client, error) 
 	}
 	cfg.UserAgent = "cluster-api-provider-nico/0.1.0"
 
+	// If the API name is set, we need to set it on the configuration.
+	// Must be called after cfg.HTTPClient is set.
+	if secretConfig.APIName != "" {
+		cfg.SetAPIName(secretConfig.APIName)
+	}
+
 	return &Client{
 		orgID:       secretConfig.OrgID,
 		tokenSource: tokenSource,

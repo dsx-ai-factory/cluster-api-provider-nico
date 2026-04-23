@@ -57,6 +57,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 	if ownerMachine == nil {
+		log.Info("Waiting for Machine controller to set OwnerRef on NicoMachine")
 		return ctrl.Result{}, nil
 	}
 
@@ -65,9 +66,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 	if cluster == nil {
+		log.Info("Waiting for Machine to have Cluster set")
 		return ctrl.Result{}, nil
 	}
 	if cluster.Spec.InfrastructureRef.Name == "" {
+		log.Info("Waiting for Cluster to have InfrastructureRef set")
 		return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 	}
 

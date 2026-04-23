@@ -68,6 +68,7 @@ Optional keys:
 
 * `ca.crt`: PEM-encoded CA bundle
 * `insecureSkipTLSVerify`: `true` or `false`
+* `apiName`: NICo API name, NICo allows customers to optionally specify a custom API name for their deployment.
 
 The published NICo SDK does not include a helper for token acquisition beyond accepting a bearer token in request context, so this provider performs the OAuth2 client-credentials exchange itself and refreshes access tokens automatically.
 
