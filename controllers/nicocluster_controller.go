@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 
 	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
+	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
 )
 
 const clusterReadyRequeue = 5 * time.Minute
@@ -23,7 +24,8 @@ const clusterReadyRequeue = 5 * time.Minute
 // NicoClusterReconciler reconciles a NicoCluster object.
 type NicoClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme         *runtime.Scheme
+	ProviderConfig nico.ProviderConfig
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch;update;patch
@@ -49,7 +51,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}()
 
-	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster)
+	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			conditions.Set(&nicoCluster, metav1.Condition{
