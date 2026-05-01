@@ -201,7 +201,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				})
 			}
 			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to find instance by name: %w", err)
+				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
 		}
 
@@ -270,6 +270,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Reason:  "InstanceProvisioning",
 		Message: fmt.Sprintf("Instance status is %s", instanceStatusString(instance)),
 	})
+
+	log.V(1).Info("reconciled NicoMachine")
 	return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 }
 
