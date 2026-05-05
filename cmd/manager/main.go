@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -15,6 +16,13 @@ import (
 
 	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/controllers"
+	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
+)
+
+const (
+	defaultProviderCredentialsNamespace  = "capnico-system"
+	defaultProviderCredentialsSecretName = "nico-credentials"
+	podNamespaceEnvVar                   = "POD_NAMESPACE"
 )
 
 var (
@@ -33,17 +41,33 @@ func main() {
 	var probeAddr string
 	var leaderElect bool
 
+	defaultProviderNamespace := os.Getenv(podNamespaceEnvVar)
+	if defaultProviderNamespace == "" {
+		defaultProviderNamespace = defaultProviderCredentialsNamespace
+	}
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
 
-	opts := zap.Options{
+	providerConfig := nico.ProviderConfig{
+		Credentials: types.NamespacedName{
+			Namespace: defaultProviderNamespace,
+			Name:      defaultProviderCredentialsSecretName,
+		},
+	}
+	providerConfig.BindFlags(flag.CommandLine)
+
+	zapOpts := zap.Options{
 		Development: true,
 	}
-	opts.BindFlags(flag.CommandLine)
+	zapOpts.BindFlags(flag.CommandLine)
+
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+	setupLog.Info("provider configuration", "config", providerConfig)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -58,16 +82,18 @@ func main() {
 	}
 
 	if err := (&controllers.NicoClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		ProviderConfig: providerConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoCluster")
 		os.Exit(1)
 	}
 
 	if err := (&controllers.NicoMachineReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		ProviderConfig: providerConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
 		os.Exit(1)

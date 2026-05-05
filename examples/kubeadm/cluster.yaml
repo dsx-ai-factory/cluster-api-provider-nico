@@ -1,25 +1,16 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: nico-credentials
-  namespace: default
-type: Opaque
-stringData:
-  endpoint: https://nico.example.com
-  orgID: your-org
-  tokenURL: https://issuer.example.com/token
-  clientID: <client-id>
-  clientSecret: <client-secret>
-  scope: carbide
----
+# This example assumes a provider-level NICo credentials Secret has already been
+# created in the controller-manager namespace (capnico-system by default).
+# See the "Install" section of README.md for the Secret manifest.
+#
+# To override the provider-level credentials for a single cluster, set
+# spec.identityRef on the NicoCluster below to the name of a Secret in this
+# NicoCluster's own namespace.
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoCluster
 metadata:
   name: demo
   namespace: default
 spec:
-  identityRef:
-    name: nico-credentials
   siteId: your-site
   vpcId: your-vpc
 ---

@@ -34,7 +34,8 @@ const (
 // NicoMachineReconciler reconciles a NicoMachine object.
 type NicoMachineReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme         *runtime.Scheme
+	ProviderConfig nico.ProviderConfig
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -94,7 +95,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !nicoMachine.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) && nicoMachine.Status.InstanceID != "" {
-			nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster)
+			nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
@@ -119,7 +120,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer)
 	}
 
-	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster)
+	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			conditions.Set(&nicoMachine, metav1.Condition{

@@ -27,6 +27,11 @@ spec:
             - /manager
           args:
             - --leader-elect
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - containerPort: 8080
               name: metrics

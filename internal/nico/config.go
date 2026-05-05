@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -30,6 +32,24 @@ const (
 	SecretKeyAPIName               = "apiName"
 	defaultHTTPClientTimeout       = 30 * time.Second
 )
+
+// ProviderConfig holds provider-wide settings.
+type ProviderConfig struct {
+	// Credentials points at the provider-level NICo credentials Secret used as
+	// a fallback when a NicoCluster does not set spec.identityRef. A zero value
+	// means no provider-level Secret is configured.
+	Credentials types.NamespacedName
+}
+
+// BindFlags binds the provider-level configuration to fs. The current values of
+// p's fields are used as the flag defaults, so callers can pre-seed defaults by
+// constructing p before calling BindFlags.
+func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
+	fs.StringVar(&p.Credentials.Namespace, "provider-credentials-namespace", p.Credentials.Namespace,
+		"Namespace of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
+	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
+		"Name of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
+}
 
 // SecretConfig contains NICo API connection settings loaded from a Secret.
 type SecretConfig struct {

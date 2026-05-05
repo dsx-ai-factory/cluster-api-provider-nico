@@ -6,6 +6,8 @@ import (
 	"net"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
@@ -46,12 +48,21 @@ func firstIPv4FromInstance(instance *nicosdk.Instance) string {
 	return ""
 }
 
-func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster) (*nico.Client, error) {
+func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (*nico.Client, error) {
+	var secretKey types.NamespacedName
+
+	// Prefer the cluster-specific credentials Secret over the provider-level credentials Secret.
+	switch {
+	case nicoCluster.Spec.IdentityRef.Name != "":
+		secretKey = types.NamespacedName{Namespace: nicoCluster.Namespace, Name: nicoCluster.Spec.IdentityRef.Name}
+	case providerCreds.Namespace != "" && providerCreds.Name != "":
+		secretKey = providerCreds
+	default:
+		return nil, apierrors.NewNotFound(corev1.Resource("secrets"), "")
+	}
+
 	var identitySecret corev1.Secret
-	if err := c.Get(ctx, crclient.ObjectKey{
-		Namespace: nicoCluster.Namespace,
-		Name:      nicoCluster.Spec.IdentityRef.Name,
-	}, &identitySecret); err != nil {
+	if err := c.Get(ctx, secretKey, &identitySecret); err != nil {
 		return nil, err
 	}
 
@@ -62,6 +73,7 @@ func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *i
 
 	return defaultNicoClientCache.GetOrCreate(ctx, &identitySecret, secretConfig)
 }
+
 func mergeLabels(labelSets ...map[string]string) map[string]string {
 	out := map[string]string{}
 	for _, set := range labelSets {

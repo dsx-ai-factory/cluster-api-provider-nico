@@ -8,7 +8,10 @@ import (
 // NicoClusterSpec defines the desired state of NicoCluster.
 type NicoClusterSpec struct {
 	// IdentityRef points to the Secret with NICo endpoint and authentication settings.
-	IdentityRef corev1.LocalObjectReference `json:"identityRef"`
+	// When unset, the controller falls back to the provider-level credentials Secret
+	// in the manager namespace.
+	// +optional
+	IdentityRef corev1.LocalObjectReference `json:"identityRef,omitempty,omitzero"`
 
 	// SiteID is the site where this provider should create and look up instances.
 	SiteID string `json:"siteId"`
