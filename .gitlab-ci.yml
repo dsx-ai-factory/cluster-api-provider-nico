@@ -26,6 +26,9 @@ stages:
   - build
   - publish
 
+variables:
+  DSX_NGC_REGISTRY_IMAGE: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+
 .golang:
   rules:
     - changes:
@@ -52,3 +55,45 @@ publish-image-nvcr:
   stage: publish
   extends:
     - .publish-multi-arch-manifest-nvcr
+
+publish-image-dsx-nvcr:
+  stage: publish
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  extends:
+    - .multi-arch-rules
+  needs:
+    - job: gen-version
+    - job: container-image
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - when: never
+  before_script:
+    - |
+      set -euo pipefail
+      if [ -z "${NGC_REGISTRY_TOKEN_DSX:-}" ]; then
+        echo "NGC_REGISTRY_TOKEN_DSX is required to publish images to the DSX NGC repo"
+        exit 1
+      fi
+      crane auth login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+      crane auth login -u '$oauthtoken' -p "${NGC_REGISTRY_TOKEN_DSX}" nvcr.io
+  script:
+    - |
+      set -euo pipefail
+      echo "Publishing ${BUILD_VERSION} to ${DSX_NGC_REGISTRY_IMAGE}"
+
+      for ARCH in amd64 arm64; do
+        crane copy "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}-${ARCH}" "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}-${ARCH}"
+      done
+
+      crane index append \
+        --manifest "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}-amd64" \
+        --manifest "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}-arm64" \
+        --tag "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}"
+
+      if [ "${CI_COMMIT_BRANCH}" = "${CI_DEFAULT_BRANCH}" ]; then
+        crane tag "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}" latest
+      fi
