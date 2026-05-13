@@ -336,6 +336,31 @@ func buildInstanceCreateRequest(
 		createReq.SetAllowUnhealthyMachine(true)
 	}
 
+	if len(nicoMachine.Spec.InfinibandInterfaces) > 0 {
+		ibInterfaces := make([]nicosdk.InfiniBandInterfaceCreateRequest, 0, len(nicoMachine.Spec.InfinibandInterfaces))
+		for _, ib := range nicoMachine.Spec.InfinibandInterfaces {
+			req := nicosdk.NewInfiniBandInterfaceCreateRequest()
+			req.SetPartitionId(ib.PartitionID)
+			if ib.Device != "" {
+				req.SetDevice(ib.Device)
+			}
+			if ib.DeviceInstance != nil {
+				req.SetDeviceInstance(*ib.DeviceInstance)
+			}
+			if ib.Vendor != "" {
+				req.SetVendor(ib.Vendor)
+			}
+			if ib.IsPhysical != nil {
+				req.SetIsPhysical(*ib.IsPhysical)
+			}
+			if ib.VirtualFunctionID != nil {
+				req.SetVirtualFunctionId(*ib.VirtualFunctionID)
+			}
+			ibInterfaces = append(ibInterfaces, *req)
+		}
+		createReq.InfinibandInterfaces = ibInterfaces
+	}
+
 	labels := mergeLabels(
 		map[string]string{
 			"cluster.x-k8s.io/cluster-name": clusterName,

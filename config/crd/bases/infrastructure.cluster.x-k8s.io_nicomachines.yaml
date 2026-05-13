@@ -51,6 +51,45 @@ spec:
                 description: CloudInitInjectHostname prepends hostname directives
                   to the bootstrap cloud-config.
                 type: boolean
+              infinibandInterfaces:
+                description: |-
+                  InfinibandInterfaces requests that one or more InfiniBand Partitions be attached
+                  to the instance. Each entry maps 1:1 to a NICo InfiniBandInterfaceCreateRequest.
+                items:
+                  description: NicoMachineInfiniBandInterface defines one NICo InfiniBand
+                    interface attachment request.
+                  properties:
+                    device:
+                      description: Device is the name of the InfiniBand device to
+                        use.
+                      type: string
+                    deviceInstance:
+                      description: DeviceInstance is the index of the device, used
+                        to identify which interface card to attach the Partition to.
+                      format: int32
+                      type: integer
+                    isPhysical:
+                      description: IsPhysical specifies whether this Partition should
+                        be attached to the Instance over physical interface.
+                      type: boolean
+                    partitionId:
+                      description: PartitionID is the ID of the Partition the Interface
+                        should attach to.
+                      minLength: 1
+                      type: string
+                    vendor:
+                      description: Vendor is the name of the InfiniBand device vendor,
+                        optional.
+                      type: string
+                    virtualFunctionId:
+                      description: VirtualFunctionID must be specified if isPhysical
+                        is false.
+                      format: int32
+                      type: integer
+                  required:
+                  - partitionId
+                  type: object
+                type: array
               instanceTypeId:
                 description: InstanceTypeID is the instance type ID to provision.
                 type: string
