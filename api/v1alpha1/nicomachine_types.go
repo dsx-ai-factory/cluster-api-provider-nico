@@ -33,6 +33,33 @@ type NicoMachineInterface struct {
 	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 }
 
+// NicoMachineInfiniBandInterface defines one NICo InfiniBand interface attachment request.
+type NicoMachineInfiniBandInterface struct {
+	// PartitionID is the ID of the Partition the Interface should attach to.
+	// +kubebuilder:validation:MinLength=1
+	PartitionID string `json:"partitionId"`
+
+	// Device is the name of the InfiniBand device to use.
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// DeviceInstance is the index of the device, used to identify which interface card to attach the Partition to.
+	// +optional
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
+
+	// Vendor is the name of the InfiniBand device vendor, optional.
+	// +optional
+	Vendor string `json:"vendor,omitempty"`
+
+	// IsPhysical specifies whether this Partition should be attached to the Instance over physical interface.
+	// +optional
+	IsPhysical *bool `json:"isPhysical,omitempty"`
+
+	// VirtualFunctionID must be specified if isPhysical is false.
+	// +optional
+	VirtualFunctionID *int32 `json:"virtualFunctionId,omitempty"`
+}
+
 // NicoMachineSpec defines the desired state of NicoMachine.
 type NicoMachineSpec struct {
 	// InstanceTypeID is the instance type ID to provision.
@@ -42,6 +69,11 @@ type NicoMachineSpec struct {
 	// Use subnet-based attachments for Ethernet network virtualization and VPC prefix-based attachments for next-generation networking.
 	// +kubebuilder:validation:MinItems=1
 	Interfaces []NicoMachineInterface `json:"interfaces"`
+
+	// InfinibandInterfaces requests that one or more InfiniBand Partitions be attached
+	// to the instance.
+	// +optional
+	InfinibandInterfaces []NicoMachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
 
 	// SSHKeyGroupIDs are the allowed SSH key group IDs for Serial over LAN access.
 	// +optional

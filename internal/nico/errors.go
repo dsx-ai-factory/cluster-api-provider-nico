@@ -1,6 +1,7 @@
 package nico
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,10 +37,12 @@ func normalizeError(err error) error {
 		case nicosdk.CarbideAPIError:
 			if typed.GetMessage() != "" {
 				message = typed.GetMessage()
+				message += ": " + marshalCarbideAPIError(typed)
 			}
 		case *nicosdk.CarbideAPIError:
 			if typed != nil && typed.GetMessage() != "" {
 				message = typed.GetMessage()
+				message += ": " + marshalCarbideAPIError(*typed)
 			}
 		}
 	}
@@ -58,4 +61,12 @@ func normalizeError(err error) error {
 	default:
 		return fmt.Errorf("%s", message)
 	}
+}
+
+func marshalCarbideAPIError(carbideErr nicosdk.CarbideAPIError) string {
+	json, err := json.Marshal(carbideErr)
+	if err != nil {
+		return "carbide API marshal error: " + err.Error()
+	}
+	return string(json)
 }
