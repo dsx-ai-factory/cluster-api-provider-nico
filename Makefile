@@ -3,6 +3,7 @@ CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTR
 IMG ?= controller:latest
 RELEASE_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
 RELEASE_DIR ?= out
+HELM_CHART_DIR ?= charts/capi-provider-nico
 CONTROLLER_IMG ?= $(IMG)
 
 .PHONY: manifests
@@ -37,3 +38,8 @@ docker-build:
 .PHONY: release-manifests
 release-manifests:
 	RELEASE_DIR=$(RELEASE_DIR) CONTROLLER_IMG=$(CONTROLLER_IMG) bash hack/release-manifests.sh
+
+.PHONY: helm-chart-manifests
+helm-chart-manifests: release-manifests
+	mkdir -p $(HELM_CHART_DIR)/files
+	cp $(RELEASE_DIR)/infrastructure-components.yaml $(HELM_CHART_DIR)/files/infrastructure-components.yaml

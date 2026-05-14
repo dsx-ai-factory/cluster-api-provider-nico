@@ -29,6 +29,8 @@ stages:
 variables:
   DSX_NGC_REGISTRY_IMAGE: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
   KUSTOMIZE_VERSION: v5.8.1
+  DSX_NGC_ORG: "0837451325059433"
+  DSX_NGC_TEAM: "components-dev"
   PROVIDER_ARTIFACT_PACKAGE_NAME: cluster-api-provider-nico
 
 .golang:
@@ -183,6 +185,107 @@ publish-provider-artifacts-gitlab:
           --upload-file "${artifact_path}" \
           "${package_url}/${artifact}"
       done
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - when: never
+
+publish-dsx-helm-chart:
+  stage: publish
+  image: golang:1.25
+  needs:
+    - job: gen-version
+    - job: publish-image-dsx-nvcr
+  before_script:
+    - apt-get update -qq > /dev/null
+    - DEBIAN_FRONTEND=noninteractive apt-get install -qq -y curl gpg apt-transport-https unzip > /dev/null
+    - curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+    - tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
+    - curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | gpg --dearmor | tee /usr/share/keyrings/helm.gpg > /dev/null
+    - echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | tee /etc/apt/sources.list.d/helm-stable-debian.list > /dev/null
+    - apt-get update -qq > /dev/null
+    - DEBIAN_FRONTEND=noninteractive apt-get install -qq -y helm > /dev/null
+    - curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL https://ngc.nvidia.com/downloads/ngccli_linux.zip -o ngccli_linux.zip
+    - unzip -q -o ngccli_linux.zip
+    - chmod +x ngc-cli/ngc
+    - export PATH="${PWD}/ngc-cli:${PATH}"
+  script:
+    - |
+      set -euo pipefail
+
+      if [ -z "${NGC_REGISTRY_TOKEN_DSX:-}" ]; then
+        echo "NGC_REGISTRY_TOKEN_DSX is required to publish charts to the DSX NGC repo"
+        exit 1
+      fi
+
+      chart_dir="charts/capi-provider-nico"
+      chart_name="capi-provider-nico"
+      chart_version="${BUILD_VERSION#v}"
+      chart_dist="dist/${chart_name}"
+
+      CONTROLLER_IMG="${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}" \
+      KUSTOMIZE=kustomize \
+      make helm-chart-manifests
+
+      rm -rf "$chart_dist"
+      mkdir -p "$chart_dist"
+
+      helm package "$chart_dir" \
+        --version "$chart_version" \
+        --app-version "$BUILD_VERSION" \
+        --destination "$chart_dist"
+      package_file="${chart_dist}/${chart_name}-${chart_version}.tgz"
+
+      if [ ! -f "$package_file" ]; then
+        echo "Failed to locate packaged chart for ${chart_name}"
+        exit 1
+      fi
+
+      export NGC_CLI_API_KEY="${NGC_REGISTRY_TOKEN_DSX}"
+      export NGC_CLI_ORG="${DSX_NGC_ORG}"
+      export NGC_CLI_TEAM="${DSX_NGC_TEAM}"
+
+      chart_target="${DSX_NGC_ORG}/${DSX_NGC_TEAM}/${chart_name}"
+      chart_version_target="${chart_target}:${chart_version}"
+
+      if ! ngc registry chart info "$chart_target" > /dev/null 2>&1; then
+        echo "Creating NGC chart metadata for ${chart_target}"
+        set +e
+        create_output="$(ngc registry chart create "$chart_target" --short-desc "Helm chart for ${chart_name}" 2>&1)"
+        create_exit=$?
+        set -e
+
+        if [ "$create_exit" -ne 0 ]; then
+          if printf '%s\n' "$create_output" | grep -qi "already exists"; then
+            echo "NGC chart metadata for ${chart_target} already exists"
+          else
+            echo "$create_output"
+            exit "$create_exit"
+          fi
+        else
+          echo "$create_output"
+        fi
+      fi
+
+      echo "Publishing ${package_file} to ${chart_version_target}"
+      set +e
+      push_output="$(ngc registry chart push "$chart_version_target" --source "$chart_dist" 2>&1)"
+      push_exit=$?
+      set -e
+
+      if [ "$push_exit" -ne 0 ]; then
+        if printf '%s\n' "$push_output" | grep -qi "already exists"; then
+          echo "${chart_version_target} already exists in the DSX NGC chart repo; skipping"
+        else
+          echo "Helm push failed for ${package_file}"
+          echo "$push_output"
+          exit "$push_exit"
+        fi
+      else
+        echo "$push_output"
+        echo "Published ${package_file} to the DSX NGC chart repo"
+      fi
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_PIPELINE_SOURCE == "web"'
