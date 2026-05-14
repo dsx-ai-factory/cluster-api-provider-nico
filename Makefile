@@ -1,6 +1,9 @@
 CONTROLLER_GEN_VERSION ?= v0.20.1
 CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
 IMG ?= controller:latest
+RELEASE_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
+RELEASE_DIR ?= out
+CONTROLLER_IMG ?= $(IMG)
 
 .PHONY: manifests
 manifests:
@@ -30,3 +33,7 @@ run:
 .PHONY: docker-build
 docker-build:
 	docker build -t $(IMG) .
+
+.PHONY: release-manifests
+release-manifests:
+	RELEASE_DIR=$(RELEASE_DIR) CONTROLLER_IMG=$(CONTROLLER_IMG) bash hack/release-manifests.sh

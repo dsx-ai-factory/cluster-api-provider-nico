@@ -28,6 +28,8 @@ stages:
 
 variables:
   DSX_NGC_REGISTRY_IMAGE: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+  KUSTOMIZE_VERSION: v5.8.1
+  PROVIDER_ARTIFACT_PACKAGE_NAME: cluster-api-provider-nico
 
 .golang:
   rules:
@@ -51,10 +53,71 @@ container-image:
     KUBERNETES_CPU_LIMIT: "2000m"
     KUBERNETES_MEMORY_LIMIT: "8Gi"
 
+release-manifests:
+  stage: build
+  image: golang:1.25
+  needs:
+    - job: gen-version
+  before_script:
+    - |
+      set -euo pipefail
+      apt-get update -qq > /dev/null
+      DEBIAN_FRONTEND=noninteractive apt-get install -qq -y curl > /dev/null
+      curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL \
+        "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+        -o /tmp/kustomize.tar.gz
+      tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
+  script:
+    - |
+      set -euo pipefail
+      CONTROLLER_IMG="${CI_REGISTRY_IMAGE}:${BUILD_VERSION}" \
+      KUSTOMIZE=kustomize \
+      make release-manifests
+  artifacts:
+    paths:
+      - out/metadata.yaml
+      - out/infrastructure-components.yaml
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+
 publish-image-nvcr:
   stage: publish
   extends:
     - .publish-multi-arch-manifest-nvcr
+
+publish-image-gitlab:
+  stage: publish
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  needs:
+    - job: gen-version
+    - job: container-image
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - when: never
+  before_script:
+    - |
+      set -euo pipefail
+      crane auth login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+  script:
+    - |
+      set -euo pipefail
+      echo "Publishing ${BUILD_VERSION} multi-arch manifest to ${CI_REGISTRY_IMAGE}"
+
+      crane index append \
+        --manifest "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}-amd64" \
+        --manifest "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}-arm64" \
+        --tag "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}"
+
+      if [ "${CI_COMMIT_BRANCH}" = "${CI_DEFAULT_BRANCH}" ]; then
+        crane tag "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}" latest
+      fi
 
 publish-image-dsx-nvcr:
   stage: publish
@@ -97,3 +160,31 @@ publish-image-dsx-nvcr:
       if [ "${CI_COMMIT_BRANCH}" = "${CI_DEFAULT_BRANCH}" ]; then
         crane tag "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}" latest
       fi
+
+publish-provider-artifacts-gitlab:
+  stage: publish
+  image: alpine:3.20
+  needs:
+    - job: gen-version
+    - job: release-manifests
+      artifacts: true
+    - job: publish-image-gitlab
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      set -euo pipefail
+      package_url="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PROVIDER_ARTIFACT_PACKAGE_NAME}/${BUILD_VERSION}"
+
+      for artifact_path in out/metadata.yaml out/infrastructure-components.yaml; do
+        artifact="$(basename "${artifact_path}")"
+        echo "Publishing ${artifact} to ${package_url}/${artifact}"
+        curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          --upload-file "${artifact_path}" \
+          "${package_url}/${artifact}"
+      done
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - when: never
