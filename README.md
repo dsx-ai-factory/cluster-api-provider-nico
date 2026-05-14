@@ -47,6 +47,91 @@ Update `config/manager/manager.yaml` to use that image, then install the provide
 kubectl apply -k config/default
 ```
 
+## Provider release artifacts
+
+CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
+`clusterctl`: `metadata.yaml` and `infrastructure-components.yaml`.
+
+Generate the local artifacts with the controller image you want to publish:
+
+```bash
+CONTROLLER_IMG=registry.gitlab-master.nvidia.com/nke/cluster-api-provider-nico:v0.0.8 \
+make release-manifests
+```
+
+This writes the clusterctl artifacts to `out/`. Release pipelines publish those
+files to GitLab Generic Packages under a versioned package path:
+
+```text
+${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/cluster-api-provider-nico/<version>/
+```
+
+Update `metadata.yaml` only when introducing a new major/minor release series or
+changing the Cluster API contract supported by a release series. Patch releases
+within the same series should keep the existing metadata entry.
+
+To consume a released CAPNICo provider from `clusterctl`, add it to your
+clusterctl configuration. `clusterctl` reads this file from
+`${XDG_CONFIG_HOME}/cluster-api/clusterctl.yaml` when `XDG_CONFIG_HOME` is set:
+
+```bash
+export XDG_CONFIG_HOME="${HOME}/.config"
+mkdir -p "${XDG_CONFIG_HOME}/cluster-api"
+```
+
+Create or update `${XDG_CONFIG_HOME}/cluster-api/clusterctl.yaml`. If the file
+already exists, merge the `nico` entry into the existing `providers` list:
+
+```yaml
+providers:
+  - name: nico
+    type: InfrastructureProvider
+    url: https://gitlab-master.nvidia.com/api/v4/projects/263631/packages/generic/cluster-api-provider-nico/v0.0.8/infrastructure-components.yaml
+```
+
+Then initialize the provider:
+
+```bash
+clusterctl init --infrastructure nico:v0.0.8
+```
+
+For local testing before a release is published, generate artifacts with an image
+the management cluster can pull. For example, with kind:
+
+```bash
+docker build -t docker.io/library/cluster-api-provider-nico:v0.0.8 .
+kind load docker-image docker.io/library/cluster-api-provider-nico:v0.0.8 --name <kind-cluster-name>
+
+CONTROLLER_IMG=docker.io/library/cluster-api-provider-nico:v0.0.8 make release-manifests
+mkdir -p out/local-repository/infrastructure-nico/v0.0.8
+cp out/infrastructure-components.yaml out/local-repository/infrastructure-nico/v0.0.8/
+cp out/metadata.yaml out/local-repository/infrastructure-nico/v0.0.8/
+```
+
+Point `clusterctl.yaml` at the local components file, then run
+`clusterctl init --infrastructure nico:v0.0.8`:
+
+```yaml
+providers:
+  - name: nico
+    type: InfrastructureProvider
+    url: /path/to/cluster-api-provider-nico/out/local-repository/infrastructure-nico/v0.0.8/infrastructure-components.yaml
+```
+
+On macOS, if `XDG_CONFIG_HOME` is not set, `clusterctl` uses
+`${HOME}/Library/Application Support/cluster-api/clusterctl.yaml`. Also note
+that `${HOME}/.cluster-api/overrides/...` takes precedence over provider URLs.
+
+This release does not publish workload cluster templates yet. Use
+`clusterctl generate cluster --from <template-file-or-url>` with a local
+template when generating clusters.
+
+The generated provider manifest references the controller image you pass through
+`CONTROLLER_IMG`. Management clusters must be able to pull that image. For local
+or private deployments, either grant access to the GitLab registry image or
+regenerate the artifacts with an image mirrored to a registry the cluster can
+reach.
+
 
 ## NICo credentials Secret
 
