@@ -1,0 +1,12 @@
+apiVersion: v2
+name: capi-provider-nico
+description: Cluster API infrastructure provider for NICo
+type: application
+version: 0.1.0
+appVersion: "v0.0.0"
+keywords:
+  - cluster-api
+  - capi
+  - nico
+sources:
+  - https://gitlab-master.nvidia.com/nke/cluster-api-provider-nico
