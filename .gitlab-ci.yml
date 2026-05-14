@@ -193,15 +193,15 @@ publish-provider-artifacts-gitlab:
 
 publish-dsx-helm-chart:
   stage: publish
-  image: golang:1.25
+  image: ubuntu:${UBUNTU_VERSION}
   needs:
     - job: gen-version
+    - job: release-manifests
+      artifacts: true
     - job: publish-image-dsx-nvcr
   before_script:
     - apt-get update -qq > /dev/null
-    - DEBIAN_FRONTEND=noninteractive apt-get install -qq -y curl gpg apt-transport-https unzip > /dev/null
-    - curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
-    - tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
+    - DEBIAN_FRONTEND=noninteractive apt-get install -qq -y curl gpg apt-transport-https python3-yaml unzip > /dev/null
     - curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | gpg --dearmor | tee /usr/share/keyrings/helm.gpg > /dev/null
     - echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | tee /etc/apt/sources.list.d/helm-stable-debian.list > /dev/null
     - apt-get update -qq > /dev/null
@@ -220,13 +220,27 @@ publish-dsx-helm-chart:
       fi
 
       chart_dir="charts/capi-provider-nico"
-      chart_name="capi-provider-nico"
+      chart_name="$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["name"])' "$chart_dir/Chart.yaml")"
       chart_version="${BUILD_VERSION#v}"
       chart_dist="dist/${chart_name}"
 
-      CONTROLLER_IMG="${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}" \
-      KUSTOMIZE=kustomize \
-      make helm-chart-manifests
+      mkdir -p "$chart_dir/files"
+      cp out/infrastructure-components.yaml "$chart_dir/files/infrastructure-components.yaml"
+      python3 - "$chart_dir/files/infrastructure-components.yaml" "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}" "${DSX_NGC_REGISTRY_IMAGE}:${BUILD_VERSION}" <<'PY'
+      import sys
+
+      manifest_path, source_image, target_image = sys.argv[1:]
+      with open(manifest_path) as manifest_file:
+          manifest = manifest_file.read()
+
+      if source_image in manifest:
+          manifest = manifest.replace(source_image, target_image)
+      elif target_image not in manifest:
+          raise SystemExit(f"expected image {source_image} or {target_image} not found in {manifest_path}")
+
+      with open(manifest_path, "w") as manifest_file:
+          manifest_file.write(manifest)
+      PY
 
       rm -rf "$chart_dist"
       mkdir -p "$chart_dist"
