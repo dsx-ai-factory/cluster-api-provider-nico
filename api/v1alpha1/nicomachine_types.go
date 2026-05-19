@@ -60,6 +60,17 @@ type NicoMachineInfiniBandInterface struct {
 	VirtualFunctionID *int32 `json:"virtualFunctionId,omitempty"`
 }
 
+// NicoMachineNVLinkInterface defines one NICo NVLink interface attachment request.
+type NicoMachineNVLinkInterface struct {
+	// NVLinkLogicalPartitionID is the ID of the NVLink Logical Partition the Interface should attach to.
+	// +kubebuilder:validation:MinLength=1
+	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionId"`
+
+	// DeviceInstance is the GPU index for this NVLink interface. Must be non-negative, unique within the request, and within the GPU count exposed by the selected Machine or Instance Type.
+	// +optional
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
+}
+
 // NicoMachineSpec defines the desired state of NicoMachine.
 type NicoMachineSpec struct {
 	// InstanceTypeID is the instance type ID to provision.
@@ -74,6 +85,11 @@ type NicoMachineSpec struct {
 	// to the instance.
 	// +optional
 	InfinibandInterfaces []NicoMachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
+
+	// NVLinkInterfaces requests that one or more NVLink Logical Partitions be attached
+	// to the instance.
+	// +optional
+	NVLinkInterfaces []NicoMachineNVLinkInterface `json:"nvLinkInterfaces,omitempty"`
 
 	// SSHKeyGroupIDs are the allowed SSH key group IDs for Serial over LAN access.
 	// +optional

@@ -54,7 +54,7 @@ spec:
               infinibandInterfaces:
                 description: |-
                   InfinibandInterfaces requests that one or more InfiniBand Partitions be attached
-                  to the instance. Each entry maps 1:1 to a NICo InfiniBandInterfaceCreateRequest.
+                  to the instance.
                 items:
                   description: NicoMachineInfiniBandInterface defines one NICo InfiniBand
                     interface attachment request.
@@ -139,6 +139,30 @@ spec:
               machineId:
                 description: MachineID is the machine ID for targeted instance creation.
                 type: string
+              nvLinkInterfaces:
+                description: |-
+                  NVLinkInterfaces requests that one or more NVLink Logical Partitions be attached
+                  to the instance.
+                items:
+                  description: NicoMachineNVLinkInterface defines one NICo NVLink
+                    interface attachment request.
+                  properties:
+                    deviceInstance:
+                      description: DeviceInstance is the GPU index for this NVLink
+                        interface. Must be non-negative, unique within the request,
+                        and within the GPU count exposed by the selected Machine or
+                        Instance Type.
+                      format: int32
+                      type: integer
+                    nvLinkLogicalPartitionId:
+                      description: NVLinkLogicalPartitionID is the ID of the NVLink
+                        Logical Partition the Interface should attach to.
+                      minLength: 1
+                      type: string
+                  required:
+                  - nvLinkLogicalPartitionId
+                  type: object
+                type: array
               providerID:
                 description: ProviderID is set to `nico://<instance-id>` after the
                   NICo instance is created.
