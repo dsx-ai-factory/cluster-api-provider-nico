@@ -361,6 +361,19 @@ func buildInstanceCreateRequest(
 		createReq.InfinibandInterfaces = ibInterfaces
 	}
 
+	if len(nicoMachine.Spec.NVLinkInterfaces) > 0 {
+		nvLinkInterfaces := make([]nicosdk.NVLinkInterfaceCreateRequest, 0, len(nicoMachine.Spec.NVLinkInterfaces))
+		for _, nv := range nicoMachine.Spec.NVLinkInterfaces {
+			req := nicosdk.NewNVLinkInterfaceCreateRequest()
+			req.SetNvLinklogicalPartitionId(nv.NVLinkLogicalPartitionID)
+			if nv.DeviceInstance != nil {
+				req.SetDeviceInstance(*nv.DeviceInstance)
+			}
+			nvLinkInterfaces = append(nvLinkInterfaces, *req)
+		}
+		createReq.NvLinkInterfaces = nvLinkInterfaces
+	}
+
 	labels := mergeLabels(
 		map[string]string{
 			"cluster.x-k8s.io/cluster-name": clusterName,

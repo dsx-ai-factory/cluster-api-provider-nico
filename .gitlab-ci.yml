@@ -58,6 +58,9 @@ container-image:
 release-manifests:
   stage: build
   image: golang:1.25
+  variables:
+    KUBERNETES_CPU_LIMIT: "2000m"
+    KUBERNETES_MEMORY_LIMIT: "4Gi"
   needs:
     - job: gen-version
   before_script:
