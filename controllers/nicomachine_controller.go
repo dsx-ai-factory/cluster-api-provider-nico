@@ -99,16 +99,17 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !nicoMachine.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) && nicoMachine.Status.InstanceID != "" {
 			nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
-			if err != nil && !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
 			}
-			if err == nil {
-				if deleteErr := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID)); deleteErr != nil {
-					return ctrl.Result{}, deleteErr
-				}
+
+			log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
+			if err := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID)); err != nil {
+				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
 			}
 		}
 
+		log.Info("removing finalizer")
 		controllerutil.RemoveFinalizer(&nicoMachine, nicoMachineFinalizer)
 		setReadyFalse(&nicoMachine, "Deleting", "")
 		return ctrl.Result{}, nil
