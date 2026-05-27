@@ -3,7 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"net"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -85,4 +87,21 @@ func mergeLabels(labelSets ...map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// deterministicJitter returns a stable whole-second jitter value for key within the given window.
+func deterministicJitter(key string, window time.Duration) time.Duration {
+	if window <= 0 {
+		return 0
+	}
+
+	buckets := uint64(window / time.Second)
+	if buckets == 0 {
+		return 0
+	}
+
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+
+	return time.Duration(h.Sum64()%buckets) * time.Second
 }

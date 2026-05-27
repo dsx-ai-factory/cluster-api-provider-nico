@@ -19,7 +19,10 @@ import (
 	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
 )
 
-const clusterReadyRequeue = 5 * time.Minute
+const (
+	clusterReadyRequeue      = 5 * time.Minute
+	clusterReadyJitterWindow = 1 * time.Minute
+)
 
 // NicoClusterReconciler reconciles a NicoCluster object.
 type NicoClusterReconciler struct {
@@ -96,11 +99,17 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	})
 
 	log.V(1).Info("reconciled NicoCluster")
-	return ctrl.Result{RequeueAfter: clusterReadyRequeue}, nil
+	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
 }
 
 func (r *NicoClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoCluster{}).
 		Complete(r)
+}
+
+// clusterReadyRequeueAfter returns a stable jittered interval for steady-state cluster polling.
+// The jitter spreads reconciles across the window so many clusters do not requeue at once.
+func clusterReadyRequeueAfter(nicoCluster infrav1.NicoCluster) time.Duration {
+	return clusterReadyRequeue + deterministicJitter(string(nicoCluster.UID), clusterReadyJitterWindow)
 }
