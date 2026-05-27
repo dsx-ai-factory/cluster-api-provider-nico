@@ -29,6 +29,8 @@ const (
 	nicoMachineFinalizer        = "infrastructure.cluster.x-k8s.io/nicomachine"
 	machineRequeueFast          = 15 * time.Second
 	machineRequeueSlow          = 30 * time.Second
+	machineReadyRequeue         = 5 * time.Minute
+	machineReadyJitterWindow    = 1 * time.Minute
 	instanceTypeUnavailableWait = 2 * time.Minute
 )
 
@@ -125,12 +127,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
-	tenantID, err := nicoClient.ResolveTenantID(ctx)
-	if err != nil {
-		setReadyFalse(&nicoMachine, "TenantResolutionFailed", err.Error())
-		return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
-	}
-
 	if nicoMachine.Status.InstanceID == "" {
 		if ownerMachine.Spec.Bootstrap.DataSecretName == nil || *ownerMachine.Spec.Bootstrap.DataSecretName == "" {
 			setReadyFalse(&nicoMachine, "WaitingForBootstrapData", "")
@@ -162,6 +158,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 
+		tenantID, err := nicoClient.ResolveTenantID(ctx)
+		if err != nil {
+			setReadyFalse(&nicoMachine, "TenantResolutionFailed", err.Error())
+			return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
+		}
+
 		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoCluster, &nicoMachine, cluster.Name, bootstrapCloudConfig)
 		if err != nil {
 			setReadyFalse(&nicoMachine, "InstanceCreateRequestInvalid", err.Error())
@@ -183,10 +185,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 
-		log.Info("creating NICo instance", "machine", ownerMachine.Name)
+		log.Info("creating NICo instance")
 		instance, err := nicoClient.CreateInstance(ctx, *createReq)
 		if err != nil {
 			if errors.Is(err, nico.ErrAlreadyExists) {
+				log.Info("backing NICo instance already exists, find by name")
 				instance, err = nicoClient.FindInstanceByName(ctx, nico.InstanceLookup{
 					Name:   ownerMachine.Name,
 					VPCID:  nicoCluster.Spec.VPCID,
@@ -241,15 +244,16 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	provisioned := true
 	nicoMachine.Status.Initialization.Provisioned = &provisioned
-	if nico.IsReady(instance) {
-		setReadyTrue(&nicoMachine, "InstanceReady")
+
+	if !nico.IsReady(instance) {
+		log.V(1).Info("NICo instance is provisioning", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", instanceStatusString(instance))
+		setReadyFalse(&nicoMachine, "InstanceProvisioning", fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
-	setReadyFalse(&nicoMachine, "InstanceProvisioning", fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
-
-	log.V(1).Info("reconciled NicoMachine")
-	return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
+	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
+	setReadyTrue(&nicoMachine, "InstanceReady")
+	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
 }
 
 func (r *NicoMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -275,6 +279,12 @@ func setReadyTrue(nicoMachine *infrav1.NicoMachine, reason string) {
 		Status: metav1.ConditionTrue,
 		Reason: reason,
 	})
+}
+
+// machineReadyRequeueAfter returns a stable jittered interval for steady-state machine polling.
+// The jitter spreads reconciles across the window so large clusters do not requeue all machines at once.
+func machineReadyRequeueAfter(nicoMachine infrav1.NicoMachine) time.Duration {
+	return machineReadyRequeue + deterministicJitter(string(nicoMachine.UID), machineReadyJitterWindow)
 }
 
 func buildInstanceCreateRequest(
