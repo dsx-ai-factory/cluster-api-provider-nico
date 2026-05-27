@@ -26,9 +26,10 @@ import (
 )
 
 const (
-	nicoMachineFinalizer = "infrastructure.cluster.x-k8s.io/nicomachine"
-	machineRequeueFast   = 15 * time.Second
-	machineRequeueSlow   = 30 * time.Second
+	nicoMachineFinalizer        = "infrastructure.cluster.x-k8s.io/nicomachine"
+	machineRequeueFast          = 15 * time.Second
+	machineRequeueSlow          = 30 * time.Second
+	instanceTypeUnavailableWait = 2 * time.Minute
 )
 
 // NicoMachineReconciler reconciles a NicoMachine object.
@@ -107,12 +108,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		controllerutil.RemoveFinalizer(&nicoMachine, nicoMachineFinalizer)
-		nicoMachine.Status.Ready = false
-		conditions.Set(&nicoMachine, metav1.Condition{
-			Type:   clusterv1.ReadyCondition,
-			Status: metav1.ConditionFalse,
-			Reason: "Deleting",
-		})
+		setReadyFalse(&nicoMachine, "Deleting", "")
 		return ctrl.Result{}, nil
 	}
 
@@ -123,13 +119,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			conditions.Set(&nicoMachine, metav1.Condition{
-				Type:    clusterv1.ReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  "WaitingForIdentitySecret",
-				Message: err.Error(),
-			})
-			nicoMachine.Status.Ready = false
+			setReadyFalse(&nicoMachine, "WaitingForIdentitySecret", err.Error())
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
@@ -137,24 +127,13 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	tenantID, err := nicoClient.ResolveTenantID(ctx)
 	if err != nil {
-		conditions.Set(&nicoMachine, metav1.Condition{
-			Type:    clusterv1.ReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  "TenantResolutionFailed",
-			Message: err.Error(),
-		})
-		nicoMachine.Status.Ready = false
+		setReadyFalse(&nicoMachine, "TenantResolutionFailed", err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
 	}
 
 	if nicoMachine.Status.InstanceID == "" {
 		if ownerMachine.Spec.Bootstrap.DataSecretName == nil || *ownerMachine.Spec.Bootstrap.DataSecretName == "" {
-			conditions.Set(&nicoMachine, metav1.Condition{
-				Type:   clusterv1.ReadyCondition,
-				Status: metav1.ConditionFalse,
-				Reason: "WaitingForBootstrapData",
-			})
-			nicoMachine.Status.Ready = false
+			setReadyFalse(&nicoMachine, "WaitingForBootstrapData", "")
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
 
@@ -164,12 +143,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Name:      *ownerMachine.Spec.Bootstrap.DataSecretName,
 		}, &bootstrapSecret); err != nil {
 			if apierrors.IsNotFound(err) {
-				conditions.Set(&nicoMachine, metav1.Condition{
-					Type:   clusterv1.ReadyCondition,
-					Status: metav1.ConditionFalse,
-					Reason: "WaitingForBootstrapData",
-				})
-				nicoMachine.Status.Ready = false
+				setReadyFalse(&nicoMachine, "WaitingForBootstrapData", err.Error())
 				return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 			}
 			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap secret: %w", err)
@@ -177,18 +151,36 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		bootstrapCloudConfig, err := bootstrapCloudConfigFromSecret(&bootstrapSecret)
 		if err != nil {
+			setReadyFalse(&nicoMachine, "BootstrapDataInvalid", err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap cloud config: %w", err)
 		}
 		if nicoMachine.Spec.CloudInitInjectHostname {
 			bootstrapCloudConfig, err = nico.InjectHostnameCloudConfig(bootstrapCloudConfig, ownerMachine.Name)
 			if err != nil {
+				setReadyFalse(&nicoMachine, "BootstrapDataInvalid", err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to inject hostname cloud config: %w", err)
 			}
 		}
 
 		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoCluster, &nicoMachine, cluster.Name, bootstrapCloudConfig)
 		if err != nil {
+			setReadyFalse(&nicoMachine, "InstanceCreateRequestInvalid", err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
+		}
+
+		if nicoMachine.Spec.InstanceTypeID != "" {
+			// Query instance type availability before creating the instance when creating instances by instance type.
+			// When instances are completely consumed, the instance creation API call will always fail. This preflight
+			// check avoids spamming the NICo API logs with errors, and changes the re-queue interval.
+			available, reason, message, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
+			if err != nil {
+				setReadyFalse(&nicoMachine, "AvailabilityCheckFailed", err.Error())
+				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
+			}
+			if !available {
+				setReadyFalse(&nicoMachine, reason, message)
+				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
+			}
 		}
 
 		log.Info("creating NICo instance", "machine", ownerMachine.Name)
@@ -202,6 +194,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				})
 			}
 			if err != nil {
+				setReadyFalse(&nicoMachine, "InstanceCreateFailed", err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
 		}
@@ -216,15 +209,9 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			nicoMachine.Status.InstanceID = ""
 			nicoMachine.Spec.ProviderID = ""
 			nicoMachine.Status.MachineID = ""
-			nicoMachine.Status.Ready = false
 			nicoMachine.Status.Addresses = nil
 			nicoMachine.Status.TpmEkPubHash = ""
-			conditions.Set(&nicoMachine, metav1.Condition{
-				Type:    clusterv1.ReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  "InstanceMissing",
-				Message: "Backing NICo instance was not found and will be recreated",
-			})
+			setReadyFalse(&nicoMachine, "InstanceMissing", "Backing NICo instance was not found and will be recreated")
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get instance: %w", err)
@@ -255,22 +242,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	provisioned := true
 	nicoMachine.Status.Initialization.Provisioned = &provisioned
 	if nico.IsReady(instance) {
-		nicoMachine.Status.Ready = true
-		conditions.Set(&nicoMachine, metav1.Condition{
-			Type:   clusterv1.ReadyCondition,
-			Status: metav1.ConditionTrue,
-			Reason: "InstanceReady",
-		})
+		setReadyTrue(&nicoMachine, "InstanceReady")
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
-	nicoMachine.Status.Ready = false
-	conditions.Set(&nicoMachine, metav1.Condition{
-		Type:    clusterv1.ReadyCondition,
-		Status:  metav1.ConditionFalse,
-		Reason:  "InstanceProvisioning",
-		Message: fmt.Sprintf("Instance status is %s", instanceStatusString(instance)),
-	})
+	setReadyFalse(&nicoMachine, "InstanceProvisioning", fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
 
 	log.V(1).Info("reconciled NicoMachine")
 	return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
@@ -280,6 +256,25 @@ func (r *NicoMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoMachine{}).
 		Complete(r)
+}
+
+func setReadyFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {
+	nicoMachine.Status.Ready = false
+	conditions.Set(nicoMachine, metav1.Condition{
+		Type:    clusterv1.ReadyCondition,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	})
+}
+
+func setReadyTrue(nicoMachine *infrav1.NicoMachine, reason string) {
+	nicoMachine.Status.Ready = true
+	conditions.Set(nicoMachine, metav1.Condition{
+		Type:   clusterv1.ReadyCondition,
+		Status: metav1.ConditionTrue,
+		Reason: reason,
+	})
 }
 
 func buildInstanceCreateRequest(
@@ -321,8 +316,10 @@ func buildInstanceCreateRequest(
 
 	createReq := nicosdk.NewInstanceCreateRequest(name, tenantID, nicoCluster.Spec.VPCID, interfaces)
 	createReq.SetDescription("Managed by Cluster API")
-	createReq.SetInstanceTypeId(nicoMachine.Spec.InstanceTypeID)
 	createReq.SetUserData(bootstrapCloudConfig)
+	if nicoMachine.Spec.InstanceTypeID != "" {
+		createReq.SetInstanceTypeId(nicoMachine.Spec.InstanceTypeID)
+	}
 	if nicoMachine.Spec.IpxeScript != "" {
 		createReq.SetIpxeScript(nicoMachine.Spec.IpxeScript)
 	}
@@ -386,6 +383,34 @@ func buildInstanceCreateRequest(
 	}
 
 	return createReq, nil
+}
+
+func instanceTypeAvailable(ctx context.Context, nicoClient *nico.Client, instanceTypeID string) (bool, string, string, error) {
+	log := ctrl.LoggerFrom(ctx)
+	instanceType, err := nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
+	log.V(2).Info("instance type availability check result", "instanceType", instanceType, "err", err)
+	if err != nil {
+		if errors.Is(err, nico.ErrNotFound) {
+			return false, "InstanceTypeNotFound", fmt.Sprintf("Instance type %q was not found", instanceTypeID), nil
+		}
+		return false, "", "", err
+	}
+	if instanceType == nil || instanceType.AllocationStats == nil || instanceType.AllocationStats.UnusedUsable == nil {
+		return false, "", "", fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
+	}
+	if *instanceType.AllocationStats.UnusedUsable > 0 {
+		return true, "", "", nil
+	}
+
+	message := fmt.Sprintf("Instance type %q has no unused usable allocations (total=%d used=%d unused=%d unusedUsable=%d)",
+		instanceTypeID,
+		instanceType.AllocationStats.GetTotal(),
+		instanceType.AllocationStats.GetUsed(),
+		instanceType.AllocationStats.GetUnused(),
+		instanceType.AllocationStats.GetUnusedUsable(),
+	)
+
+	return false, "InstanceTypeUnavailable", message, nil
 }
 
 func instanceStatusString(instance *nicosdk.Instance) string {

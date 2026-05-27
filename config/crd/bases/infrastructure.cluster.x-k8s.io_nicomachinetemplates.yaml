@@ -123,7 +123,10 @@ spec:
                           type: object
                         type: array
                       instanceTypeId:
-                        description: InstanceTypeID is the instance type ID to provision.
+                        description: |-
+                          InstanceTypeID is the instance type ID to provision.
+                          Exactly one of InstanceTypeID or MachineID must be set.
+                        minLength: 1
                         type: string
                       interfaces:
                         description: |-
@@ -171,8 +174,10 @@ spec:
                         description: Labels are applied to the instance.
                         type: object
                       machineId:
-                        description: MachineID is the machine ID for targeted instance
-                          creation.
+                        description: |-
+                          MachineID is the machine ID for targeted instance creation.
+                          Exactly one of InstanceTypeID or MachineID must be set.
+                        minLength: 1
                         type: string
                       nvLinkInterfaces:
                         description: |-
@@ -212,9 +217,12 @@ spec:
                           type: string
                         type: array
                     required:
-                    - instanceTypeId
                     - interfaces
                     type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of instanceTypeId or machineId must be
+                        set
+                      rule: has(self.instanceTypeId) != has(self.machineId)
                 required:
                 - spec
                 type: object

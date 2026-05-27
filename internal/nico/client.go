@@ -119,6 +119,22 @@ func (c *Client) GetCurrentTenantID(ctx context.Context) (string, error) {
 	return tenant.GetId(), nil
 }
 
+// GetInstanceTypeWithAllocationStats fetches an instance type with tenant-visible allocation stats.
+func (c *Client) GetInstanceTypeWithAllocationStats(ctx context.Context, instanceTypeID string) (*nicosdk.InstanceType, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	instanceType, resp, err := c.api.InstanceTypeAPI.
+		GetInstanceType(authCtx, c.orgID, instanceTypeID).
+		IncludeAllocationStats(true).
+		Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return instanceType, nil
+}
+
 // CreateInstance creates a NICo instance.
 func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateRequest) (*nicosdk.Instance, error) {
 	authCtx, err := c.authCtx(ctx)

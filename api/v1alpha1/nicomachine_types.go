@@ -72,9 +72,13 @@ type NicoMachineNVLinkInterface struct {
 }
 
 // NicoMachineSpec defines the desired state of NicoMachine.
+// +kubebuilder:validation:XValidation:rule="has(self.instanceTypeId) != has(self.machineId)",message="exactly one of instanceTypeId or machineId must be set"
 type NicoMachineSpec struct {
 	// InstanceTypeID is the instance type ID to provision.
-	InstanceTypeID string `json:"instanceTypeId"`
+	// Exactly one of InstanceTypeID or MachineID must be set.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	InstanceTypeID string `json:"instanceTypeId,omitempty"`
 
 	// Interfaces are the interface attachment requests for the instance.
 	// Use subnet-based attachments for Ethernet network virtualization and VPC prefix-based attachments for next-generation networking.
@@ -108,7 +112,9 @@ type NicoMachineSpec struct {
 	Labels map[string]string `json:"labels,omitempty"`
 
 	// MachineID is the machine ID for targeted instance creation.
+	// Exactly one of InstanceTypeID or MachineID must be set.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	MachineID string `json:"machineId,omitempty"`
 
 	// AllowUnhealthyMachine allows targeted instance creation on a machine in Error status.
