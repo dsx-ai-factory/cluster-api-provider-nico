@@ -109,9 +109,9 @@ func (c *Client) GetCurrentTenantID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tenant, _, err := c.api.TenantAPI.GetCurrentTenant(authCtx, c.orgID).Execute()
+	tenant, resp, err := c.api.TenantAPI.GetCurrentTenant(authCtx, c.orgID).Execute()
 	if err != nil {
-		return "", normalizeError(err)
+		return "", normalizeError(resp, err)
 	}
 	if tenant == nil || tenant.GetId() == "" {
 		return "", fmt.Errorf("current tenant response did not include an id")
@@ -125,12 +125,12 @@ func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateR
 	if err != nil {
 		return nil, err
 	}
-	instance, _, err := c.api.InstanceAPI.
+	instance, resp, err := c.api.InstanceAPI.
 		CreateInstance(authCtx, c.orgID).
 		InstanceCreateRequest(req).
 		Execute()
 	if err != nil {
-		return nil, normalizeError(err)
+		return nil, normalizeError(resp, err)
 	}
 	return instance, nil
 }
@@ -141,8 +141,8 @@ func (c *Client) DeleteInstance(ctx context.Context, instanceID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.api.InstanceAPI.DeleteInstance(authCtx, c.orgID, instanceID).Execute()
-	return normalizeError(err)
+	resp, err := c.api.InstanceAPI.DeleteInstance(authCtx, c.orgID, instanceID).Execute()
+	return normalizeError(resp, err)
 }
 
 // GetInstance fetches a NICo instance by ID.
@@ -151,9 +151,9 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 	if err != nil {
 		return nil, err
 	}
-	instance, _, err := c.api.InstanceAPI.GetInstance(authCtx, c.orgID, instanceID).Execute()
+	instance, resp, err := c.api.InstanceAPI.GetInstance(authCtx, c.orgID, instanceID).Execute()
 	if err != nil {
-		return nil, normalizeError(err)
+		return nil, normalizeError(resp, err)
 	}
 	return instance, nil
 }
@@ -176,9 +176,9 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 		req = req.SiteId(lookup.SiteID)
 	}
 
-	instances, _, err := req.Execute()
+	instances, resp, err := req.Execute()
 	if err != nil {
-		return nil, normalizeError(err)
+		return nil, normalizeError(resp, err)
 	}
 	if len(instances) == 0 {
 		return nil, ErrNotFound

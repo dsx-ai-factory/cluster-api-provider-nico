@@ -1,16 +1,15 @@
 package nico
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
-
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 var (
 	ErrAlreadyExists = errors.New("resource already exists")
+	ErrConflict      = errors.New("resource conflict")
 	ErrNotFound      = errors.New("resource not found")
 	ErrUnauthorized  = errors.New("request unauthorized")
 )
@@ -21,7 +20,7 @@ type openAPIError interface {
 	Model() interface{}
 }
 
-func normalizeError(err error) error {
+func normalizeError(resp *http.Response, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -32,41 +31,27 @@ func normalizeError(err error) error {
 	}
 
 	message := strings.TrimSpace(err.Error())
-	if model := apiErr.Model(); model != nil {
-		switch typed := model.(type) {
-		case nicosdk.CarbideAPIError:
-			if typed.GetMessage() != "" {
-				message = typed.GetMessage()
-				message += ": " + marshalCarbideAPIError(typed)
-			}
-		case *nicosdk.CarbideAPIError:
-			if typed != nil && typed.GetMessage() != "" {
-				message = typed.GetMessage()
-				message += ": " + marshalCarbideAPIError(*typed)
-			}
-		}
-	}
-	if message == "" && len(apiErr.Body()) > 0 {
-		message = string(apiErr.Body())
+	if body := strings.TrimSpace(string(apiErr.Body())); body != "" {
+		message += ": " + body
 	}
 
-	lower := strings.ToLower(message)
-	switch {
-	case strings.Contains(lower, "already exists"):
-		return fmt.Errorf("%w: %s", ErrAlreadyExists, message)
-	case strings.Contains(lower, "not found"):
-		return fmt.Errorf("%w: %s", ErrNotFound, message)
-	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "forbidden"), strings.HasPrefix(strings.ToLower(err.Error()), "403"):
+	statusCode := 0
+	if resp != nil {
+		statusCode = resp.StatusCode
+	}
+
+	switch statusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
 		return fmt.Errorf("%w: %s", ErrUnauthorized, message)
+	case http.StatusNotFound:
+		return fmt.Errorf("%w: %s", ErrNotFound, message)
+	case http.StatusConflict:
+		// Typed ErrAlreadyExists, which is a special case of conflict error.
+		if strings.Contains(strings.ToLower(message), "already exists") {
+			return fmt.Errorf("%w: %s", ErrAlreadyExists, message)
+		}
+		return fmt.Errorf("%w: %s", ErrConflict, message)
 	default:
 		return fmt.Errorf("%s", message)
 	}
-}
-
-func marshalCarbideAPIError(carbideErr nicosdk.CarbideAPIError) string {
-	json, err := json.Marshal(carbideErr)
-	if err != nil {
-		return "carbide API marshal error: " + err.Error()
-	}
-	return string(json)
 }
