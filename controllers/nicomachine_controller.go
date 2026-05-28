@@ -210,13 +210,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	instance, err := nicoClient.GetInstance(ctx, nicoMachine.Status.InstanceID)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
-			nicoMachine.Status.InstanceID = ""
-			nicoMachine.Spec.ProviderID = ""
-			nicoMachine.Status.MachineID = ""
-			nicoMachine.Status.Addresses = nil
-			nicoMachine.Status.TpmEkPubHash = ""
-			setReadyFalse(&nicoMachine, "InstanceMissing", "Backing NICo instance was not found and will be recreated")
-			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
+			setReadyFalse(&nicoMachine, "InstanceMissing", err.Error())
+			return ctrl.Result{}, fmt.Errorf("backing NICo instance %q was not found: %w", nicoMachine.Status.InstanceID, err)
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -247,8 +242,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	nicoMachine.Status.Initialization.Provisioned = &provisioned
 
 	if !nico.IsReady(instance) {
-		log.V(1).Info("NICo instance is provisioning", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", instanceStatusString(instance))
-		setReadyFalse(&nicoMachine, "InstanceProvisioning", fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
+		log.V(1).Info("NICo instance not ready", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", instanceStatusString(instance))
+		setReadyFalse(&nicoMachine, "InstanceNotReady", fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
