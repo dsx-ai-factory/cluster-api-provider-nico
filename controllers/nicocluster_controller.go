@@ -8,8 +8,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/paused"
+	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -43,6 +49,15 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoCluster.ObjectMeta)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if cluster == nil {
+		log.Info("Waiting for Cluster controller to set OwnerRef on NicoCluster")
+		return reconcile.Result{}, nil
+	}
+
 	patchHelper, err := patch.NewHelper(&nicoCluster, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -53,6 +68,10 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			retErr = fmt.Errorf("failed to patch NicoCluster: %w", err)
 		}
 	}()
+
+	if isPaused, requeue, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, &nicoCluster); err != nil || isPaused || requeue {
+		return reconcile.Result{}, err
+	}
 
 	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
 	if err != nil {
@@ -102,9 +121,15 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
 }
 
-func (r *NicoClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoCluster{}).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("NicoCluster"), mgr.GetClient(), &infrav1.NicoCluster{})),
+			builder.WithPredicates(predicates.ClusterPausedTransitions(mgr.GetScheme(), predicateLog)),
+		).
 		Complete(r)
 }
 
