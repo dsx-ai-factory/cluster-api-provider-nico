@@ -308,6 +308,9 @@ func buildInstanceCreateRequest(
 		if iface.VPCPrefixID != "" {
 			req.SetVpcPrefixId(iface.VPCPrefixID)
 		}
+		if iface.IPAddress != "" {
+			req.SetIpAddress(iface.IPAddress)
+		}
 		if iface.Physical != nil {
 			req.SetIsPhysical(*iface.Physical)
 		}

@@ -50,6 +50,6 @@ make run
 ## Editing Guidance
 
 * When changing API types in `api/v1alpha1`, regenerate deepcopies and CRDs.
-* Keep examples in `examples/kubeadm/cluster.yaml` aligned with the current API.
+* Keep examples in `examples/kubeadm/` aligned with the current API.
 * Prefer updating generated YAML via the source Go types and `make generate manifests`, not by hand.
 * Keep docs generic and kubeadm-focused.

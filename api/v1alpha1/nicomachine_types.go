@@ -7,6 +7,7 @@ import (
 )
 
 // NicoMachineInterface defines one NICo interface attachment request.
+// +kubebuilder:validation:XValidation:rule="!(has(self.ipAddress) && has(self.subnetId))",message="ipAddress is only supported with vpcPrefixId interfaces"
 type NicoMachineInterface struct {
 	// SubnetID is the subnet ID for this attachment.
 	// Use SubnetID for Ethernet network virtualization.
@@ -19,6 +20,11 @@ type NicoMachineInterface struct {
 	// Exactly one of SubnetID or VPCPrefixID must be set.
 	// +optional
 	VPCPrefixID string `json:"vpcPrefixId,omitempty"`
+
+	// IPAddress is the explicitly requested IP address for this interface.
+	// This is only supported for VPCPrefixID-based interfaces. NICo requires the least-significant host bit to be 1.
+	// +optional
+	IPAddress string `json:"ipAddress,omitempty"`
 
 	// Physical requests this attachment over a physical interface.
 	// +optional

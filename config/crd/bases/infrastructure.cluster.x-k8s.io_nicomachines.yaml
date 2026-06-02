@@ -112,6 +112,11 @@ spec:
                         use for this attachment.
                       format: int32
                       type: integer
+                    ipAddress:
+                      description: |-
+                        IPAddress is the explicitly requested IP address for this interface.
+                        This is only supported for VPCPrefixID-based interfaces. NICo requires the least-significant host bit to be 1.
+                      type: string
                     physical:
                       description: Physical requests this attachment over a physical
                         interface.
@@ -129,6 +134,9 @@ spec:
                         Exactly one of SubnetID or VPCPrefixID must be set.
                       type: string
                   type: object
+                  x-kubernetes-validations:
+                  - message: ipAddress is only supported with vpcPrefixId interfaces
+                    rule: '!(has(self.ipAddress) && has(self.subnetId))'
                 minItems: 1
                 type: array
               ipxeScript:

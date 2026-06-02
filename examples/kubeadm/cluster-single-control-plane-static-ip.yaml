@@ -1,10 +1,6 @@
-# Generic kubeadm template. Use when CONTROL_PLANE_ENDPOINT_HOST already points
-# to a stable Kubernetes API endpoint, such as DNS, an external load balancer,
-# or kube-vip managed outside this template.
-#
-# NICO_NETWORK_METHOD defaults to vpcPrefixId. Set it to subnetId for legacy
-# subnet networking, and set NICO_NETWORK_ID to the corresponding VPC prefix or
-# subnet ID.
+# Developer-only kubeadm template for single-control-plane requested IP testing.
+# CONTROL_PLANE_ENDPOINT_IP is requested as the control-plane NICo interface IP
+# and used as the Kubernetes API endpoint.
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoCluster
 metadata:
@@ -25,7 +21,8 @@ spec:
       instanceTypeId: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
       ipxeScript: "${NICO_CONTROL_PLANE_IPXE_SCRIPT}"
       interfaces:
-        - ${NICO_NETWORK_METHOD:=vpcPrefixId}: "${NICO_NETWORK_ID}"
+        - vpcPrefixId: "${NICO_VPC_PREFIX_ID}"
+          ipAddress: "${CONTROL_PLANE_ENDPOINT_IP}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoMachineTemplate
@@ -38,7 +35,7 @@ spec:
       instanceTypeId: "${NICO_WORKER_INSTANCE_TYPE_ID}"
       ipxeScript: "${NICO_WORKER_IPXE_SCRIPT}"
       interfaces:
-        - ${NICO_NETWORK_METHOD:=vpcPrefixId}: "${NICO_NETWORK_ID}"
+        - vpcPrefixId: "${NICO_VPC_PREFIX_ID}"
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
@@ -47,7 +44,7 @@ metadata:
   namespace: "${NAMESPACE}"
 spec:
   controlPlaneEndpoint:
-    host: "${CONTROL_PLANE_ENDPOINT_HOST}"
+    host: "${CONTROL_PLANE_ENDPOINT_IP}"
     port: 6443
   clusterNetwork:
     pods:
@@ -72,7 +69,7 @@ metadata:
   name: "${CLUSTER_NAME}-control-plane"
   namespace: "${NAMESPACE}"
 spec:
-  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
+  replicas: 1
   version: "${KUBERNETES_VERSION}"
   machineTemplate:
     spec:
@@ -84,7 +81,7 @@ spec:
     clusterConfiguration:
       apiServer:
         certSANs:
-          - "${CONTROL_PLANE_ENDPOINT_HOST}"
+          - "${CONTROL_PLANE_ENDPOINT_IP}"
     initConfiguration:
       patches:
         directory: /etc/kubernetes/patches
