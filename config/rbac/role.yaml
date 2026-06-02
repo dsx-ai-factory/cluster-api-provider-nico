@@ -34,6 +34,13 @@ rules:
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
+  - nicoclusters/finalizers
+  - nicomachines/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
   - nicoclusters/status
   - nicomachines/status
   verbs:
@@ -51,9 +58,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
-  - nicomachines/finalizers
-  verbs:
-  - update

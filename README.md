@@ -26,6 +26,19 @@ The provider expects the NICo API to be reachable from the management cluster, a
 
 The `NicoMachine`'s iPXE script must boot an OS image that can consume kubeadm cloud-init user data.
 
+## Deletion lifecycle
+
+The supported teardown path is to delete the CAPI `Cluster` and wait for the
+`Cluster` deletion to complete before deleting the namespace, if it is still
+needed. This lets Cluster API delete machines before the shared infrastructure
+object and gives each `NicoMachine` a chance to delete its backing NICo instance
+while credentials are still available.
+
+Do not use namespace deletion as the normal teardown mechanism while NICo
+instances may still exist. A namespace delete can remove the per-cluster
+credentials Secret before `NicoMachine` finalizers finish, which can leave
+machines stuck in deletion and require manual NICo cleanup.
+
 ## Install
 
 Initialize the core Cluster API controllers and the kubeadm providers:

@@ -45,4 +45,7 @@ const (
 
 	// InstanceReadyReason indicates the backing NICo instance is ready.
 	InstanceReadyReason = "InstanceReady"
+
+	// WaitingForNicoMachinesDeletionReason indicates the cluster is waiting for all NicoMachines to be deleted.
+	WaitingForNicoMachinesDeletionReason = "WaitingForNicoMachinesDeletion"
 )

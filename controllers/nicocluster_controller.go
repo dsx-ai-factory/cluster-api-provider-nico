@@ -14,6 +14,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -26,8 +27,10 @@ import (
 )
 
 const (
+	nicoClusterFinalizer     = "infrastructure.cluster.x-k8s.io/nicocluster"
 	clusterReadyRequeue      = 5 * time.Minute
 	clusterReadyJitterWindow = 1 * time.Minute
+	clusterDeleteRequeue     = 15 * time.Second
 )
 
 // NicoClusterReconciler reconciles a NicoCluster object.
@@ -39,6 +42,9 @@ type NicoClusterReconciler struct {
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -73,49 +79,52 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, err
 	}
 
+	if !nicoCluster.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
+			return ctrl.Result{}, nil
+		}
+
+		nicoMachines, err := r.listNicoMachinesForCluster(ctx, cluster)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if len(nicoMachines) > 0 {
+			log.Info("waiting for NicoMachines to be deleted", "count", len(nicoMachines))
+			setNicoClusterReadyFalse(&nicoCluster, infrav1.WaitingForNicoMachinesDeletionReason, fmt.Sprintf("Waiting for %d NicoMachines to be deleted", len(nicoMachines)))
+			return ctrl.Result{RequeueAfter: clusterDeleteRequeue}, nil
+		}
+
+		log.Info("removing finalizer")
+		controllerutil.RemoveFinalizer(&nicoCluster, nicoClusterFinalizer)
+		setNicoClusterReadyFalse(&nicoCluster, infrav1.DeletingReason, "")
+		return ctrl.Result{}, nil
+	}
+
+	if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
+		controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer)
+	}
+
 	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			conditions.Set(&nicoCluster, metav1.Condition{
-				Type:    clusterv1.ReadyCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.WaitingForIdentitySecretReason,
-				Message: err.Error(),
-			})
-			nicoCluster.Status.Ready = false
+			setNicoClusterReadyFalse(&nicoCluster, infrav1.WaitingForIdentitySecretReason, err.Error())
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
-		conditions.Set(&nicoCluster, metav1.Condition{
-			Type:    clusterv1.ReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.IdentityConfigurationFailedReason,
-			Message: err.Error(),
-		})
-		nicoCluster.Status.Ready = false
+		setNicoClusterReadyFalse(&nicoCluster, infrav1.IdentityConfigurationFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
 	// NicoCluster has no cluster-scoped NICo resources to reconcile, so readiness here is a validation check:
 	// can this identity reach NICo and resolve the tenant context needed for machine operations?
 	if err := nicoClient.ValidateReadiness(ctx); err != nil {
-		conditions.Set(&nicoCluster, metav1.Condition{
-			Type:    clusterv1.ReadyCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.TenantResolutionFailedReason,
-			Message: err.Error(),
-		})
-		nicoCluster.Status.Ready = false
+		setNicoClusterReadyFalse(&nicoCluster, infrav1.TenantResolutionFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to validate nico client readiness: %w", err)
 	}
 
 	provisioned := true
 	nicoCluster.Status.Initialization.Provisioned = &provisioned
-	nicoCluster.Status.Ready = true
-	conditions.Set(&nicoCluster, metav1.Condition{
-		Type:   clusterv1.ReadyCondition,
-		Status: metav1.ConditionTrue,
-		Reason: infrav1.InfrastructureReadyReason,
-	})
+	setNicoClusterReadyTrue(&nicoCluster, infrav1.InfrastructureReadyReason)
 
 	log.V(1).Info("reconciled NicoCluster")
 	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
@@ -131,6 +140,36 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			builder.WithPredicates(predicates.ClusterPausedTransitions(mgr.GetScheme(), predicateLog)),
 		).
 		Complete(r)
+}
+
+func (r *NicoClusterReconciler) listNicoMachinesForCluster(ctx context.Context, cluster *clusterv1.Cluster) ([]infrav1.NicoMachine, error) {
+	var nicoMachines infrav1.NicoMachineList
+	if err := r.List(ctx, &nicoMachines,
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels{clusterv1.ClusterNameLabel: cluster.Name},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list NicoMachines for cluster %q: %w", cluster.Name, err)
+	}
+	return nicoMachines.Items, nil
+}
+
+func setNicoClusterReadyFalse(nicoCluster *infrav1.NicoCluster, reason, message string) {
+	nicoCluster.Status.Ready = false
+	conditions.Set(nicoCluster, metav1.Condition{
+		Type:    clusterv1.ReadyCondition,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	})
+}
+
+func setNicoClusterReadyTrue(nicoCluster *infrav1.NicoCluster, reason string) {
+	nicoCluster.Status.Ready = true
+	conditions.Set(nicoCluster, metav1.Condition{
+		Type:   clusterv1.ReadyCondition,
+		Status: metav1.ConditionTrue,
+		Reason: reason,
+	})
 }
 
 // clusterReadyRequeueAfter returns a stable jittered interval for steady-state cluster polling.
