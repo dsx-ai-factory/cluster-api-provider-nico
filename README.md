@@ -22,7 +22,7 @@ rotations of the credentials Secret (for example by External Secrets Operator)
 are picked up on the next reconcile without restarting the manager.
 Machine reconciliation treats instance creation and instance readiness separately, and create conflicts are handled idempotently by looking up an existing instance by name.
 
-The provider expects the NICo API to be reachable from the management cluster, and it assumes the target VPC, subnet (or VPC prefix), and SSH key groups are already defined for the machines you want to provision.
+The provider expects the NICo API to be reachable from the management cluster, and it assumes the target VPC and subnet or VPC prefix are already defined for the machines you want to provision.
 
 The `NicoMachine`'s iPXE script must boot an OS image that can consume kubeadm cloud-init user data.
 
@@ -179,35 +179,140 @@ stringData:
     -----END CERTIFICATE-----
 ```
 
-## Kubeadm example
+## Kubeadm examples
 
-A full kubeadm-based example lives in `examples/kubeadm/cluster.yaml`. It
-relies on the provider-level credentials Secret:
+The kubeadm examples are local `clusterctl` templates. They assume the
+provider-level credentials Secret already exists:
 
 ```bash
 kubectl create secret generic -n capnico-system nico-credentials \
   --from-literal=endpoint=https://nico.example.com \
   --from-literal=orgID=your-org \
-  # Add appropriate auth mode specific keys here
-  # --from-literal=token=<bearer-token> \
-  # --from-literal=tokenURL=<token-url> \
-  # --from-literal=clientID=<client-id> \
-  # --from-literal=clientSecret=<client-secret> \
-  # --from-literal=scope=<scope>
+  --from-literal=token=<bearer-token>
 
+# Or use OAuth2 client credentials instead of a static token:
+kubectl create secret generic -n capnico-system nico-credentials \
+  --from-literal=endpoint=https://nico.example.com \
+  --from-literal=orgID=your-org \
+  --from-literal=tokenURL=<token-url> \
+  --from-literal=clientID=<client-id> \
+  --from-literal=clientSecret=<client-secret> \
+  --from-literal=scope=<scope>
 ```
 
-Apply the example:
+The kubeadm templates patch kubelet with `providerID: nico://<instance-id>` by reading
+the NICo metadata service at `169.254.169.254:7777`. This lets Cluster API match
+workload-cluster Nodes back to their `Machine` objects.
 
-Before applying it, replace the placeholder values for:
+The NICo architecture documentation describes The Metadata Service (FMDS) as the local HTTP metadata API provided by the DPU agent:
+[Overview and Components](https://docs.nvidia.com/infra-controller/documentation/architecture/overview-and-components).
 
-* required site ID and VPC ID in `NicoCluster`
-* instance type, subnet, SSH key group IDs, and iPXE script content
-* Kubernetes version
-
+List the variables required by a template with:
 
 ```bash
-kubectl apply -f examples/kubeadm/cluster.yaml
+clusterctl generate cluster demo \
+  --from examples/kubeadm/cluster.yaml \
+  --list-variables
+```
+
+### External control-plane endpoint
+
+Use `examples/kubeadm/cluster.yaml` when a stable Kubernetes API endpoint
+already exists, for example through DNS, an external load balancer, or kube-vip
+managed outside this template.
+
+`NICO_NETWORK_METHOD` selects the NICo network attachment field and defaults to
+`vpcPrefixId`, which is preferred for new clusters. Set
+`NICO_NETWORK_METHOD=subnetId` for legacy subnet networking. `NICO_NETWORK_ID`
+is the corresponding VPC prefix or subnet ID.
+
+Set `CONTROL_PLANE_ENDPOINT_HOST` to the stable API endpoint IP or DNS name.
+
+```bash
+kubectl create namespace demo
+
+NICO_SITE_ID=your-site \
+NICO_VPC_ID=your-vpc \
+NICO_CONTROL_PLANE_INSTANCE_TYPE_ID=your-control-plane-instance-type \
+NICO_WORKER_INSTANCE_TYPE_ID=your-worker-instance-type \
+NICO_NETWORK_METHOD=vpcPrefixId \
+NICO_NETWORK_ID=your-vpc-prefix \
+NICO_CONTROL_PLANE_IPXE_SCRIPT='chain https://boot.example.com/ipxe/control-plane.ipxe' \
+NICO_WORKER_IPXE_SCRIPT='chain https://boot.example.com/ipxe/worker.ipxe' \
+CONTROL_PLANE_ENDPOINT_HOST=10.0.0.100 \
+clusterctl generate cluster demo \
+  --from examples/kubeadm/cluster.yaml \
+  --target-namespace demo \
+  --kubernetes-version v1.36.0 \
+  --control-plane-machine-count 1 \
+  --worker-machine-count 1 \
+  | kubectl apply -f -
+```
+
+### Kube-vip convenience template
+
+Use `examples/kubeadm/cluster-kube-vip.yaml` when a stable API endpoint does not
+already exist and you want the template to bootstrap kube-vip as a static pod.
+The network variables are the same as `cluster.yaml`.
+
+Set `KUBE_VIP_ADDRESS` to the stable API endpoint IP. Set
+`CONTROL_PLANE_ENDPOINT_HOST` to that IP or to a DNS name that resolves to it.
+Joining nodes require this endpoint to be reachable after kube-vip starts. By
+default, `KUBE_VIP_BGP_PEER_AS=auto` reads the peer ASN from the NICo instance
+metadata service at `/latest/meta-data/asn`. 
+
+```bash
+kubectl create namespace demo
+
+NICO_SITE_ID=your-site \
+NICO_VPC_ID=your-vpc \
+NICO_CONTROL_PLANE_INSTANCE_TYPE_ID=your-control-plane-instance-type \
+NICO_WORKER_INSTANCE_TYPE_ID=your-worker-instance-type \
+NICO_NETWORK_METHOD=vpcPrefixId \
+NICO_NETWORK_ID=your-vpc-prefix \
+NICO_CONTROL_PLANE_IPXE_SCRIPT='chain https://boot.example.com/ipxe/control-plane.ipxe' \
+NICO_WORKER_IPXE_SCRIPT='chain https://boot.example.com/ipxe/worker.ipxe' \
+KUBE_VIP_ADDRESS=10.0.0.100 \
+CONTROL_PLANE_ENDPOINT_HOST=10.0.0.100 \
+clusterctl generate cluster demo \
+  --from examples/kubeadm/cluster-kube-vip.yaml \
+  --target-namespace demo \
+  --kubernetes-version v1.36.0 \
+  --control-plane-machine-count 1 \
+  --worker-machine-count 1 \
+  | kubectl apply -f -
+```
+
+### Developer: single control-plane requested IP
+
+`examples/kubeadm/cluster-single-control-plane-static-ip.yaml` exists for
+developer bring-up and requested-IP testing. It skips kube-vip and requests
+`CONTROL_PLANE_ENDPOINT_IP` directly as the control-plane NICo interface IP,
+then uses the same address as the Kubernetes API server endpoint.
+
+`CONTROL_PLANE_ENDPOINT_IP` must be an available IP in the VPC prefix and must
+have its least-significant host bit set to `1`, which is required by NICo's
+VPC-prefix linknet allocation. Do not use this template for normal clusters or
+HA control planes; use `cluster-kube-vip.yaml` instead. This is only intended 
+for development with minimal hardware requirements.
+
+```bash
+kubectl create namespace demo
+
+NICO_SITE_ID=your-site \
+NICO_VPC_ID=your-vpc \
+NICO_CONTROL_PLANE_INSTANCE_TYPE_ID=your-control-plane-instance-type \
+NICO_WORKER_INSTANCE_TYPE_ID=your-worker-instance-type \
+NICO_VPC_PREFIX_ID=your-vpc-prefix \
+NICO_CONTROL_PLANE_IPXE_SCRIPT='chain https://boot.example.com/ipxe/control-plane.ipxe' \
+NICO_WORKER_IPXE_SCRIPT='chain https://boot.example.com/ipxe/worker.ipxe' \
+CONTROL_PLANE_ENDPOINT_IP=10.0.0.11 \
+clusterctl generate cluster demo \
+  --from examples/kubeadm/cluster-single-control-plane-static-ip.yaml \
+  --target-namespace demo \
+  --kubernetes-version v1.36.0 \
+  --worker-machine-count 1 \
+  | kubectl apply -f -
 ```
 
 ## Development
