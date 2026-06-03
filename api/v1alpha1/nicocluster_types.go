@@ -14,10 +14,7 @@ type NicoClusterSpec struct {
 	IdentityRef corev1.LocalObjectReference `json:"identityRef,omitempty,omitzero"`
 
 	// SiteID is the site where this provider should create and look up instances.
-	SiteID string `json:"siteId"`
-
-	// VPCID is the VPC where this provider should create instances.
-	VPCID string `json:"vpcId"`
+	SiteID string `json:"siteID"`
 }
 
 // NicoClusterInitializationStatus provides observations of the NicoCluster initialization process.

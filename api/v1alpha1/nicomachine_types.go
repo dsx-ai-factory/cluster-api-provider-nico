@@ -7,19 +7,19 @@ import (
 )
 
 // NicoMachineInterface defines one NICo interface attachment request.
-// +kubebuilder:validation:XValidation:rule="!(has(self.ipAddress) && has(self.subnetId))",message="ipAddress is only supported with vpcPrefixId interfaces"
+// +kubebuilder:validation:XValidation:rule="!(has(self.ipAddress) && has(self.subnetID))",message="ipAddress is only supported with vpcPrefixID interfaces"
 type NicoMachineInterface struct {
 	// SubnetID is the subnet ID for this attachment.
 	// Use SubnetID for Ethernet network virtualization.
 	// Exactly one of SubnetID or VPCPrefixID must be set.
 	// +optional
-	SubnetID string `json:"subnetId,omitempty"`
+	SubnetID string `json:"subnetID,omitempty"`
 
 	// VPCPrefixID is the VPC prefix ID for this attachment.
 	// Use VPCPrefixID for next-generation networking.
 	// Exactly one of SubnetID or VPCPrefixID must be set.
 	// +optional
-	VPCPrefixID string `json:"vpcPrefixId,omitempty"`
+	VPCPrefixID string `json:"vpcPrefixID,omitempty"`
 
 	// IPAddress is the explicitly requested IP address for this interface.
 	// This is only supported for VPCPrefixID-based interfaces. NICo requires the least-significant host bit to be 1.
@@ -43,7 +43,7 @@ type NicoMachineInterface struct {
 type NicoMachineInfiniBandInterface struct {
 	// PartitionID is the ID of the Partition the Interface should attach to.
 	// +kubebuilder:validation:MinLength=1
-	PartitionID string `json:"partitionId"`
+	PartitionID string `json:"partitionID"`
 
 	// Device is the name of the InfiniBand device to use.
 	// +optional
@@ -63,14 +63,14 @@ type NicoMachineInfiniBandInterface struct {
 
 	// VirtualFunctionID must be specified if isPhysical is false.
 	// +optional
-	VirtualFunctionID *int32 `json:"virtualFunctionId,omitempty"`
+	VirtualFunctionID *int32 `json:"virtualFunctionID,omitempty"`
 }
 
 // NicoMachineNVLinkInterface defines one NICo NVLink interface attachment request.
 type NicoMachineNVLinkInterface struct {
 	// NVLinkLogicalPartitionID is the ID of the NVLink Logical Partition the Interface should attach to.
 	// +kubebuilder:validation:MinLength=1
-	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionId"`
+	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionID"`
 
 	// DeviceInstance is the GPU index for this NVLink interface. Must be non-negative, unique within the request, and within the GPU count exposed by the selected Machine or Instance Type.
 	// +optional
@@ -78,13 +78,16 @@ type NicoMachineNVLinkInterface struct {
 }
 
 // NicoMachineSpec defines the desired state of NicoMachine.
-// +kubebuilder:validation:XValidation:rule="has(self.instanceTypeId) != has(self.machineId)",message="exactly one of instanceTypeId or machineId must be set"
+// +kubebuilder:validation:XValidation:rule="has(self.instanceTypeID) != has(self.machineID)",message="exactly one of instanceTypeID or machineID must be set"
 type NicoMachineSpec struct {
+	// VPCID is the VPC where this provider should create the instance.
+	VPCID string `json:"vpcID"`
+
 	// InstanceTypeID is the instance type ID to provision.
 	// Exactly one of InstanceTypeID or MachineID must be set.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
-	InstanceTypeID string `json:"instanceTypeId,omitempty"`
+	InstanceTypeID string `json:"instanceTypeID,omitempty"`
 
 	// Interfaces are the interface attachment requests for the instance.
 	// Use subnet-based attachments for Ethernet network virtualization and VPC prefix-based attachments for next-generation networking.
@@ -103,7 +106,7 @@ type NicoMachineSpec struct {
 
 	// SSHKeyGroupIDs are the allowed SSH key group IDs for Serial over LAN access.
 	// +optional
-	SSHKeyGroupIDs []string `json:"sshKeyGroupIds,omitempty"`
+	SSHKeyGroupIDs []string `json:"sshKeyGroupIDs,omitempty"`
 
 	// IpxeScript is the iPXE script used to boot this instance.
 	// +optional
@@ -121,7 +124,7 @@ type NicoMachineSpec struct {
 	// Exactly one of InstanceTypeID or MachineID must be set.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
-	MachineID string `json:"machineId,omitempty"`
+	MachineID string `json:"machineID,omitempty"`
 
 	// AllowUnhealthyMachine allows targeted instance creation on a machine in Error status.
 	// +optional
@@ -158,11 +161,11 @@ type NicoMachineStatus struct {
 
 	// InstanceID is the instance identifier backing this machine.
 	// +optional
-	InstanceID string `json:"instanceId,omitempty"`
+	InstanceID string `json:"instanceID,omitempty"`
 
 	// MachineID is the machine ID for this machine.
 	// +optional
-	MachineID string `json:"machineId,omitempty"`
+	MachineID string `json:"machineID,omitempty"`
 
 	// TpmEkPubHash is the TPM EK public hash for this machine.
 	// +optional

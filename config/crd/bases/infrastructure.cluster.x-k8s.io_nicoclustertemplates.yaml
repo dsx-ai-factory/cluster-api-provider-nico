@@ -91,17 +91,12 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
-                      siteId:
+                      siteID:
                         description: SiteID is the site where this provider should
                           create and look up instances.
                         type: string
-                      vpcId:
-                        description: VPCID is the VPC where this provider should create
-                          instances.
-                        type: string
                     required:
-                    - siteId
-                    - vpcId
+                    - siteID
                     type: object
                 required:
                 - spec

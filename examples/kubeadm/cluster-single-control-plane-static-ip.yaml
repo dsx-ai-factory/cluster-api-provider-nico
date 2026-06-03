@@ -7,8 +7,7 @@ metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
 spec:
-  siteId: "${NICO_SITE_ID}"
-  vpcId: "${NICO_VPC_ID}"
+  siteID: "${NICO_SITE_ID}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoMachineTemplate
@@ -18,10 +17,11 @@ metadata:
 spec:
   template:
     spec:
-      instanceTypeId: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
       ipxeScript: "${NICO_CONTROL_PLANE_IPXE_SCRIPT}"
       interfaces:
-        - vpcPrefixId: "${NICO_VPC_PREFIX_ID}"
+        - vpcPrefixID: "${NICO_VPC_PREFIX_ID}"
           ipAddress: "${CONTROL_PLANE_ENDPOINT_IP}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -32,10 +32,11 @@ metadata:
 spec:
   template:
     spec:
-      instanceTypeId: "${NICO_WORKER_INSTANCE_TYPE_ID}"
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_WORKER_INSTANCE_TYPE_ID}"
       ipxeScript: "${NICO_WORKER_IPXE_SCRIPT}"
       interfaces:
-        - vpcPrefixId: "${NICO_VPC_PREFIX_ID}"
+        - vpcPrefixID: "${NICO_VPC_PREFIX_ID}"
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
