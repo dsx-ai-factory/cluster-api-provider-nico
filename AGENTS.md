@@ -33,6 +33,12 @@ The provider uses the published NICo SDK under the alias `nicosdk`.
   credentials Secret (for example by ESO) are picked up on the next reconcile
   via the cache's `resourceVersion` key. Keep auth and connection state in the
   client layer, not CR status.
+* `NicoMachine` owns NICo instance cleanup. Do not remove its finalizer while
+  `status.instanceID` may still refer to an existing NICo instance.
+* `NicoCluster` uses `ClusterFinalizer` to block deletion until all
+  `NicoMachine` objects in the same namespace with the matching
+  `cluster.x-k8s.io/cluster-name` label are gone. Do not add identity Secret
+  finalizers unless explicitly implementing a stronger lifecycle option.
 
 ## Common Commands
 
