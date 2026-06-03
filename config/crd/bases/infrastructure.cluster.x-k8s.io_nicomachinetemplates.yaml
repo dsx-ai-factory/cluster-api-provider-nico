@@ -104,7 +104,7 @@ spec:
                               description: IsPhysical specifies whether this Partition
                                 should be attached to the Instance over physical interface.
                               type: boolean
-                            partitionId:
+                            partitionID:
                               description: PartitionID is the ID of the Partition
                                 the Interface should attach to.
                               minLength: 1
@@ -113,16 +113,16 @@ spec:
                               description: Vendor is the name of the InfiniBand device
                                 vendor, optional.
                               type: string
-                            virtualFunctionId:
+                            virtualFunctionID:
                               description: VirtualFunctionID must be specified if
                                 isPhysical is false.
                               format: int32
                               type: integer
                           required:
-                          - partitionId
+                          - partitionID
                           type: object
                         type: array
-                      instanceTypeId:
+                      instanceTypeID:
                         description: |-
                           InstanceTypeID is the instance type ID to provision.
                           Exactly one of InstanceTypeID or MachineID must be set.
@@ -154,13 +154,13 @@ spec:
                               description: Physical requests this attachment over
                                 a physical interface.
                               type: boolean
-                            subnetId:
+                            subnetID:
                               description: |-
                                 SubnetID is the subnet ID for this attachment.
                                 Use SubnetID for Ethernet network virtualization.
                                 Exactly one of SubnetID or VPCPrefixID must be set.
                               type: string
-                            vpcPrefixId:
+                            vpcPrefixID:
                               description: |-
                                 VPCPrefixID is the VPC prefix ID for this attachment.
                                 Use VPCPrefixID for next-generation networking.
@@ -168,9 +168,9 @@ spec:
                               type: string
                           type: object
                           x-kubernetes-validations:
-                          - message: ipAddress is only supported with vpcPrefixId
+                          - message: ipAddress is only supported with vpcPrefixID
                               interfaces
-                            rule: '!(has(self.ipAddress) && has(self.subnetId))'
+                            rule: '!(has(self.ipAddress) && has(self.subnetID))'
                         minItems: 1
                         type: array
                       ipxeScript:
@@ -182,7 +182,7 @@ spec:
                           type: string
                         description: Labels are applied to the instance.
                         type: object
-                      machineId:
+                      machineID:
                         description: |-
                           MachineID is the machine ID for targeted instance creation.
                           Exactly one of InstanceTypeID or MachineID must be set.
@@ -203,14 +203,14 @@ spec:
                                 selected Machine or Instance Type.
                               format: int32
                               type: integer
-                            nvLinkLogicalPartitionId:
+                            nvLinkLogicalPartitionID:
                               description: NVLinkLogicalPartitionID is the ID of the
                                 NVLink Logical Partition the Interface should attach
                                 to.
                               minLength: 1
                               type: string
                           required:
-                          - nvLinkLogicalPartitionId
+                          - nvLinkLogicalPartitionID
                           type: object
                         type: array
                       providerID:
@@ -219,19 +219,24 @@ spec:
                         maxLength: 512
                         minLength: 1
                         type: string
-                      sshKeyGroupIds:
+                      sshKeyGroupIDs:
                         description: SSHKeyGroupIDs are the allowed SSH key group
                           IDs for Serial over LAN access.
                         items:
                           type: string
                         type: array
+                      vpcID:
+                        description: VPCID is the VPC where this provider should create
+                          the instance.
+                        type: string
                     required:
                     - interfaces
+                    - vpcID
                     type: object
                     x-kubernetes-validations:
-                    - message: exactly one of instanceTypeId or machineId must be
+                    - message: exactly one of instanceTypeID or machineID must be
                         set
-                      rule: has(self.instanceTypeId) != has(self.machineId)
+                      rule: has(self.instanceTypeID) != has(self.machineID)
                 required:
                 - spec
                 type: object

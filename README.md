@@ -222,8 +222,8 @@ already exists, for example through DNS, an external load balancer, or kube-vip
 managed outside this template.
 
 `NICO_NETWORK_METHOD` selects the NICo network attachment field and defaults to
-`vpcPrefixId`, which is preferred for new clusters. Set
-`NICO_NETWORK_METHOD=subnetId` for legacy subnet networking. `NICO_NETWORK_ID`
+`vpcPrefixID`, which is preferred for new clusters. Set
+`NICO_NETWORK_METHOD=subnetID` for legacy subnet networking. `NICO_NETWORK_ID`
 is the corresponding VPC prefix or subnet ID.
 
 Set `CONTROL_PLANE_ENDPOINT_HOST` to the stable API endpoint IP or DNS name.
@@ -235,7 +235,7 @@ NICO_SITE_ID=your-site \
 NICO_VPC_ID=your-vpc \
 NICO_CONTROL_PLANE_INSTANCE_TYPE_ID=your-control-plane-instance-type \
 NICO_WORKER_INSTANCE_TYPE_ID=your-worker-instance-type \
-NICO_NETWORK_METHOD=vpcPrefixId \
+NICO_NETWORK_METHOD=vpcPrefixID \
 NICO_NETWORK_ID=your-vpc-prefix \
 NICO_CONTROL_PLANE_IPXE_SCRIPT='chain https://boot.example.com/ipxe/control-plane.ipxe' \
 NICO_WORKER_IPXE_SCRIPT='chain https://boot.example.com/ipxe/worker.ipxe' \
@@ -268,7 +268,7 @@ NICO_SITE_ID=your-site \
 NICO_VPC_ID=your-vpc \
 NICO_CONTROL_PLANE_INSTANCE_TYPE_ID=your-control-plane-instance-type \
 NICO_WORKER_INSTANCE_TYPE_ID=your-worker-instance-type \
-NICO_NETWORK_METHOD=vpcPrefixId \
+NICO_NETWORK_METHOD=vpcPrefixID \
 NICO_NETWORK_ID=your-vpc-prefix \
 NICO_CONTROL_PLANE_IPXE_SCRIPT='chain https://boot.example.com/ipxe/control-plane.ipxe' \
 NICO_WORKER_IPXE_SCRIPT='chain https://boot.example.com/ipxe/worker.ipxe' \

@@ -1,6 +1,6 @@
 # kubeadm template that bootstraps kube-vip as the Kubernetes API endpoint.
 #
-# NICO_NETWORK_METHOD defaults to vpcPrefixId. Set it to subnetId for legacy
+# NICO_NETWORK_METHOD defaults to vpcPrefixID. Set it to subnetID for legacy
 # subnet networking, and set NICO_NETWORK_ID to the corresponding VPC prefix or
 # subnet ID.
 #
@@ -12,8 +12,7 @@ metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
 spec:
-  siteId: "${NICO_SITE_ID}"
-  vpcId: "${NICO_VPC_ID}"
+  siteID: "${NICO_SITE_ID}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoMachineTemplate
@@ -23,10 +22,11 @@ metadata:
 spec:
   template:
     spec:
-      instanceTypeId: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
       ipxeScript: "${NICO_CONTROL_PLANE_IPXE_SCRIPT}"
       interfaces:
-        - ${NICO_NETWORK_METHOD:=vpcPrefixId}: "${NICO_NETWORK_ID}"
+        - ${NICO_NETWORK_METHOD:=vpcPrefixID}: "${NICO_NETWORK_ID}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoMachineTemplate
@@ -36,10 +36,11 @@ metadata:
 spec:
   template:
     spec:
-      instanceTypeId: "${NICO_WORKER_INSTANCE_TYPE_ID}"
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_WORKER_INSTANCE_TYPE_ID}"
       ipxeScript: "${NICO_WORKER_IPXE_SCRIPT}"
       interfaces:
-        - ${NICO_NETWORK_METHOD:=vpcPrefixId}: "${NICO_NETWORK_ID}"
+        - ${NICO_NETWORK_METHOD:=vpcPrefixID}: "${NICO_NETWORK_ID}"
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster

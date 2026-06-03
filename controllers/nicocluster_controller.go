@@ -79,7 +79,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			conditions.Set(&nicoCluster, metav1.Condition{
 				Type:    clusterv1.ReadyCondition,
 				Status:  metav1.ConditionFalse,
-				Reason:  "WaitingForIdentitySecret",
+				Reason:  infrav1.WaitingForIdentitySecretReason,
 				Message: err.Error(),
 			})
 			nicoCluster.Status.Ready = false
@@ -88,7 +88,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		conditions.Set(&nicoCluster, metav1.Condition{
 			Type:    clusterv1.ReadyCondition,
 			Status:  metav1.ConditionFalse,
-			Reason:  "IdentityConfigurationFailed",
+			Reason:  infrav1.IdentityConfigurationFailedReason,
 			Message: err.Error(),
 		})
 		nicoCluster.Status.Ready = false
@@ -101,7 +101,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		conditions.Set(&nicoCluster, metav1.Condition{
 			Type:    clusterv1.ReadyCondition,
 			Status:  metav1.ConditionFalse,
-			Reason:  "TenantResolutionFailed",
+			Reason:  infrav1.TenantResolutionFailedReason,
 			Message: err.Error(),
 		})
 		nicoCluster.Status.Ready = false
@@ -114,7 +114,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	conditions.Set(&nicoCluster, metav1.Condition{
 		Type:   clusterv1.ReadyCondition,
 		Status: metav1.ConditionTrue,
-		Reason: "InfrastructureReady",
+		Reason: infrav1.InfrastructureReadyReason,
 	})
 
 	log.V(1).Info("reconciled NicoCluster")
