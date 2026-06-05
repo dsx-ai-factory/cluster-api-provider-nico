@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
@@ -208,6 +209,19 @@ func IsReady(instance *nicosdk.Instance) bool {
 
 func ProviderID(instanceID string) string {
 	return ProviderIDPrefix + instanceID
+}
+
+func InstanceID(providerID string) (string, error) {
+	if !strings.HasPrefix(providerID, ProviderIDPrefix) {
+		return "", fmt.Errorf("providerID must start with %q", ProviderIDPrefix)
+	}
+
+	instanceID := strings.TrimPrefix(providerID, ProviderIDPrefix)
+	if instanceID == "" {
+		return "", fmt.Errorf("providerID must include an instance ID")
+	}
+
+	return instanceID, nil
 }
 
 func trimTrailingSlash(in string) string {

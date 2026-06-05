@@ -46,6 +46,12 @@ const (
 	// InstanceReadyReason indicates the backing NICo instance is ready.
 	InstanceReadyReason = "InstanceReady"
 
+	// InstanceNotFoundReason indicates that the requested import instance is not available in NICo
+	InstanceNotFoundReason = "InstanceNotFound"
+
+	// InstanceAlreadyClaimedReason indicates another NicoMachine already references the backing instance.
+	InstanceAlreadyClaimedReason = "InstanceAlreadyClaimed"
+
 	// WaitingForNicoMachinesDeletionReason indicates the cluster is waiting for all NicoMachines to be deleted.
 	WaitingForNicoMachinesDeletionReason = "WaitingForNicoMachinesDeletion"
 )

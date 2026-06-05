@@ -25,6 +25,7 @@ import (
 
 	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
+	nicomachine "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nicomachine"
 
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
@@ -136,7 +137,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
-	if nicoMachine.Status.InstanceID == "" {
+	// if we have not yet created a NICo instance for this nicoMachine CR and this is not an NICo instance import
+	if nicoMachine.Status.InstanceID == "" && nicoMachine.Spec.ProviderID == "" {
 		if ownerMachine.Spec.Bootstrap.DataSecretName == nil || *ownerMachine.Spec.Bootstrap.DataSecretName == "" {
 			setReadyFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, "")
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
@@ -215,13 +217,36 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
 	}
 
-	instance, err := nicoClient.GetInstance(ctx, nicoMachine.Status.InstanceID)
+	instanceID, err := nico.InstanceID(nicoMachine.Spec.ProviderID)
+	if err != nil {
+		setReadyFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
+		return ctrl.Result{}, nil
+	}
+
+	instance, err := nicoClient.GetInstance(ctx, instanceID)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
 			setReadyFalse(&nicoMachine, infrav1.InstanceMissingReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("backing NICo instance %q was not found: %w", nicoMachine.Status.InstanceID, err)
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get instance: %w", err)
+	}
+
+	// if this is a NICo Machine import
+	if nicoMachine.Spec.ProviderID != "" && nicoMachine.Status.InstanceID == "" {
+		claimedBy, err := r.providerIDClaimedBy(ctx, nicoMachine, instanceID)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to check if NICo instance %q is already claimed: %w", instanceID, err)
+		}
+		if claimedBy != "" {
+			setReadyFalse(&nicoMachine, infrav1.InstanceAlreadyClaimedReason, fmt.Sprintf("failed to import instance: NICo instance %q is already referenced by NicoMachine %s", instanceID, claimedBy))
+			return ctrl.Result{}, nil
+		}
+		if err := nicomachine.ValidateInstance(instance, nicoMachine); err != nil {
+			setReadyFalse(&nicoMachine, clusterv1.InspectionFailedReason, fmt.Sprintf("failed to import instance: %s", err.Error()))
+			return ctrl.Result{}, nil
+		}
+		nicoMachine.Status.InstanceID = instance.GetId()
 	}
 
 	if machineID := instance.GetMachineId(); machineID != "" {
@@ -258,6 +283,25 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
 	setReadyTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
+}
+
+func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMachine infrav1.NicoMachine, instanceID string) (string, error) {
+	var nicoMachines infrav1.NicoMachineList
+	if err := r.List(ctx, &nicoMachines); err != nil {
+		return "", fmt.Errorf("error listing NicoMachines: %w", err)
+	}
+
+	providerID := nico.ProviderID(instanceID)
+	for _, existing := range nicoMachines.Items {
+		if existing.UID == nicoMachine.UID {
+			continue
+		}
+		if existing.Spec.ProviderID == providerID {
+			return fmt.Sprintf("%s/%s", existing.Namespace, existing.Name), nil
+		}
+	}
+
+	return "", nil
 }
 
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
