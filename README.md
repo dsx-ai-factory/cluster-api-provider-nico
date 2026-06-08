@@ -60,6 +60,47 @@ Update `config/manager/manager.yaml` to use that image, then install the provide
 kubectl apply -k config/default
 ```
 
+## Development
+
+CAPNICo uses Kubebuilder project metadata and Makefile conventions. Start with
+the Makefile help output when looking for common development tasks:
+
+```bash
+make help
+```
+
+Common local checks:
+
+```bash
+make generate
+make manifests
+make test
+make build
+```
+
+CAPNICo keeps controllers in the top-level `controllers` package to stay close
+to CAPA and CAPG. Kubebuilder `go/v4` scaffolds controllers under
+`internal/controller` by default, so this repository includes a small external
+Kubebuilder plugin that adapts generated controller files into the CAPNICo
+layout.
+
+Use the plugin Makefile when initializing the project scaffold or adding a new
+API/controller:
+
+```bash
+make -C hack/kubebuilder/plugins/capnico-layout/v1 init-project
+make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoCluster
+```
+
+For template resources that do not need reconcilers:
+
+```bash
+make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoClusterTemplate CONTROLLER=false
+```
+
+The full scaffold command log and plugin validation notes are recorded in
+`docs/kubebuilder-setup.md`.
+
 ## Provider release artifacts
 
 CAPNICo publishes Cluster API provider artifacts in the same shape consumed by

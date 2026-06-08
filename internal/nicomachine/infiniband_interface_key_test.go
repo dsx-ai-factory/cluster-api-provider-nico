@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	testPartitionID       = "partition-1"
+	testPartitionID      = "partition-1"
 	testInfiniBandDevice = "ib0"
 	testVirtualFunction  = int32(0)
 )

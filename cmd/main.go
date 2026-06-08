@@ -17,6 +17,7 @@ import (
 	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/controllers"
 	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
+	// +kubebuilder:scaffold:imports
 )
 
 const (
@@ -34,6 +35,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(infrav1.AddToScheme(scheme))
+	// +kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -99,6 +101,8 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
 		os.Exit(1)
 	}
+
+	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

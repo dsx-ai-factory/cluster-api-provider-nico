@@ -1,0 +1,20 @@
+# Prometheus Monitor Service (Metrics)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    control-plane: controller-manager
+    app.kubernetes.io/name: cluster-api-provider-nico
+    app.kubernetes.io/managed-by: kustomize
+  name: controller-manager-metrics-monitor
+  namespace: capnico-system
+spec:
+  endpoints:
+    - path: /metrics
+      port: http
+      scheme: http
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: cluster-api-provider-nico
