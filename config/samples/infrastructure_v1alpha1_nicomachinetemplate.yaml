@@ -1,0 +1,14 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  labels:
+    app.kubernetes.io/name: cluster-api-provider-nico
+    app.kubernetes.io/managed-by: kustomize
+  name: nicomachinetemplate-sample
+spec:
+  template:
+    spec:
+      vpcID: vpc-sample
+      instanceTypeID: instance-type-sample
+      interfaces:
+      - subnetID: subnet-sample

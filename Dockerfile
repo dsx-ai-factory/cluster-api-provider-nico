@@ -11,7 +11,7 @@ COPY cmd/ cmd/
 COPY controllers/ controllers/
 COPY internal/ internal/
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o /manager ./cmd/manager
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o /manager ./cmd
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
