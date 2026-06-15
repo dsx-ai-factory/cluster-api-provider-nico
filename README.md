@@ -39,6 +39,24 @@ instances may still exist. A namespace delete can remove the per-cluster
 credentials Secret before `NicoMachine` finalizers finish, which can leave
 machines stuck in deletion and require manual NICo cleanup.
 
+## Machine Reboot
+
+CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
+`Machine`. A consumer requests a reboot by setting the configured reboot
+annotation on the `Machine`. CAPNICo treats annotation presence as the reboot
+request; the annotation value is consumer-owned metadata and is not interpreted.
+CAPNICo triggers at most one NICo instance reboot for each observed annotation
+application. After NICo accepts the reboot trigger, CAPNICo removes the
+configured reboot annotation from the `Machine`.
+
+The default annotation key is:
+
+* `nico.nvidia.com/reboot`
+
+The key is configurable with a manager flag:
+
+* `--reboot-annotation`
+
 ## Install
 
 Initialize the core Cluster API controllers and the kubeadm providers:

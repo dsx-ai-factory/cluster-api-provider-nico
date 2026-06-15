@@ -31,6 +31,7 @@ const (
 	SecretKeyInsecureSkipTLSVerify = "insecureSkipTLSVerify"
 	SecretKeyAPIName               = "apiName"
 	defaultHTTPClientTimeout       = 30 * time.Second
+	DefaultRebootAnnotation        = "nico.nvidia.com/reboot"
 )
 
 // ProviderConfig holds provider-wide settings.
@@ -39,16 +40,23 @@ type ProviderConfig struct {
 	// a fallback when a NicoCluster does not set spec.identityRef. A zero value
 	// means no provider-level Secret is configured.
 	Credentials types.NamespacedName
+	// RebootAnnotation is the CAPI Machine annotation key used to request a NICo instance reboot.
+	RebootAnnotation string
 }
 
 // BindFlags binds the provider-level configuration to fs. The current values of
 // p's fields are used as the flag defaults, so callers can pre-seed defaults by
 // constructing p before calling BindFlags.
 func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
+	if p.RebootAnnotation == "" {
+		p.RebootAnnotation = DefaultRebootAnnotation
+	}
 	fs.StringVar(&p.Credentials.Namespace, "provider-credentials-namespace", p.Credentials.Namespace,
 		"Namespace of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
 		"Name of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
+	fs.StringVar(&p.RebootAnnotation, "reboot-annotation", p.RebootAnnotation,
+		"CAPI Machine annotation key used to request a NICo instance reboot.")
 }
 
 // SecretConfig contains NICo API connection settings loaded from a Secret.
