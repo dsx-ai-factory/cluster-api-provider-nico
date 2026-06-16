@@ -162,6 +162,24 @@ func (c *Client) DeleteInstance(ctx context.Context, instanceID string) error {
 	return normalizeError(resp, err)
 }
 
+// TriggerInstanceReboot requests a power cycle for the NICo instance.
+func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (*nicosdk.Instance, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	req := nicosdk.NewInstanceUpdateRequest()
+	req.SetTriggerReboot(true)
+	instance, resp, err := c.api.InstanceAPI.UpdateInstance(authCtx, c.orgID, instanceID).
+		InstanceUpdateRequest(*req).
+		Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return instance, nil
+}
+
 // GetInstance fetches a NICo instance by ID.
 func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.Instance, error) {
 	authCtx, err := c.authCtx(ctx)

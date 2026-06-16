@@ -31,12 +31,13 @@ import (
 )
 
 const (
-	nicoMachineFinalizer        = "infrastructure.cluster.x-k8s.io/nicomachine"
-	machineRequeueFast          = 15 * time.Second
-	machineRequeueSlow          = 30 * time.Second
-	machineReadyRequeue         = 5 * time.Minute
-	machineReadyJitterWindow    = 1 * time.Minute
-	instanceTypeUnavailableWait = 2 * time.Minute
+	nicoMachineFinalizer          = "infrastructure.cluster.x-k8s.io/nicomachine"
+	lastRebootTriggeredAnnotation = "nico.nvidia.com/last-reboot-triggered-timestamp"
+	machineRequeueFast            = 15 * time.Second
+	machineRequeueSlow            = 30 * time.Second
+	machineReadyRequeue           = 5 * time.Minute
+	machineReadyJitterWindow      = 1 * time.Minute
+	instanceTypeUnavailableWait   = 2 * time.Minute
 )
 
 // NicoMachineReconciler reconciles a NicoMachine object.
@@ -50,7 +51,8 @@ type NicoMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines/finalizers,verbs=update
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -227,7 +229,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
 			setReadyFalse(&nicoMachine, infrav1.InstanceMissingReason, err.Error())
-			return ctrl.Result{}, fmt.Errorf("backing NICo instance %q was not found: %w", nicoMachine.Status.InstanceID, err)
+			return ctrl.Result{}, fmt.Errorf("backing NICo instance %q was not found: %w", instanceID, err)
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -247,6 +249,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, nil
 		}
 		nicoMachine.Status.InstanceID = instance.GetId()
+	}
+
+	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+		return result, err
 	}
 
 	if machineID := instance.GetMachineId(); machineID != "" {
@@ -315,11 +321,50 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoMachine{}).
 		Watches(
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
+		).
+		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToNicoMachines),
 			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), predicateLog)),
 		).
 		Complete(r)
+}
+
+// reconcileReboot actuates Machine annotation reboot requests and removes the
+// request annotation once NICo has accepted the reboot trigger.
+func (r *NicoMachineReconciler) reconcileReboot(
+	ctx context.Context,
+	machine *clusterv1.Machine,
+	nicoMachine *infrav1.NicoMachine,
+	nicoClient *nico.Client,
+	instanceID string,
+) (ctrl.Result, bool, error) {
+	rebootAnnotation := r.ProviderConfig.RebootAnnotation
+	if machine.GetAnnotations()[rebootAnnotation] == "" {
+		return ctrl.Result{}, false, nil
+	}
+
+	if _, err := nicoClient.TriggerInstanceReboot(ctx, instanceID); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("failed to trigger instance reboot: %w", err)
+	}
+
+	nicoMachineAnnotations := nicoMachine.GetAnnotations()
+	if nicoMachineAnnotations == nil {
+		nicoMachineAnnotations = map[string]string{}
+	}
+	nicoMachineAnnotations[lastRebootTriggeredAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	nicoMachine.SetAnnotations(nicoMachineAnnotations)
+
+	machinePatch := client.MergeFrom(machine.DeepCopy())
+	machineAnnotations := machine.GetAnnotations()
+	delete(machineAnnotations, rebootAnnotation)
+	machine.SetAnnotations(machineAnnotations)
+	if err := r.Patch(ctx, machine, machinePatch); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("failed to patch machine reboot request annotation: %w", err)
+	}
+	return ctrl.Result{}, true, nil
 }
 
 func setReadyFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {
