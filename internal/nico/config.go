@@ -32,6 +32,7 @@ const (
 	SecretKeyAPIName               = "apiName"
 	defaultHTTPClientTimeout       = 30 * time.Second
 	DefaultRebootAnnotation        = "nico.nvidia.com/reboot"
+	DefaultRepairAnnotation        = "nico.nvidia.com/machine-health-issue"
 )
 
 // ProviderConfig holds provider-wide settings.
@@ -42,6 +43,13 @@ type ProviderConfig struct {
 	Credentials types.NamespacedName
 	// RebootAnnotation is the CAPI Machine annotation key used to request a NICo instance reboot.
 	RebootAnnotation string
+
+	// RepairAnnotation is the annotation key the controller watches on the owner
+	// CAPI Machine during deletion. When the annotation is present its value is
+	// forwarded to the NICo API as the MachineHealthIssue summary, signalling
+	// that the underlying hardware should be flagged for repair rather than
+	// returned to the available pool. An empty string disables the behaviour.
+	RepairAnnotation string
 }
 
 // BindFlags binds the provider-level configuration to fs. The current values of
@@ -51,12 +59,17 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 	if p.RebootAnnotation == "" {
 		p.RebootAnnotation = DefaultRebootAnnotation
 	}
+	if p.RepairAnnotation == "" {
+		p.RepairAnnotation = DefaultRepairAnnotation
+	}
 	fs.StringVar(&p.Credentials.Namespace, "provider-credentials-namespace", p.Credentials.Namespace,
 		"Namespace of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
 		"Name of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.RebootAnnotation, "reboot-annotation", p.RebootAnnotation,
 		"CAPI Machine annotation key used to request a NICo instance reboot.")
+	fs.StringVar(&p.RepairAnnotation, "repair-annotation", p.RepairAnnotation,
+		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The annotation value is used as the health-issue summary. Leave empty to disable.")
 }
 
 // SecretConfig contains NICo API connection settings loaded from a Secret.
