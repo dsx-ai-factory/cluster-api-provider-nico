@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -114,8 +115,36 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
 			}
 
-			log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
-			if err := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID)); err != nil {
+			var healthIssue *nicosdk.MachineHealthIssue
+			if r.ProviderConfig.RepairAnnotation != "" {
+				if annotationValue, ok := ownerMachine.Annotations[r.ProviderConfig.RepairAnnotation]; ok && annotationValue != "" {
+					log.Info("repair annotation present, flagging instance for repair", "instanceID", nicoMachine.Status.InstanceID, "annotation", r.ProviderConfig.RepairAnnotation)
+					healthIssue = nicosdk.NewMachineHealthIssue()
+					var parsed struct {
+						Category string  `json:"category"`
+						Summary  string  `json:"summary"`
+						Details  *string `json:"details,omitempty"`
+					}
+					if err := json.Unmarshal([]byte(annotationValue), &parsed); err != nil {
+						// Annotation is a plain string (legacy format); treat as summary with a generic category.
+						healthIssue.SetCategory("Other")
+						healthIssue.SetSummary(annotationValue)
+					} else {
+						healthIssue.SetCategory(parsed.Category)
+						healthIssue.SetSummary(parsed.Summary)
+						if parsed.Details != nil {
+							healthIssue.SetDetails(*parsed.Details)
+						}
+					}
+				}
+			}
+
+			if healthIssue != nil {
+					log.Info("deleting NICo instance with health issue", "instanceID", nicoMachine.Status.InstanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
+				} else {
+					log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
+				}
+			if err := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID, healthIssue)); err != nil {
 				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
 			}
 		}

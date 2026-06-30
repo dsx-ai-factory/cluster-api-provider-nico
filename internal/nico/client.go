@@ -152,13 +152,20 @@ func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateR
 	return instance, nil
 }
 
-// DeleteInstance deletes a NICo instance.
-func (c *Client) DeleteInstance(ctx context.Context, instanceID string) error {
+// DeleteInstance deletes a NICo instance. When healthIssue is non-nil it is
+// forwarded to the API as machine health context for the repair workflow.
+func (c *Client) DeleteInstance(ctx context.Context, instanceID string, healthIssue *nicosdk.MachineHealthIssue) error {
 	authCtx, err := c.authCtx(ctx)
 	if err != nil {
 		return err
 	}
-	resp, err := c.api.InstanceAPI.DeleteInstance(authCtx, c.orgID, instanceID).Execute()
+	req := c.api.InstanceAPI.DeleteInstance(authCtx, c.orgID, instanceID)
+	if healthIssue != nil {
+		deleteReq := nicosdk.NewInstanceDeleteRequest()
+		deleteReq.SetMachineHealthIssue(*healthIssue)
+		req = req.InstanceDeleteRequest(*deleteReq)
+	}
+	resp, err := req.Execute()
 	return normalizeError(resp, err)
 }
 

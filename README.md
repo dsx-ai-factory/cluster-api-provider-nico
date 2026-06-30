@@ -39,6 +39,26 @@ instances may still exist. A namespace delete can remove the per-cluster
 credentials Secret before `NicoMachine` finalizers finish, which can leave
 machines stuck in deletion and require manual NICo cleanup.
 
+## Machine Repair
+
+CAPNICo exposes repair as an annotation-driven contract on the owning CAPI
+`Machine`. A consumer requests that a NiCo instance be flagged for repair
+before deletion by setting the configured repair annotation on the `Machine`.
+CAPNICo treats annotation presence as the repair request; the annotation value
+is used as the health-issue summary forwarded to NiCo. When the annotation is
+present, CAPNICo forwards the health issue to the NiCo delete request as
+machine health context for the repair workflow.
+
+The feature can be disabled by setting the flag to an empty string.
+
+The default annotation key is:
+
+* `nico.nvidia.com/machine-health-issue`
+
+The key is configurable with a manager flag:
+
+* `--repair-annotation`
+
 ## Machine Reboot
 
 CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
