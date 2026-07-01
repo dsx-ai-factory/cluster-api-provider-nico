@@ -26,57 +26,6 @@ The provider expects the NICo API to be reachable from the management cluster, a
 
 The `NicoMachine`'s iPXE script must boot an OS image that can consume kubeadm cloud-init user data.
 
-## Deletion lifecycle
-
-The supported teardown path is to delete the CAPI `Cluster` and wait for the
-`Cluster` deletion to complete before deleting the namespace, if it is still
-needed. This lets Cluster API delete machines before the shared infrastructure
-object and gives each `NicoMachine` a chance to delete its backing NICo instance
-while credentials are still available.
-
-Do not use namespace deletion as the normal teardown mechanism while NICo
-instances may still exist. A namespace delete can remove the per-cluster
-credentials Secret before `NicoMachine` finalizers finish, which can leave
-machines stuck in deletion and require manual NICo cleanup.
-
-## Machine Repair
-
-CAPNICo exposes repair as an annotation-driven contract on the owning CAPI
-`Machine`. A consumer requests that a NiCo instance be flagged for repair
-before deletion by setting the configured repair annotation on the `Machine`.
-CAPNICo treats annotation presence as the repair request; the annotation value
-is used as the health-issue summary forwarded to NiCo. When the annotation is
-present, CAPNICo forwards the health issue to the NiCo delete request as
-machine health context for the repair workflow.
-
-The feature can be disabled by setting the flag to an empty string.
-
-The default annotation key is:
-
-* `nico.nvidia.com/machine-health-issue`
-
-The key is configurable with a manager flag:
-
-* `--repair-annotation`
-
-## Machine Reboot
-
-CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
-`Machine`. A consumer requests a reboot by setting the configured reboot
-annotation on the `Machine`. CAPNICo treats annotation presence as the reboot
-request; the annotation value is consumer-owned metadata and is not interpreted.
-CAPNICo triggers at most one NICo instance reboot for each observed annotation
-application. After NICo accepts the reboot trigger, CAPNICo removes the
-configured reboot annotation from the `Machine`.
-
-The default annotation key is:
-
-* `nico.nvidia.com/reboot`
-
-The key is configurable with a manager flag:
-
-* `--reboot-annotation`
-
 ## Install
 
 Initialize the core Cluster API controllers and the kubeadm providers:
@@ -97,47 +46,6 @@ Update `config/manager/manager.yaml` to use that image, then install the provide
 ```bash
 kubectl apply -k config/default
 ```
-
-## Development
-
-CAPNICo uses Kubebuilder project metadata and Makefile conventions. Start with
-the Makefile help output when looking for common development tasks:
-
-```bash
-make help
-```
-
-Common local checks:
-
-```bash
-make generate
-make manifests
-make test
-make build
-```
-
-CAPNICo keeps controllers in the top-level `controllers` package to stay close
-to CAPA and CAPG. Kubebuilder `go/v4` scaffolds controllers under
-`internal/controller` by default, so this repository includes a small external
-Kubebuilder plugin that adapts generated controller files into the CAPNICo
-layout.
-
-Use the plugin Makefile when initializing the project scaffold or adding a new
-API/controller:
-
-```bash
-make -C hack/kubebuilder/plugins/capnico-layout/v1 init-project
-make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoCluster
-```
-
-For template resources that do not need reconcilers:
-
-```bash
-make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoClusterTemplate CONTROLLER=false
-```
-
-The full scaffold command log and plugin validation notes are recorded in
-`docs/kubebuilder-setup.md`.
 
 ## Provider release artifacts
 
@@ -407,22 +315,94 @@ clusterctl generate cluster demo \
   | kubectl apply -f -
 ```
 
+## Deletion lifecycle
+
+The supported teardown path is to delete the CAPI `Cluster` and wait for the
+`Cluster` deletion to complete before deleting the namespace, if it is still
+needed. This lets Cluster API delete machines before the shared infrastructure
+object and gives each `NicoMachine` a chance to delete its backing NICo instance
+while credentials are still available.
+
+Do not use namespace deletion as the normal teardown mechanism while NICo
+instances may still exist. A namespace delete can remove the per-cluster
+credentials Secret before `NicoMachine` finalizers finish, which can leave
+machines stuck in deletion and require manual NICo cleanup.
+
+## Machine Repair
+
+CAPNICo exposes repair as an annotation-driven contract on the owning CAPI
+`Machine`. A consumer requests that a NiCo instance be flagged for repair
+before deletion by setting the configured repair annotation on the `Machine`.
+CAPNICo treats annotation presence as the repair request; the annotation value
+is used as the health-issue summary forwarded to NiCo. When the annotation is
+present, CAPNICo forwards the health issue to the NiCo delete request as
+machine health context for the repair workflow.
+
+The feature can be disabled by setting the flag to an empty string.
+
+The default annotation key is:
+
+* `nico.nvidia.com/machine-health-issue`
+
+The key is configurable with a manager flag:
+
+* `--repair-annotation`
+
+## Machine Reboot
+
+CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
+`Machine`. A consumer requests a reboot by setting the configured reboot
+annotation on the `Machine`. CAPNICo treats annotation presence as the reboot
+request; the annotation value is consumer-owned metadata and is not interpreted.
+CAPNICo triggers at most one NICo instance reboot for each observed annotation
+application. After NICo accepts the reboot trigger, CAPNICo removes the
+configured reboot annotation from the `Machine`.
+
+The default annotation key is:
+
+* `nico.nvidia.com/reboot`
+
+The key is configurable with a manager flag:
+
+* `--reboot-annotation`
+
 ## Development
 
-Generate API deepcopies, CRDs, and RBAC:
+CAPNICo uses Kubebuilder project metadata and Makefile conventions. Start with
+the Makefile help output when looking for common development tasks:
 
 ```bash
-make generate manifests
+make help
 ```
 
-Run tests:
+Common local checks:
 
 ```bash
+make generate
+make manifests
 make test
+make build
 ```
 
-Run the manager locally against the current `KUBECONFIG`:
+CAPNICo keeps controllers in the top-level `controllers` package to stay close
+to CAPA and CAPG. Kubebuilder `go/v4` scaffolds controllers under
+`internal/controller` by default, so this repository includes a small external
+Kubebuilder plugin that adapts generated controller files into the CAPNICo
+layout.
+
+Use the plugin Makefile when initializing the project scaffold or adding a new
+API/controller:
 
 ```bash
-make run
+make -C hack/kubebuilder/plugins/capnico-layout/v1 init-project
+make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoCluster
 ```
+
+For template resources that do not need reconcilers:
+
+```bash
+make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoClusterTemplate CONTROLLER=false
+```
+
+The full scaffold command log and plugin validation notes are recorded in
+`docs/kubebuilder-setup.md`.
