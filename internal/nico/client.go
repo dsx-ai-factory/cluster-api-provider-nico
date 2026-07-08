@@ -210,7 +210,10 @@ func (c *Client) GetSite(ctx context.Context, siteID string) (*nicosdk.Site, err
 	if err != nil {
 		return nil, err
 	}
-	sites, resp, err := c.api.SiteAPI.GetAllSite(authCtx, c.orgID).TenantId(tenantID).Execute()
+	sites, resp, err := c.api.SiteAPI.GetAllSite(authCtx, c.orgID).
+		TenantId(tenantID).
+		PageSize(pageSize).
+		Execute()
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}

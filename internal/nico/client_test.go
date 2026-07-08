@@ -20,6 +20,9 @@ func TestClientGetSite(t *testing.T) {
 			if got, want := r.URL.Query().Get("tenantId"), "tenant-1"; got != want {
 				t.Fatalf("tenantId = %q, want %q", got, want)
 			}
+			if got, want := r.URL.Query().Get("pageSize"), "100"; got != want {
+				t.Fatalf("pageSize = %q, want %q", got, want)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[{"id":"other-site","name":"Other"},{"id":"site-1","name":"Site / West"}]`))
 		default:
