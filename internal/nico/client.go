@@ -200,6 +200,32 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 	return instance, nil
 }
 
+// GetSite fetches a NICo site by ID.
+func (c *Client) GetSite(ctx context.Context, siteID string) (*nicosdk.Site, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	site, resp, err := c.api.SiteAPI.GetSite(authCtx, c.orgID, siteID).Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return site, nil
+}
+
+// GetVPC fetches a NICo VPC by ID.
+func (c *Client) GetVPC(ctx context.Context, vpcID string) (*nicosdk.VPC, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	vpc, resp, err := c.api.VPCAPI.GetVpc(authCtx, c.orgID, vpcID).Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return vpc, nil
+}
+
 // FindInstanceByName searches for a NICo instance by name and optional scoping fields.
 func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) (*nicosdk.Instance, error) {
 	authCtx, err := c.authCtx(ctx)
