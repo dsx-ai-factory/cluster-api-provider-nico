@@ -140,10 +140,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 
 			if healthIssue != nil {
-					log.Info("deleting NICo instance with health issue", "instanceID", nicoMachine.Status.InstanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
-				} else {
-					log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
-				}
+				log.Info("deleting NICo instance with health issue", "instanceID", nicoMachine.Status.InstanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
+			} else {
+				log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
+			}
 			if err := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID, healthIssue)); err != nil {
 				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
 			}
