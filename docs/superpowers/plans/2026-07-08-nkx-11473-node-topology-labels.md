@@ -292,4 +292,3 @@ Expected: only planned feature commits are present.
 - Task 5 owns exactly five labels, normalizes at CWE, omits empty values, removes stale managed labels, and preserves unrelated labels.
 - No task changes `node.kubernetes.io/instance-type` or adds `sku-id`.
 - Every production-code task starts with an explicit failing test and red command.
-
