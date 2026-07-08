@@ -167,6 +167,22 @@ type NicoMachineStatus struct {
 	// +optional
 	MachineID string `json:"machineID,omitempty"`
 
+	// SiteID is the observed Forge/Carbide site ID for this machine.
+	// +optional
+	SiteID string `json:"siteID,omitempty"`
+
+	// SiteName is the observed Forge/Carbide site name for this machine.
+	// +optional
+	SiteName string `json:"siteName,omitempty"`
+
+	// VPCID is the observed Forge/Carbide VPC ID for this machine.
+	// +optional
+	VPCID string `json:"vpcID,omitempty"`
+
+	// VPCName is the observed Forge/Carbide VPC name for this machine.
+	// +optional
+	VPCName string `json:"vpcName,omitempty"`
+
 	// TpmEkPubHash is the TPM EK public hash for this machine.
 	// +optional
 	TpmEkPubHash string `json:"tpmEkPubHash,omitempty"`
