@@ -210,19 +210,24 @@ func (c *Client) GetSite(ctx context.Context, siteID string) (*nicosdk.Site, err
 	if err != nil {
 		return nil, err
 	}
-	sites, resp, err := c.api.SiteAPI.GetAllSite(authCtx, c.orgID).
-		TenantId(tenantID).
-		PageSize(pageSize).
-		Execute()
-	if err != nil {
-		return nil, normalizeError(resp, err)
-	}
-	for i := range sites {
-		if sites[i].GetId() == siteID {
-			return &sites[i], nil
+	for pageNumber := int32(1); ; pageNumber++ {
+		sites, resp, err := c.api.SiteAPI.GetAllSite(authCtx, c.orgID).
+			TenantId(tenantID).
+			PageNumber(pageNumber).
+			PageSize(pageSize).
+			Execute()
+		if err != nil {
+			return nil, normalizeError(resp, err)
+		}
+		for i := range sites {
+			if sites[i].GetId() == siteID {
+				return &sites[i], nil
+			}
+		}
+		if len(sites) < pageSize {
+			return nil, ErrNotFound
 		}
 	}
-	return nil, ErrNotFound
 }
 
 // GetVPC fetches a NICo VPC by ID.
