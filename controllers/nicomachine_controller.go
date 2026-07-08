@@ -280,12 +280,29 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nicoMachine.Status.InstanceID = instance.GetId()
 	}
 
-	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-		return result, err
+	var site *nicosdk.Site
+	if siteID := instance.GetSiteId(); siteID != "" {
+		var err error
+		site, err = nicoClient.GetSite(ctx, siteID)
+		if err != nil {
+			// Topology names are supplementary metadata. Do not delay provisioning if they cannot be read.
+			log.Error(err, "failed to get NICo site for machine topology", "siteID", siteID)
+		}
 	}
 
-	if machineID := instance.GetMachineId(); machineID != "" {
-		nicoMachine.Status.MachineID = machineID
+	var vpc *nicosdk.VPC
+	if vpcID := instance.GetVpcId(); vpcID != "" {
+		var err error
+		vpc, err = nicoClient.GetVPC(ctx, vpcID)
+		if err != nil {
+			// Topology names are supplementary metadata. Do not delay provisioning if they cannot be read.
+			log.Error(err, "failed to get NICo VPC for machine topology", "vpcID", vpcID)
+		}
+	}
+	setObservedTopology(&nicoMachine, instance, site, vpc)
+
+	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+		return result, err
 	}
 
 	if ip := firstIPv4FromInstance(instance); ip != "" {
@@ -318,6 +335,21 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
 	setReadyTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
+}
+
+func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Instance, site *nicosdk.Site, vpc *nicosdk.VPC) {
+	nicoMachine.Status.MachineID = instance.GetMachineId()
+	nicoMachine.Status.SiteID = instance.GetSiteId()
+	nicoMachine.Status.VPCID = instance.GetVpcId()
+	nicoMachine.Status.SiteName = ""
+	nicoMachine.Status.VPCName = ""
+
+	if site != nil {
+		nicoMachine.Status.SiteName = site.GetName()
+	}
+	if vpc != nil {
+		nicoMachine.Status.VPCName = vpc.GetName()
+	}
 }
 
 func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMachine infrav1.NicoMachine, instanceID string) (string, error) {

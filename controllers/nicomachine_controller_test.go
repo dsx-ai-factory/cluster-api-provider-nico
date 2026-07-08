@@ -13,9 +13,50 @@ import (
 
 	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
+
+	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 const testProviderInstanceID = "instance-1"
+
+func TestSetObservedTopologyPreservesRawForgeValues(t *testing.T) {
+	machine := &infrav1.NicoMachine{}
+	instance := nicosdk.NewInstance()
+	instance.SetMachineId("machine-1")
+	instance.SetSiteId("site-1")
+	instance.SetVpcId("vpc-1")
+	site := nicosdk.NewSite()
+	site.SetName("New York / A")
+	vpc := nicosdk.NewVPC()
+	vpc.SetName("Tenant VPC")
+
+	setObservedTopology(machine, instance, site, vpc)
+
+	assert.Equal(t, "machine-1", machine.Status.MachineID)
+	assert.Equal(t, "site-1", machine.Status.SiteID)
+	assert.Equal(t, "New York / A", machine.Status.SiteName)
+	assert.Equal(t, "vpc-1", machine.Status.VPCID)
+	assert.Equal(t, "Tenant VPC", machine.Status.VPCName)
+}
+
+func TestSetObservedTopologyLeavesUnavailableNamesAbsent(t *testing.T) {
+	machine := &infrav1.NicoMachine{Status: infrav1.NicoMachineStatus{
+		SiteName: "stale site name",
+		VPCName:  "stale VPC name",
+	}}
+	instance := nicosdk.NewInstance()
+	instance.SetMachineId("machine-1")
+	instance.SetSiteId("site-1")
+	instance.SetVpcId("vpc-1")
+
+	setObservedTopology(machine, instance, nil, nil)
+
+	assert.Equal(t, "machine-1", machine.Status.MachineID)
+	assert.Equal(t, "site-1", machine.Status.SiteID)
+	assert.Empty(t, machine.Status.SiteName)
+	assert.Equal(t, "vpc-1", machine.Status.VPCID)
+	assert.Empty(t, machine.Status.VPCName)
+}
 
 func TestNicoMachineReconciler_ProviderIDClaimedBy(t *testing.T) {
 	type parameters struct {
