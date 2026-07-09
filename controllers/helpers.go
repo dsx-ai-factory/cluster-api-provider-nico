@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -87,6 +88,29 @@ func mergeLabels(labelSets ...map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// normalizeLabelValue makes Forge/NICo display names safe for NKE label values
+// before those names are copied onto VM records as topology labels.
+func normalizeLabelValue(value string) string {
+	value = strings.ToLower(value)
+	var builder strings.Builder
+	lastSeparator := false
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
+			if builder.Len() < 63 {
+				builder.WriteRune(r)
+				lastSeparator = r == '.' || r == '-' || r == '_'
+			}
+		case r == ' ' || r == '/' || r == '\\':
+			if builder.Len() > 0 && !lastSeparator && builder.Len() < 63 {
+				builder.WriteByte('-')
+				lastSeparator = true
+			}
+		}
+	}
+	return strings.Trim(builder.String(), ".-_")
 }
 
 // deterministicJitter returns a stable whole-second jitter value for key within the given window.

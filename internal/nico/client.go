@@ -187,6 +187,26 @@ func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (
 	return instance, nil
 }
 
+// ApplyInstanceLabels applies labels to a NICo instance. CAPNICo uses this
+// after create because machine-id and observed topology are not all known when
+// the initial create request is built.
+func (c *Client) ApplyInstanceLabels(ctx context.Context, instanceID string, labels map[string]string) (*nicosdk.Instance, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	req := nicosdk.NewInstanceUpdateRequest()
+	req.SetLabels(labels)
+	instance, resp, err := c.api.InstanceAPI.UpdateInstance(authCtx, c.orgID, instanceID).
+		InstanceUpdateRequest(*req).
+		Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return instance, nil
+}
+
 // GetInstance fetches a NICo instance by ID.
 func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.Instance, error) {
 	authCtx, err := c.authCtx(ctx)

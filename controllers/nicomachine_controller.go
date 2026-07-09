@@ -39,6 +39,14 @@ const (
 	machineReadyRequeue           = 5 * time.Minute
 	machineReadyJitterWindow      = 1 * time.Minute
 	instanceTypeUnavailableWait   = 2 * time.Minute
+
+	// These NKE label keys are applied to the backing NICo instance so the VM
+	// records carry the same topology identifiers that Kubernetes nodes expose.
+	labelKeyMachineID = "nke.nvidia.com/machine-id"
+	labelKeySiteID    = "nke.nvidia.com/site-id"
+	labelKeySiteName  = "nke.nvidia.com/site-name"
+	labelKeyVPCID     = "nke.nvidia.com/vpc-id"
+	labelKeyVPCName   = "nke.nvidia.com/vpc-name"
 )
 
 // NicoMachineReconciler reconciles a NicoMachine object.
@@ -300,6 +308,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 	setObservedTopology(&nicoMachine, instance, site, vpc)
+	// Machine ID and normalized topology names are only known after NICo returns
+	// the instance, so apply them after the status observation step.
+	if err := applyObservedTopologyLabels(ctx, nicoClient, instanceID, instance, &nicoMachine); err != nil {
+		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
+	}
 
 	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
 		return result, err
@@ -350,6 +363,40 @@ func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Ins
 	if vpc != nil {
 		nicoMachine.Status.VPCName = vpc.GetName()
 	}
+}
+
+// applyObservedTopologyLabels merges the observed machine/topology labels into
+// the existing instance labels and sends them back to NICo as a label update.
+func applyObservedTopologyLabels(ctx context.Context, nicoClient *nico.Client, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
+	labels := mergeLabels(instance.GetLabels(), observedTopologyLabels(nicoMachine))
+	if len(labels) == 0 {
+		return nil
+	}
+
+	_, err := nicoClient.ApplyInstanceLabels(ctx, instanceID, labels)
+	return err
+}
+
+// observedTopologyLabels converts the latest observed NICo instance topology
+// into the NKE labels required on the backing VM.
+func observedTopologyLabels(nicoMachine *infrav1.NicoMachine) map[string]string {
+	labels := map[string]string{}
+	if nicoMachine.Status.MachineID != "" {
+		labels[labelKeyMachineID] = nicoMachine.Status.MachineID
+	}
+	if nicoMachine.Status.SiteID != "" {
+		labels[labelKeySiteID] = nicoMachine.Status.SiteID
+	}
+	if name := normalizeLabelValue(nicoMachine.Status.SiteName); name != "" {
+		labels[labelKeySiteName] = name
+	}
+	if nicoMachine.Status.VPCID != "" {
+		labels[labelKeyVPCID] = nicoMachine.Status.VPCID
+	}
+	if name := normalizeLabelValue(nicoMachine.Status.VPCName); name != "" {
+		labels[labelKeyVPCName] = name
+	}
+	return labels
 }
 
 func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMachine infrav1.NicoMachine, instanceID string) (string, error) {

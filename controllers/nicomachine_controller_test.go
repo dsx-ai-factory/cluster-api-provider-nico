@@ -58,6 +58,26 @@ func TestSetObservedTopologyLeavesUnavailableNamesAbsent(t *testing.T) {
 	assert.Empty(t, machine.Status.VPCName)
 }
 
+func TestObservedTopologyLabels(t *testing.T) {
+	// This test protects the post-create VM label update contract, including the
+	// late-arriving machine-id and normalized topology name labels.
+	machine := &infrav1.NicoMachine{Status: infrav1.NicoMachineStatus{
+		MachineID: "machine-1",
+		SiteID:    "site-1",
+		SiteName:  "Forge VMs Site",
+		VPCID:     "vpc-1",
+		VPCName:   "Mock VPC",
+	}}
+
+	labels := observedTopologyLabels(machine)
+
+	assert.Equal(t, "machine-1", labels[labelKeyMachineID])
+	assert.Equal(t, "site-1", labels[labelKeySiteID])
+	assert.Equal(t, "forge-vms-site", labels[labelKeySiteName])
+	assert.Equal(t, "vpc-1", labels[labelKeyVPCID])
+	assert.Equal(t, "mock-vpc", labels[labelKeyVPCName])
+}
+
 func TestNicoMachineReconciler_ProviderIDClaimedBy(t *testing.T) {
 	type parameters struct {
 		existing []infrav1.NicoMachine
