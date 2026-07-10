@@ -187,6 +187,26 @@ func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (
 	return instance, nil
 }
 
+// ApplyInstanceLabels applies labels to a NICo instance. CAPNICo uses this
+// after create because machine-id and observed topology are not all known when
+// the initial create request is built.
+func (c *Client) ApplyInstanceLabels(ctx context.Context, instanceID string, labels map[string]string) (*nicosdk.Instance, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	req := nicosdk.NewInstanceUpdateRequest()
+	req.SetLabels(labels)
+	instance, resp, err := c.api.InstanceAPI.UpdateInstance(authCtx, c.orgID, instanceID).
+		InstanceUpdateRequest(*req).
+		Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return instance, nil
+}
+
 // GetInstance fetches a NICo instance by ID.
 func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.Instance, error) {
 	authCtx, err := c.authCtx(ctx)
@@ -198,6 +218,49 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 		return nil, normalizeError(resp, err)
 	}
 	return instance, nil
+}
+
+// GetSite fetches a NICo site by ID.
+func (c *Client) GetSite(ctx context.Context, siteID string) (*nicosdk.Site, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tenantID, err := c.ResolveTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for pageNumber := int32(1); ; pageNumber++ {
+		sites, resp, err := c.api.SiteAPI.GetAllSite(authCtx, c.orgID).
+			TenantId(tenantID).
+			PageNumber(pageNumber).
+			PageSize(pageSize).
+			Execute()
+		if err != nil {
+			return nil, normalizeError(resp, err)
+		}
+		for i := range sites {
+			if sites[i].GetId() == siteID {
+				return &sites[i], nil
+			}
+		}
+		if len(sites) < pageSize {
+			return nil, ErrNotFound
+		}
+	}
+}
+
+// GetVPC fetches a NICo VPC by ID.
+func (c *Client) GetVPC(ctx context.Context, vpcID string) (*nicosdk.VPC, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	vpc, resp, err := c.api.VPCAPI.GetVpc(authCtx, c.orgID, vpcID).Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return vpc, nil
 }
 
 // FindInstanceByName searches for a NICo instance by name and optional scoping fields.

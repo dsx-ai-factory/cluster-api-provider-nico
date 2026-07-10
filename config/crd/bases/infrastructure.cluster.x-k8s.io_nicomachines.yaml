@@ -306,8 +306,23 @@ spec:
               ready:
                 description: Ready is true once the backing instance reaches Ready.
                 type: boolean
+              siteID:
+                description: SiteID is the observed Forge/Carbide site ID for this
+                  machine.
+                type: string
+              siteName:
+                description: SiteName is the observed Forge/Carbide site name for
+                  this machine.
+                type: string
               tpmEkPubHash:
                 description: TpmEkPubHash is the TPM EK public hash for this machine.
+                type: string
+              vpcID:
+                description: VPCID is the observed Forge/Carbide VPC ID for this machine.
+                type: string
+              vpcName:
+                description: VPCName is the observed Forge/Carbide VPC name for this
+                  machine.
                 type: string
             type: object
         type: object

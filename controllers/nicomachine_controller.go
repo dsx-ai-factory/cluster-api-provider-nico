@@ -39,6 +39,14 @@ const (
 	machineReadyRequeue           = 5 * time.Minute
 	machineReadyJitterWindow      = 1 * time.Minute
 	instanceTypeUnavailableWait   = 2 * time.Minute
+
+	// These NKE label keys are applied to the backing NICo instance so the VM
+	// records carry the same topology identifiers that Kubernetes nodes expose.
+	labelKeyMachineID = "nke.nvidia.com/machine-id"
+	labelKeySiteID    = "nke.nvidia.com/site-id"
+	labelKeySiteName  = "nke.nvidia.com/site-name"
+	labelKeyVPCID     = "nke.nvidia.com/vpc-id"
+	labelKeyVPCName   = "nke.nvidia.com/vpc-name"
 )
 
 // NicoMachineReconciler reconciles a NicoMachine object.
@@ -140,10 +148,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 
 			if healthIssue != nil {
-					log.Info("deleting NICo instance with health issue", "instanceID", nicoMachine.Status.InstanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
-				} else {
-					log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
-				}
+				log.Info("deleting NICo instance with health issue", "instanceID", nicoMachine.Status.InstanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
+			} else {
+				log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
+			}
 			if err := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID, healthIssue)); err != nil {
 				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
 			}
@@ -280,12 +288,34 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nicoMachine.Status.InstanceID = instance.GetId()
 	}
 
-	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-		return result, err
+	var site *nicosdk.Site
+	if siteID := instance.GetSiteId(); siteID != "" {
+		var err error
+		site, err = nicoClient.GetSite(ctx, siteID)
+		if err != nil {
+			// Topology names are supplementary metadata. Do not delay provisioning if they cannot be read.
+			log.Error(err, "failed to get NICo site for machine topology", "siteID", siteID)
+		}
 	}
 
-	if machineID := instance.GetMachineId(); machineID != "" {
-		nicoMachine.Status.MachineID = machineID
+	var vpc *nicosdk.VPC
+	if vpcID := instance.GetVpcId(); vpcID != "" {
+		var err error
+		vpc, err = nicoClient.GetVPC(ctx, vpcID)
+		if err != nil {
+			// Topology names are supplementary metadata. Do not delay provisioning if they cannot be read.
+			log.Error(err, "failed to get NICo VPC for machine topology", "vpcID", vpcID)
+		}
+	}
+	setObservedTopology(&nicoMachine, instance, site, vpc)
+	// Machine ID and normalized topology names are only known after NICo returns
+	// the instance, so apply them after the status observation step.
+	if err := applyObservedTopologyLabels(ctx, nicoClient, instanceID, instance, &nicoMachine); err != nil {
+		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
+	}
+
+	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+		return result, err
 	}
 
 	if ip := firstIPv4FromInstance(instance); ip != "" {
@@ -318,6 +348,55 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
 	setReadyTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
+}
+
+func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Instance, site *nicosdk.Site, vpc *nicosdk.VPC) {
+	nicoMachine.Status.MachineID = instance.GetMachineId()
+	nicoMachine.Status.SiteID = instance.GetSiteId()
+	nicoMachine.Status.VPCID = instance.GetVpcId()
+	nicoMachine.Status.SiteName = ""
+	nicoMachine.Status.VPCName = ""
+
+	if site != nil {
+		nicoMachine.Status.SiteName = site.GetName()
+	}
+	if vpc != nil {
+		nicoMachine.Status.VPCName = vpc.GetName()
+	}
+}
+
+// applyObservedTopologyLabels merges the observed machine/topology labels into
+// the existing instance labels and sends them back to NICo as a label update.
+func applyObservedTopologyLabels(ctx context.Context, nicoClient *nico.Client, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
+	labels := mergeLabels(instance.GetLabels(), observedTopologyLabels(nicoMachine))
+	if len(labels) == 0 {
+		return nil
+	}
+
+	_, err := nicoClient.ApplyInstanceLabels(ctx, instanceID, labels)
+	return err
+}
+
+// observedTopologyLabels converts the latest observed NICo instance topology
+// into the NKE labels required on the backing VM.
+func observedTopologyLabels(nicoMachine *infrav1.NicoMachine) map[string]string {
+	labels := map[string]string{}
+	if nicoMachine.Status.MachineID != "" {
+		labels[labelKeyMachineID] = nicoMachine.Status.MachineID
+	}
+	if nicoMachine.Status.SiteID != "" {
+		labels[labelKeySiteID] = nicoMachine.Status.SiteID
+	}
+	if name := normalizeLabelValue(nicoMachine.Status.SiteName); name != "" {
+		labels[labelKeySiteName] = name
+	}
+	if nicoMachine.Status.VPCID != "" {
+		labels[labelKeyVPCID] = nicoMachine.Status.VPCID
+	}
+	if name := normalizeLabelValue(nicoMachine.Status.VPCName); name != "" {
+		labels[labelKeyVPCName] = name
+	}
+	return labels
 }
 
 func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMachine infrav1.NicoMachine, instanceID string) (string, error) {
