@@ -1,0 +1,20 @@
+version: "1.0"
+project: "cluster-api-provider-nico"
+last_updated: "2026-07-23T13:31:24Z"
+
+repository_exposure_classification:
+  visibility: "Internal"
+  basis: "origin is hosted on NVIDIA's internal GitLab service"
+  confirmed_by: "apatten@nvidia.com"
+  date: "2026-07-21"
+
+service_exposure_classification:
+  tier: "Internal-Sensitive"
+  confidence: "high"
+  basis: "internal infrastructure controller; handles NICo credentials, Kubernetes bootstrap data, and privileged machine lifecycle operations; not an externally exposed service"
+  confirmed_by: "apatten@nvidia.com"
+  date: "2026-07-23"
+
+false_positives: []
+accepted_risks: []
+suppressed_cves: []
