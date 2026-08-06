@@ -315,6 +315,7 @@ func assertNicoMachineReady(g gomega.Gomega, ctx context.Context, c client.Clien
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
 	g.Expect(cond.Reason).To(gomega.Equal(infrav1.InstanceReadyReason))
+	assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
 	g.Expect(current.Status.Ready).To(gomega.BeTrue())
 	g.Expect(current.Status.InstanceID).NotTo(gomega.BeEmpty())
 	g.Expect(current.Spec.ProviderID).To(gomega.Equal(nico.ProviderID(current.Status.InstanceID)))
@@ -329,6 +330,7 @@ func assertNicoMachineReadyReason(g gomega.Gomega, ctx context.Context, c client
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(status))
 	g.Expect(cond.Reason).To(gomega.Equal(reason))
+	assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
 }
 
 func assertNicoClusterReadyReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) {
@@ -339,6 +341,16 @@ func assertNicoClusterReadyReason(g gomega.Gomega, ctx context.Context, c client
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(status))
 	g.Expect(cond.Reason).To(gomega.Equal(reason))
+	assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
+}
+
+// assertConditionsObservedAtGeneration requires every condition to reflect metadata.generation.
+func assertConditionsObservedAtGeneration(g gomega.Gomega, generation int64, conds []metav1.Condition) {
+	ginkgo.GinkgoHelper()
+	g.Expect(conds).NotTo(gomega.BeEmpty())
+	for _, cond := range conds {
+		g.Expect(cond.ObservedGeneration).To(gomega.Equal(generation), "condition %s", cond.Type)
+	}
 }
 
 func kickMachine(ctx context.Context, c client.Client, name string) {

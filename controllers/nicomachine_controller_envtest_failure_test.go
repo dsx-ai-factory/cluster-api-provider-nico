@@ -190,6 +190,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 				cond := conditions.Get(&current, clusterv1.PausedCondition)
 				g.Expect(cond).NotTo(gomega.BeNil())
 				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
+				assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 
 			gomega.Consistently(func(g gomega.Gomega) {
