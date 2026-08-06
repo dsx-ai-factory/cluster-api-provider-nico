@@ -1,0 +1,43 @@
+---
+items: []
+metadata: {}
+---
+items:
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoCluster
+  metadata:
+    creationTimestamp: null
+    finalizers:
+    - infrastructure.cluster.x-k8s.io/nicocluster
+    generation: 1
+    name: nico-1
+    namespace: test-ns
+    ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta2
+      blockOwnerDeletion: true
+      controller: true
+      kind: Cluster
+      name: cluster-1
+      uid: 00000000-0000-0000-0000-000000000000
+  spec:
+    identityRef:
+      name: nico-creds
+    siteID: site-1
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotPaused
+      status: "False"
+      type: Paused
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: InfrastructureReady
+      status: "True"
+      type: Ready
+    initialization:
+      provisioned: true
+    ready: true
+metadata: {}

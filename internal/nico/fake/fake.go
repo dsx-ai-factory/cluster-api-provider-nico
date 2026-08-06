@@ -24,8 +24,16 @@ type Client struct {
 	// ValidateErr, when set, is returned from ValidateReadiness and ResolveTenantID.
 	ValidateErr error
 
-	lastCreateRequest *nicosdk.InstanceCreateRequest
-	lastAppliedLabels map[string]string
+	lastCreateRequest    *nicosdk.InstanceCreateRequest
+	lastAppliedLabels    map[string]string
+	lastDeleteInstanceID string
+	deleteAttempts       int
+
+	// CreateStatus is applied to newly created instances. Empty means Ready.
+	CreateStatus nicosdk.InstanceStatus
+
+	createErr error
+	deleteErr error
 
 	instances     map[string]*nicosdk.Instance
 	sites         map[string]*nicosdk.Site
@@ -116,6 +124,53 @@ func (c *Client) SeedInstanceType(id string, unusedUsable int32) {
 	c.instanceTypes[id] = it
 }
 
+// SetInstanceStatus updates the status of a tracked instance.
+func (c *Client) SetInstanceStatus(instanceID string, status nicosdk.InstanceStatus) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	inst, ok := c.instances[instanceID]
+	if !ok {
+		return fmt.Errorf("%w: instance %q", nico.ErrNotFound, instanceID)
+	}
+	inst.SetStatus(status)
+	return nil
+}
+
+// RemoveInstance drops a tracked instance without going through DeleteInstance and without recording a DeleteAttempt.
+func (c *Client) RemoveInstance(instanceID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.instances, instanceID)
+}
+
+// SetCreateErr sets the error returned from CreateInstance after recording the request.
+func (c *Client) SetCreateErr(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.createErr = err
+}
+
+// SetDeleteErr sets the error returned from DeleteInstance.
+func (c *Client) SetDeleteErr(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deleteErr = err
+}
+
+// LastDeleteInstanceID returns the instance ID from the most recent DeleteInstance call.
+func (c *Client) LastDeleteInstanceID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastDeleteInstanceID
+}
+
+// DeleteAttempts returns how many times DeleteInstance has been called.
+func (c *Client) DeleteAttempts() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.deleteAttempts
+}
+
 func (c *Client) ValidateReadiness(ctx context.Context) error {
 	_, err := c.ResolveTenantID(ctx)
 	return err
@@ -147,6 +202,10 @@ func (c *Client) CreateInstance(_ context.Context, req nicosdk.InstanceCreateReq
 	copied := req
 	c.lastCreateRequest = &copied
 
+	if c.createErr != nil {
+		return nil, c.createErr
+	}
+
 	for _, existing := range c.instances {
 		if existing.GetName() == req.GetName() {
 			return nil, fmt.Errorf("%w: instance %q", nico.ErrAlreadyExists, req.GetName())
@@ -161,7 +220,11 @@ func (c *Client) CreateInstance(_ context.Context, req nicosdk.InstanceCreateReq
 	inst.SetTenantId(req.GetTenantId())
 	inst.SetVpcId(req.GetVpcId())
 	inst.SetSiteId(c.DefaultSiteID)
-	inst.SetStatus(nicosdk.INSTANCESTATUS_READY)
+	status := nicosdk.INSTANCESTATUS_READY
+	if c.CreateStatus != "" {
+		status = c.CreateStatus
+	}
+	inst.SetStatus(status)
 	if req.HasInstanceTypeId() {
 		inst.SetInstanceTypeId(req.GetInstanceTypeId())
 	}
@@ -183,6 +246,11 @@ func (c *Client) CreateInstance(_ context.Context, req nicosdk.InstanceCreateReq
 func (c *Client) DeleteInstance(_ context.Context, instanceID string, _ *nicosdk.MachineHealthIssue) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.deleteAttempts++
+	c.lastDeleteInstanceID = instanceID
+	if c.deleteErr != nil {
+		return c.deleteErr
+	}
 	if _, ok := c.instances[instanceID]; !ok {
 		return fmt.Errorf("%w: instance %q", nico.ErrNotFound, instanceID)
 	}

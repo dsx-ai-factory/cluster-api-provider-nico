@@ -39,6 +39,8 @@ import (
 
 var caseFakes sync.Map // case name -> *nicofake.Client
 
+const kickAnnotation = "test.cluster.x-k8s.io/kick"
+
 var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation",
 	"nicomachine-create-ready",
@@ -179,7 +181,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine delete reconciliation",
-	"nicomachine-delete-",
+	"nicomachine-delete-cleanup",
 	nil,
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		var instanceID string
@@ -327,6 +329,38 @@ func assertNicoMachineReadyReason(g gomega.Gomega, ctx context.Context, c client
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(status))
 	g.Expect(cond.Reason).To(gomega.Equal(reason))
+}
+
+func assertNicoClusterReadyReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) {
+	ginkgo.GinkgoHelper()
+	var current infrav1.NicoCluster
+	g.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &current)).To(gomega.Succeed())
+	cond := conditions.Get(&current, clusterv1.ReadyCondition)
+	g.Expect(cond).NotTo(gomega.BeNil())
+	g.Expect(cond.Status).To(gomega.Equal(status))
+	g.Expect(cond.Reason).To(gomega.Equal(reason))
+}
+
+func kickMachine(ctx context.Context, c client.Client, name string) {
+	ginkgo.GinkgoHelper()
+	var machine clusterv1.Machine
+	gomega.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &machine)).To(gomega.Succeed())
+	if machine.Annotations == nil {
+		machine.Annotations = map[string]string{}
+	}
+	machine.Annotations[kickAnnotation] = time.Now().Format(time.RFC3339Nano)
+	gomega.Expect(c.Update(ctx, &machine)).To(gomega.Succeed())
+}
+
+func kickNicoCluster(ctx context.Context, c client.Client, name string) {
+	ginkgo.GinkgoHelper()
+	var nicoCluster infrav1.NicoCluster
+	gomega.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &nicoCluster)).To(gomega.Succeed())
+	if nicoCluster.Annotations == nil {
+		nicoCluster.Annotations = map[string]string{}
+	}
+	nicoCluster.Annotations[kickAnnotation] = time.Now().Format(time.RFC3339Nano)
+	gomega.Expect(c.Update(ctx, &nicoCluster)).To(gomega.Succeed())
 }
 
 // wireOwnerReferences sets controller ownerRefs from Cluster/Machine infrastructureRefs.
