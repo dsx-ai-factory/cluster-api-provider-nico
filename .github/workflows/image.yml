@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Image
+
+# Disabled until public GHCR publishing is ready.
+# To re-enable: restore the push triggers below and remove the job-level
+# `if: false` guards.
+on:
+  # push:
+  #   branches:
+  #     - main
+  #   tags:
+  #     - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/nvidia/cluster-api-provider-nico
+
+jobs:
+  build:
+    if: false # publishing disabled
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch="${{ matrix.arch }}"
+          sha_tag="sha-${GITHUB_SHA}-${arch}"
+          tags=("${IMAGE}:${sha_tag}")
+
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            tags+=("${IMAGE}:edge-${arch}")
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+            tags+=("${IMAGE}:${version}-${arch}")
+          fi
+
+          {
+            echo "sha_tag=${sha_tag}"
+            echo "tags<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=${{ matrix.arch }}
+          cache-from: type=gha,scope=capnico-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=capnico-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  manifest:
+    if: false # publishing disabled
+    name: Multi-arch manifest
+    runs-on: ubuntu-latest
+    needs: [build]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Create multi-arch manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          aliases=("sha-${GITHUB_SHA}")
+
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            aliases+=("edge")
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            aliases+=("${GITHUB_REF_NAME}")
+          fi
+
+          for alias in "${aliases[@]}"; do
+            docker buildx imagetools create \
+              -t "${IMAGE}:${alias}" \
+              "${IMAGE}:${alias}-amd64" \
+              "${IMAGE}:${alias}-arm64"
+          done

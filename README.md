@@ -406,3 +406,19 @@ make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoClusterTe
 
 The full scaffold command log and plugin validation notes are recorded in
 `docs/kubebuilder-setup.md`.
+
+## Contributing
+
+- Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## Security
+
+- Vulnerability disclosure: [SECURITY.md](SECURITY.md)
+- Do not file public issues for security reports.
+
+## Support
+
+- Level: Experimental
+- How to get help: GitHub Issues on
+  [NVIDIA/cluster-api-provider-nico](https://github.com/NVIDIA/cluster-api-provider-nico)

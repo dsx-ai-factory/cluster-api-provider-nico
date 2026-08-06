@@ -1,0 +1,9 @@
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security vulnerability report
+    url: https://www.nvidia.com/en-us/security/
+    about: Please do not file public issues for security reports. Use NVIDIA's vulnerability disclosure process.
+  - name: Cluster API documentation
+    url: https://cluster-api.sigs.k8s.io/
+    about: Upstream Cluster API concepts and provider contracts.
