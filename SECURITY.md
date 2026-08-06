@@ -2,14 +2,14 @@
 
 ## Reporting a Vulnerability
 
-If you discover a potential security vulnerability, please **do not open a public issue, merge request, or discussion**.
+If you discover a potential security vulnerability, please **do not open a public GitHub issue, pull request, or discussion**.
 
 Report it privately through one of these channels:
 
 1. **Preferred:** [NVIDIA Vulnerability Disclosure Program](https://www.nvidia.com/en-us/security/)
+   - Web form: [Security Vulnerability Submission Form](https://www.nvidia.com/object/submit-security-vulnerability.html)
 2. **Email:** [psirt@nvidia.com](mailto:psirt@nvidia.com)
    - Use the [NVIDIA public PGP key](https://www.nvidia.com/en-us/security/pgp-key) for encrypted communication.
-3. **GitLab:** Use this repository's **Security** tab and select **Report a vulnerability**.
 
 Include:
 
@@ -24,6 +24,8 @@ Detailed reports help NVIDIA evaluate and address issues faster.
 
 NVIDIA's Product Security Incident Response Team (PSIRT) will acknowledge the report, validate the vulnerability and assess its severity, coordinate development and testing of a fix, and publish a security bulletin when appropriate. Reports are handled under coordinated vulnerability disclosure. NVIDIA does not currently operate a public bug bounty program.
 
+For broader NVIDIA product security policies, see https://www.nvidia.com/en-us/security/psirt-policies/.
+
 ## Security Architecture & Context
 
 `cluster-api-provider-nico` (CAPNICo) is a Go-based Kubernetes Cluster API infrastructure provider. It runs as a controller in a management cluster and reconciles `NicoCluster` and `NicoMachine` resources into bare-metal instances managed through the NICo API.
@@ -32,11 +34,11 @@ The project is an infrastructure service and privileged control-plane component.
 
 **Repository Exposure Classification:** Internal.
 
-Basis: the origin is hosted on NVIDIA's internal GitLab service.
+Basis: the canonical source remains on NVIDIA's internal GitLab service until public publication is approved.
 
 **Service Exposure Classification:** Internal-Sensitive (high confidence).
 
-Basis: the project is an internal infrastructure controller that handles NICo credentials, Kubernetes bootstrap data, and privileged machine lifecycle operations; it is not an externally exposed service.
+Basis: deployments are typically privileged infrastructure controllers that handle NICo credentials, Kubernetes bootstrap data, and machine lifecycle operations; the controller is not intended as an internet-facing service.
 
 The principal security boundaries are:
 
@@ -46,7 +48,7 @@ The principal security boundaries are:
 - **Credential boundary:** `internal/nico/config.go` loads a bearer token or OAuth2 client credentials, endpoint details, an optional CA bundle, and the optional `insecureSkipTLSVerify` setting from Secrets.
 - **Machine bootstrap boundary:** `controllers/nicomachine_controller.go` reads kubeadm bootstrap data from a Secret and forwards it as instance user data. `NicoMachine.spec.ipxeScript` also controls the instance boot path.
 - **Operational endpoint boundary:** The manager exposes health probes and controller-runtime metrics. The default Kustomize configuration serves metrics over HTTP; TLS and NetworkPolicy resources are available but are not enabled by default.
-- **Release boundary:** GitLab CI builds and publishes multi-architecture images, Cluster API release manifests, and Helm charts using registry credentials and externally downloaded build tools.
+- **Release boundary:** CI builds and publishes multi-architecture images, Cluster API release manifests, and Helm charts using registry credentials and externally downloaded build tools.
 
 ### Threat Model
 
@@ -62,7 +64,7 @@ The principal security boundaries are:
 
 6. **Unauthenticated metrics or probe exposure:** `cmd/main.go` binds metrics and health endpoints on configurable addresses. The default deployment exposes HTTP metrics on port 8080, while the provided TLS patch and metrics NetworkPolicy are disabled by default. An overly broad Service or cluster network policy can expose operational metadata or permit resource-exhaustion traffic.
 
-7. **Release pipeline and dependency compromise:** `.gitlab-ci.yml` publishes images, manifests, and Helm charts using GitLab and NGC credentials. It relies on shared CI templates and downloads build tooling such as Kustomize and the NGC CLI. Compromise of CI dependencies, runners, credentials, registries, or unverified downloads can alter distributed artifacts.
+7. **Release pipeline and dependency compromise:** Release pipelines publish images, manifests, and Helm charts using registry credentials. They may rely on shared CI templates and download build tooling such as Kustomize. Compromise of CI dependencies, runners, credentials, registries, or unverified downloads can alter distributed artifacts.
 
 ### Critical Security Assumptions
 
@@ -74,7 +76,7 @@ The principal security boundaries are:
 - Bootstrap Secrets and referenced iPXE content come from trusted controllers and repositories and are protected against unauthorized modification.
 - Cluster API owner references, finalizers, provider IDs, and instance identity returned by NICo accurately identify the resources CAPNICo should manage.
 - Metrics and probe endpoints are reachable only from authorized management and monitoring networks unless authentication and TLS are enabled.
-- GitLab CI templates, runners, registries, builder images, downloaded tools, and release credentials are trusted and protected by the release process.
+- CI templates, runners, registries, builder images, downloaded tools, and release credentials are trusted and protected by the release process.
 - The host kernel, container runtime, and Kubernetes platform enforce the non-root container and dropped-capability settings in `config/manager/manager.yaml`.
 
 ## Trust Model
