@@ -38,6 +38,8 @@ type NicoClusterReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	ProviderConfig nico.ProviderConfig
+	// nicoClientFactory optionally overrides client construction after Secret load (tests).
+	nicoClientFactory nicoClientFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch;update;patch
@@ -105,7 +107,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer)
 	}
 
-	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
+	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			setNicoClusterReadyFalse(&nicoCluster, infrav1.WaitingForIdentitySecretReason, err.Error())
@@ -128,6 +130,10 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.V(1).Info("reconciled NicoCluster")
 	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
+}
+
+func (r *NicoClusterReconciler) nicoClientForCluster(ctx context.Context, nicoCluster *infrav1.NicoCluster) (nico.API, error) {
+	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials, r.nicoClientFactory)
 }
 
 func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {

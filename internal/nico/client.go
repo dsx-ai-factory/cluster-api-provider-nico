@@ -26,6 +26,8 @@ type Client struct {
 	tenantID    string
 }
 
+var _ API = (*Client)(nil)
+
 // InstanceLookup narrows idempotent instance lookups.
 type InstanceLookup struct {
 	Name   string

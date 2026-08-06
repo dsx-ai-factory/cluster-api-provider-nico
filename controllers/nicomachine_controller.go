@@ -54,6 +54,8 @@ type NicoMachineReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	ProviderConfig nico.ProviderConfig
+	// nicoClientFactory optionally overrides client construction after Secret load (tests).
+	nicoClientFactory nicoClientFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -118,7 +120,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !nicoMachine.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) && nicoMachine.Status.InstanceID != "" {
-			nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
+			nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
 			}
@@ -167,7 +169,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer)
 	}
 
-	nicoClient, err := nicoClientForCluster(ctx, r.Client, &nicoCluster, r.ProviderConfig.Credentials)
+	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			setReadyFalse(&nicoMachine, infrav1.WaitingForIdentitySecretReason, err.Error())
@@ -367,7 +369,7 @@ func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Ins
 
 // applyObservedTopologyLabels merges the observed machine/topology labels into
 // the existing instance labels and sends them back to NICo as a label update.
-func applyObservedTopologyLabels(ctx context.Context, nicoClient *nico.Client, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
+func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
 	labels := mergeLabels(instance.GetLabels(), observedTopologyLabels(nicoMachine))
 	if len(labels) == 0 {
 		return nil
@@ -418,6 +420,10 @@ func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMac
 	return "", nil
 }
 
+func (r *NicoMachineReconciler) nicoClientForCluster(ctx context.Context, nicoCluster *infrav1.NicoCluster) (nico.API, error) {
+	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials, r.nicoClientFactory)
+}
+
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
@@ -446,7 +452,7 @@ func (r *NicoMachineReconciler) reconcileReboot(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 	nicoMachine *infrav1.NicoMachine,
-	nicoClient *nico.Client,
+	nicoClient nico.API,
 	instanceID string,
 ) (ctrl.Result, bool, error) {
 	rebootAnnotation := r.ProviderConfig.RebootAnnotation
@@ -610,7 +616,7 @@ func buildInstanceCreateRequest(
 	return createReq, nil
 }
 
-func instanceTypeAvailable(ctx context.Context, nicoClient *nico.Client, instanceTypeID string) (bool, string, string, error) {
+func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (bool, string, string, error) {
 	log := ctrl.LoggerFrom(ctx)
 	instanceType, err := nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
 	log.V(2).Info("instance type availability check result", "instanceType", instanceType, "err", err)

@@ -23,6 +23,7 @@ include:
 
 stages:
   - versioning
+  - test
   - build
   - publish
 
@@ -46,6 +47,21 @@ variables:
         - internal/**/*
         - go.mod
         - go.sum
+
+test:
+  stage: test
+  image: golang:1.25
+  variables:
+    KUBERNETES_CPU_LIMIT: "2000m"
+    KUBERNETES_MEMORY_LIMIT: "6Gi"
+  script:
+    - |
+      set -euo pipefail
+      make test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
 
 container-image:
   stage: build

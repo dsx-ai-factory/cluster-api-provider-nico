@@ -51,7 +51,12 @@ func firstIPv4FromInstance(instance *nicosdk.Instance) string {
 	return ""
 }
 
-func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (*nico.Client, error) {
+// nicoClientFactory builds a NICo API client from an already-loaded SecretConfig.
+// When unset on a reconciler, defaultNicoClientCache.GetOrCreate is used.
+// Secret resolution and LoadSecretConfig always run on the production path first.
+type nicoClientFactory func(ctx context.Context, secret *corev1.Secret, cfg nico.SecretConfig) (nico.API, error)
+
+func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName, factory nicoClientFactory) (nico.API, error) {
 	var secretKey types.NamespacedName
 
 	// Prefer the cluster-specific credentials Secret over the provider-level credentials Secret.
@@ -74,6 +79,9 @@ func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *i
 		return nil, err
 	}
 
+	if factory != nil {
+		return factory(ctx, &identitySecret, secretConfig)
+	}
 	return defaultNicoClientCache.GetOrCreate(ctx, &identitySecret, secretConfig)
 }
 
