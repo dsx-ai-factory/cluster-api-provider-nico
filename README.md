@@ -412,6 +412,10 @@ The full scaffold command log and plugin validation notes are recorded in
 - Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
+
 ## Security
 
 - Vulnerability disclosure: [SECURITY.md](SECURITY.md)
