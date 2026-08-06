@@ -60,9 +60,15 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+TEST_PROCS ?= 5
+
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+test: manifests generate vet setup-envtest ginkgo ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
+
+.PHONY: test-update
+test-update: manifests generate vet setup-envtest ginkgo ## Run tests and update expected fixture goldens.
+	TESTUTIL_UPDATE_EXPECTED=true KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -205,11 +211,13 @@ KIND ?= kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
+GINKGO ?= $(LOCALBIN)/ginkgo
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
+GINKGO_VERSION ?= $(call gomodver,github.com/onsi/ginkgo/v2)
 
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
@@ -244,6 +252,11 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: ginkgo
+ginkgo: $(GINKGO) ## Download the Ginkgo CLI locally if necessary.
+$(GINKGO): $(LOCALBIN)
+	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
