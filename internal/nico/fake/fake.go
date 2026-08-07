@@ -4,6 +4,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
@@ -103,9 +104,7 @@ func (c *Client) LastAppliedLabels() map[string]string {
 		return nil
 	}
 	copied := make(map[string]string, len(c.lastAppliedLabels))
-	for k, v := range c.lastAppliedLabels {
-		copied[k] = v
-	}
+	maps.Copy(copied, c.lastAppliedLabels)
 	return copied
 }
 
@@ -276,18 +275,12 @@ func (c *Client) ApplyInstanceLabels(_ context.Context, instanceID string, label
 		return nil, fmt.Errorf("%w: instance %q", nico.ErrNotFound, instanceID)
 	}
 	copiedLabels := make(map[string]string, len(labels))
-	for k, v := range labels {
-		copiedLabels[k] = v
-	}
+	maps.Copy(copiedLabels, labels)
 	c.lastAppliedLabels = copiedLabels
 
 	merged := map[string]string{}
-	for k, v := range inst.GetLabels() {
-		merged[k] = v
-	}
-	for k, v := range labels {
-		merged[k] = v
-	}
+	maps.Copy(merged, inst.GetLabels())
+	maps.Copy(merged, labels)
 	inst.SetLabels(merged)
 	return cloneInstance(inst), nil
 }
@@ -353,9 +346,7 @@ func cloneInstance(in *nicosdk.Instance) *nicosdk.Instance {
 	}
 	if in.Labels != nil {
 		labels := map[string]string{}
-		for k, v := range in.Labels {
-			labels[k] = v
-		}
+		maps.Copy(labels, in.Labels)
 		out.Labels = labels
 	}
 	if in.Interfaces != nil {

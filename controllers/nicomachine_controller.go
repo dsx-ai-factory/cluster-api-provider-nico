@@ -66,7 +66,7 @@ type NicoMachineReconciler struct {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
 
 	var nicoMachine infrav1.NicoMachine
@@ -316,8 +316,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if result, handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-		return result, err
+	if handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if ip := firstIPv4FromInstance(instance); ip != "" {
@@ -454,14 +454,14 @@ func (r *NicoMachineReconciler) reconcileReboot(
 	nicoMachine *infrav1.NicoMachine,
 	nicoClient nico.API,
 	instanceID string,
-) (ctrl.Result, bool, error) {
+) (bool, error) {
 	rebootAnnotation := r.ProviderConfig.RebootAnnotation
 	if machine.GetAnnotations()[rebootAnnotation] == "" {
-		return ctrl.Result{}, false, nil
+		return false, nil
 	}
 
 	if _, err := nicoClient.TriggerInstanceReboot(ctx, instanceID); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("failed to trigger instance reboot: %w", err)
+		return true, fmt.Errorf("failed to trigger instance reboot: %w", err)
 	}
 
 	nicoMachineAnnotations := nicoMachine.GetAnnotations()
@@ -476,9 +476,9 @@ func (r *NicoMachineReconciler) reconcileReboot(
 	delete(machineAnnotations, rebootAnnotation)
 	machine.SetAnnotations(machineAnnotations)
 	if err := r.Patch(ctx, machine, machinePatch); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("failed to patch machine reboot request annotation: %w", err)
+		return true, fmt.Errorf("failed to patch machine reboot request annotation: %w", err)
 	}
-	return ctrl.Result{}, true, nil
+	return true, nil
 }
 
 func setReadyFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {

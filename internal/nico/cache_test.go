@@ -74,8 +74,8 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 	var tenantCalls int
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/token":
+		switch r.URL.Path {
+		case "/token":
 			tokenCalls++
 			expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("client-id:client-secret"))
 			if got := r.Header.Get("Authorization"); got != expectedAuth {
@@ -94,7 +94,7 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"access_token":"dynamic-token","token_type":"Bearer","expires_in":3600}`))
-		case r.URL.Path == "/v2/org/test-org/carbide/tenant/current":
+		case testTenantPath:
 			tenantCalls++
 			if got := r.Header.Get("Authorization"); got != "Bearer dynamic-token" {
 				t.Fatalf("expected bearer token header, got %q", got)
@@ -125,7 +125,7 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTenantID() error = %v", err)
 	}
-	if tenantID != "tenant-1" {
+	if tenantID != testTenantID {
 		t.Fatalf("expected tenant-1, got %q", tenantID)
 	}
 
@@ -133,7 +133,7 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTenantID() second call error = %v", err)
 	}
-	if tenantID != "tenant-1" {
+	if tenantID != testTenantID {
 		t.Fatalf("expected tenant-1 on second call, got %q", tenantID)
 	}
 

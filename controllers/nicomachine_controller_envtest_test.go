@@ -322,7 +322,7 @@ func assertNicoMachineReady(g gomega.Gomega, ctx context.Context, c client.Clien
 	g.Expect(current.Status.Addresses).NotTo(gomega.BeEmpty())
 }
 
-func assertNicoMachineReadyReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) {
+func assertNicoMachineReadyReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) { //nolint:unparam
 	ginkgo.GinkgoHelper()
 	var current infrav1.NicoMachine
 	g.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &current)).To(gomega.Succeed())

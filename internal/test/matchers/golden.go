@@ -22,7 +22,7 @@ func MatchGolden(expected, expectedPath, actualPath string) gomega.OmegaMatcher 
 	}
 }
 
-func (m *matchGolden) Match(actual interface{}) (bool, error) {
+func (m *matchGolden) Match(actual any) (bool, error) {
 	actualString, ok := actual.(string)
 	if !ok {
 		return false, fmt.Errorf("MatchGolden expects a string, got %T", actual)
@@ -30,7 +30,7 @@ func (m *matchGolden) Match(actual interface{}) (bool, error) {
 	return actualString == m.expected, nil
 }
 
-func (m *matchGolden) FailureMessage(actual interface{}) string {
+func (m *matchGolden) FailureMessage(actual any) string {
 	actualString, _ := actual.(string)
 	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 		A:        difflib.SplitLines(m.expected),
@@ -45,6 +45,6 @@ func (m *matchGolden) FailureMessage(actual interface{}) string {
 	return "golden file differs:\n\n" + diff
 }
 
-func (m *matchGolden) NegatedFailureMessage(actual interface{}) string {
+func (m *matchGolden) NegatedFailureMessage(actual any) string {
 	return fmt.Sprintf("expected golden file %q not to match %q", m.actualPath, m.expectedPath)
 }

@@ -54,7 +54,7 @@ func TestInjectHostnameCloudConfigPrependsHostnameFields(t *testing.T) {
 	if hostnameIdx == -1 || preserveIdx == -1 || manageIdx == -1 || usersIdx == -1 {
 		t.Fatalf("missing expected fields in output: %q", got)
 	}
-	if !(hostnameIdx < preserveIdx && preserveIdx < manageIdx && manageIdx < usersIdx) {
+	if hostnameIdx >= preserveIdx || preserveIdx >= manageIdx || manageIdx >= usersIdx {
 		t.Fatalf("expected hostname fields to be first and ordered, got: %q", got)
 	}
 }

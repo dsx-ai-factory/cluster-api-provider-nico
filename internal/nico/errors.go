@@ -17,7 +17,7 @@ var (
 type openAPIError interface {
 	error
 	Body() []byte
-	Model() interface{}
+	Model() any
 }
 
 func normalizeError(resp *http.Response, err error) error {
