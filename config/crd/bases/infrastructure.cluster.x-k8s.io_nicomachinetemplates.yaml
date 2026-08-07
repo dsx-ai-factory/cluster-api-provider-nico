@@ -1,0 +1,248 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: nicomachinetemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: NicoMachineTemplate
+    listKind: NicoMachineTemplateList
+    plural: nicomachinetemplates
+    shortNames:
+    - nicomt
+    singular: nicomachinetemplate
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NicoMachineTemplate is the Schema for the nicomachinetemplates
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NicoMachineTemplateSpec defines the desired state of NicoMachineTemplate.
+            properties:
+              template:
+                description: NicoMachineTemplateResource describes the data needed
+                  to create a NicoMachine from a template.
+                properties:
+                  metadata:
+                    description: Standard object's metadata.
+                    minProperties: 1
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  spec:
+                    description: NicoMachineSpec defines the desired state of NicoMachine.
+                    properties:
+                      allowUnhealthyMachine:
+                        description: AllowUnhealthyMachine allows targeted instance
+                          creation on a machine in Error status.
+                        type: boolean
+                      cloudInitInjectHostname:
+                        description: CloudInitInjectHostname prepends hostname directives
+                          to the bootstrap cloud-config.
+                        type: boolean
+                      infinibandInterfaces:
+                        description: |-
+                          InfinibandInterfaces requests that one or more InfiniBand Partitions be attached
+                          to the instance.
+                        items:
+                          description: NicoMachineInfiniBandInterface defines one
+                            NICo InfiniBand interface attachment request.
+                          properties:
+                            device:
+                              description: Device is the name of the InfiniBand device
+                                to use.
+                              type: string
+                            deviceInstance:
+                              description: DeviceInstance is the index of the device,
+                                used to identify which interface card to attach the
+                                Partition to.
+                              format: int32
+                              type: integer
+                            isPhysical:
+                              description: IsPhysical specifies whether this Partition
+                                should be attached to the Instance over physical interface.
+                              type: boolean
+                            partitionID:
+                              description: PartitionID is the ID of the Partition
+                                the Interface should attach to.
+                              minLength: 1
+                              type: string
+                            vendor:
+                              description: Vendor is the name of the InfiniBand device
+                                vendor, optional.
+                              type: string
+                            virtualFunctionID:
+                              description: VirtualFunctionID must be specified if
+                                isPhysical is false.
+                              format: int32
+                              type: integer
+                          required:
+                          - partitionID
+                          type: object
+                        type: array
+                      instanceTypeID:
+                        description: |-
+                          InstanceTypeID is the instance type ID to provision.
+                          Exactly one of InstanceTypeID or MachineID must be set.
+                        minLength: 1
+                        type: string
+                      interfaces:
+                        description: |-
+                          Interfaces are the interface attachment requests for the instance.
+                          Use subnet-based attachments for Ethernet network virtualization and VPC prefix-based attachments for next-generation networking.
+                        items:
+                          description: NicoMachineInterface defines one NICo interface
+                            attachment request.
+                          properties:
+                            device:
+                              description: Device is the device name to use for this
+                                attachment.
+                              type: string
+                            deviceInstance:
+                              description: DeviceInstance is the device instance index
+                                to use for this attachment.
+                              format: int32
+                              type: integer
+                            ipAddress:
+                              description: |-
+                                IPAddress is the explicitly requested IP address for this interface.
+                                This is only supported for VPCPrefixID-based interfaces. NICo requires the least-significant host bit to be 1.
+                              type: string
+                            physical:
+                              description: Physical requests this attachment over
+                                a physical interface.
+                              type: boolean
+                            subnetID:
+                              description: |-
+                                SubnetID is the subnet ID for this attachment.
+                                Use SubnetID for Ethernet network virtualization.
+                                Exactly one of SubnetID or VPCPrefixID must be set.
+                              type: string
+                            vpcPrefixID:
+                              description: |-
+                                VPCPrefixID is the VPC prefix ID for this attachment.
+                                Use VPCPrefixID for next-generation networking.
+                                Exactly one of SubnetID or VPCPrefixID must be set.
+                              type: string
+                          type: object
+                          x-kubernetes-validations:
+                          - message: ipAddress is only supported with vpcPrefixID
+                              interfaces
+                            rule: '!(has(self.ipAddress) && has(self.subnetID))'
+                        minItems: 1
+                        type: array
+                      ipxeScript:
+                        description: IpxeScript is the iPXE script used to boot this
+                          instance.
+                        type: string
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: Labels are applied to the instance.
+                        type: object
+                      machineID:
+                        description: |-
+                          MachineID is the machine ID for targeted instance creation.
+                          Exactly one of InstanceTypeID or MachineID must be set.
+                        minLength: 1
+                        type: string
+                      nvLinkInterfaces:
+                        description: |-
+                          NVLinkInterfaces requests that one or more NVLink Logical Partitions be attached
+                          to the instance.
+                        items:
+                          description: NicoMachineNVLinkInterface defines one NICo
+                            NVLink interface attachment request.
+                          properties:
+                            deviceInstance:
+                              description: DeviceInstance is the GPU index for this
+                                NVLink interface. Must be non-negative, unique within
+                                the request, and within the GPU count exposed by the
+                                selected Machine or Instance Type.
+                              format: int32
+                              type: integer
+                            nvLinkLogicalPartitionID:
+                              description: NVLinkLogicalPartitionID is the ID of the
+                                NVLink Logical Partition the Interface should attach
+                                to.
+                              minLength: 1
+                              type: string
+                          required:
+                          - nvLinkLogicalPartitionID
+                          type: object
+                        type: array
+                      providerID:
+                        description: ProviderID is set to `nico://<instance-id>` after
+                          the NICo instance is created.
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                      sshKeyGroupIDs:
+                        description: SSHKeyGroupIDs are the allowed SSH key group
+                          IDs for Serial over LAN access.
+                        items:
+                          type: string
+                        type: array
+                      vpcID:
+                        description: VPCID is the VPC where this provider should create
+                          the instance.
+                        type: string
+                    required:
+                    - interfaces
+                    - vpcID
+                    type: object
+                    x-kubernetes-validations:
+                    - message: exactly one of instanceTypeID or machineID must be
+                        set
+                      rule: has(self.instanceTypeID) != has(self.machineID)
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        type: object
+    served: true
+    storage: true

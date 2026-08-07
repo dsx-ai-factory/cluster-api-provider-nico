@@ -1,0 +1,244 @@
+# kubeadm template that bootstraps kube-vip as the Kubernetes API endpoint.
+#
+# NICO_NETWORK_METHOD defaults to vpcPrefixID. Set it to subnetID for legacy
+# subnet networking, and set NICO_NETWORK_ID to the corresponding VPC prefix or
+# subnet ID.
+#
+# KUBE_VIP_ADDRESS is the stable Kubernetes API endpoint IP. It is not a
+# NICo-assigned node IP.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  siteID: "${NICO_SITE_ID}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
+      ipxeScript: "${NICO_CONTROL_PLANE_IPXE_SCRIPT}"
+      interfaces:
+        - ${NICO_NETWORK_METHOD:=vpcPrefixID}: "${NICO_NETWORK_ID}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-workers"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_WORKER_INSTANCE_TYPE_ID}"
+      ipxeScript: "${NICO_WORKER_IPXE_SCRIPT}"
+      interfaces:
+        - ${NICO_NETWORK_METHOD:=vpcPrefixID}: "${NICO_NETWORK_ID}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlaneEndpoint:
+    host: "${CONTROL_PLANE_ENDPOINT_HOST}"
+    port: 6443
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 192.168.0.0/16
+    services:
+      cidrBlocks:
+        - 10.128.0.0/12
+    serviceDomain: cluster.local
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: "${CLUSTER_NAME}-control-plane"
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoCluster
+    name: "${CLUSTER_NAME}"
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
+  version: "${KUBERNETES_VERSION}"
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: NicoMachineTemplate
+        name: "${CLUSTER_NAME}-control-plane"
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      apiServer:
+        certSANs:
+          - "${CONTROL_PLANE_ENDPOINT_HOST}"
+    initConfiguration:
+      patches:
+        directory: /etc/kubernetes/patches
+    joinConfiguration:
+      patches:
+        directory: /etc/kubernetes/patches
+    files:
+      - path: /usr/local/bin/configure-kube-vip.sh
+        owner: root:root
+        permissions: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          bgp_iface="${KUBE_VIP_BGP_SOURCE_IF:=auto}"
+          if [ "$bgp_iface" = "auto" ]; then
+            bgp_iface=$(ip route show default | awk '{print $5; exit}')
+          fi
+          node_ip=$(ip -4 addr show dev "$bgp_iface" | awk '/inet / {print $2; exit}' | cut -d/ -f1)
+          bgp_peer_address="${KUBE_VIP_BGP_PEER_ADDRESS:=auto}"
+          if [ "$bgp_peer_address" = "auto" ]; then
+            bgp_peer_address=$(ip route show default | awk '{print $3; exit}')
+          fi
+          bgp_peer_as="${KUBE_VIP_BGP_PEER_AS:=auto}"
+          if [ "$bgp_peer_as" = "auto" ]; then
+            bgp_peer_as=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/asn)
+          fi
+
+          mkdir -p /etc/kubernetes/manifests
+          cat > /etc/kubernetes/manifests/kube-vip.yaml <<EOF
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kube-vip
+            namespace: kube-system
+            annotations:
+              scheduler.alpha.kubernetes.io/critical-pod: ""
+            labels:
+              component: kube-vip
+              tier: control-plane
+          spec:
+            containers:
+              - name: kube-vip
+                image: "${KUBE_VIP_IMAGE:=ghcr.io/kube-vip/kube-vip:v0.8.9}"
+                imagePullPolicy: IfNotPresent
+                args:
+                  - manager
+                env:
+                  - name: address
+                    value: "${KUBE_VIP_ADDRESS}"
+                  - name: bgp_as
+                    value: "${KUBE_VIP_BGP_AS:=65100}"
+                  - name: bgp_enable
+                    value: "true"
+                  - name: bgp_peeras
+                    value: "$bgp_peer_as"
+                  - name: bgp_peeraddress
+                    value: "$bgp_peer_address"
+                  - name: bgp_routerid
+                    value: "$node_ip"
+                  - name: bgp_sourceif
+                    value: "$bgp_iface"
+                  - name: cp_enable
+                    value: "true"
+                  - name: cp_namespace
+                    value: kube-system
+                  - name: dns_mode
+                    value: first
+                  - name: port
+                    value: "6443"
+                  - name: prometheus_server
+                    value: :2112
+                  - name: svc_enable
+                    value: "false"
+                  - name: svc_leasename
+                    value: plndr-svcs-lock
+                  - name: vip_arp
+                    value: "false"
+                  - name: vip_cidr
+                    value: "32"
+                  - name: vip_interface
+                    value: lo
+                  - name: vip_nodename
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: spec.nodeName
+                securityContext:
+                  capabilities:
+                    add:
+                      - NET_ADMIN
+                      - NET_RAW
+                volumeMounts:
+                  - mountPath: /etc/kubernetes/admin.conf
+                    name: kubeconfig
+            hostAliases:
+              - hostnames:
+                  - kubernetes
+                ip: 127.0.0.1
+            hostNetwork: true
+            volumes:
+              - hostPath:
+                  path: /etc/kubernetes/admin.conf
+                name: kubeconfig
+          EOF
+    preKubeadmCommands:
+      - /usr/local/bin/configure-kube-vip.sh
+      - |
+        iid=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/instance-id || true)
+        if [ -n "$iid" ]; then
+          mkdir -p /etc/kubernetes/patches
+          printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$iid" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
+        fi
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-workers"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        patches:
+          directory: /etc/kubernetes/patches
+      preKubeadmCommands:
+        - |
+          iid=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/instance-id || true)
+          if [ -n "$iid" ]; then
+            mkdir -p /etc/kubernetes/patches
+            printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$iid" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
+          fi
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-workers"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT:=1}
+  selector:
+    matchLabels: {}
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+          name: "${CLUSTER_NAME}-workers"
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: NicoMachineTemplate
+        name: "${CLUSTER_NAME}-workers"

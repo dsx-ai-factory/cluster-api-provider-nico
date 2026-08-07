@@ -1,0 +1,141 @@
+# Developer-only kubeadm template for single-control-plane requested IP testing.
+# CONTROL_PLANE_ENDPOINT_IP is requested as the control-plane NICo interface IP
+# and used as the Kubernetes API endpoint.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  siteID: "${NICO_SITE_ID}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_CONTROL_PLANE_INSTANCE_TYPE_ID}"
+      ipxeScript: "${NICO_CONTROL_PLANE_IPXE_SCRIPT}"
+      interfaces:
+        - vpcPrefixID: "${NICO_VPC_PREFIX_ID}"
+          ipAddress: "${CONTROL_PLANE_ENDPOINT_IP}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-workers"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      vpcID: "${NICO_VPC_ID}"
+      instanceTypeID: "${NICO_WORKER_INSTANCE_TYPE_ID}"
+      ipxeScript: "${NICO_WORKER_IPXE_SCRIPT}"
+      interfaces:
+        - vpcPrefixID: "${NICO_VPC_PREFIX_ID}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlaneEndpoint:
+    host: "${CONTROL_PLANE_ENDPOINT_IP}"
+    port: 6443
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 192.168.0.0/16
+    services:
+      cidrBlocks:
+        - 10.128.0.0/12
+    serviceDomain: cluster.local
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: "${CLUSTER_NAME}-control-plane"
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoCluster
+    name: "${CLUSTER_NAME}"
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: 1
+  version: "${KUBERNETES_VERSION}"
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: NicoMachineTemplate
+        name: "${CLUSTER_NAME}-control-plane"
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      apiServer:
+        certSANs:
+          - "${CONTROL_PLANE_ENDPOINT_IP}"
+    initConfiguration:
+      patches:
+        directory: /etc/kubernetes/patches
+    joinConfiguration:
+      patches:
+        directory: /etc/kubernetes/patches
+    preKubeadmCommands:
+      - |
+        iid=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/instance-id || true)
+        if [ -n "$iid" ]; then
+          mkdir -p /etc/kubernetes/patches
+          printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$iid" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
+        fi
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-workers"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        patches:
+          directory: /etc/kubernetes/patches
+      preKubeadmCommands:
+        - |
+          iid=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/instance-id || true)
+          if [ -n "$iid" ]; then
+            mkdir -p /etc/kubernetes/patches
+            printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$iid" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
+          fi
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-workers"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT:=1}
+  selector:
+    matchLabels: {}
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+          name: "${CLUSTER_NAME}-workers"
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: NicoMachineTemplate
+        name: "${CLUSTER_NAME}-workers"

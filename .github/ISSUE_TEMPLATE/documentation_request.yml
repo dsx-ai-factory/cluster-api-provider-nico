@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Documentation Request
+description: Request new docs or corrections to existing docs
+title: "[DOC]: "
+labels: ["documentation"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to improve our documentation.
+
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: What kind of documentation change is this?
+      options:
+        - New documentation
+        - Correction / update
+    validations:
+      required: true
+
+  - type: dropdown
+    id: criticality
+    attributes:
+      label: Priority
+      options:
+        - Critical (currently preventing usage)
+        - High
+        - Medium
+        - Low (would be nice)
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Relevant docs link (if updating existing docs)
+      placeholder: "https://github.com/NVIDIA/cluster-api-provider-nico/blob/main/README.md"
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Describe the missing or incorrect documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed correction or addition (optional)
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/cluster-api-provider-nico/blob/main/CODE_OF_CONDUCT.md).
+      options:
+        - label: I agree to follow cluster-api-provider-nico's Code of Conduct
+          required: true
+        - label: I have searched open documentation issues and found no duplicates
+          required: true

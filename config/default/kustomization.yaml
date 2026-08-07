@@ -1,0 +1,19 @@
+resources:
+  - namespace.yaml
+  - ../crd
+  - ../rbac
+  - ../manager
+  # [METRICS] Expose the controller manager metrics service.
+  - metrics_service.yaml
+  # [PROMETHEUS] To enable prometheus monitor, uncomment the following line.
+  # - ../prometheus
+  # [NETWORK POLICY] Protect the /metrics endpoint with NetworkPolicy.
+  # - ../network-policy
+
+# [METRICS] Kubebuilder's generated secure metrics patch is copied into this
+# directory but is not enabled because CAPNICo currently serves metrics on HTTP
+# port 8080.
+# patches:
+# - path: manager_metrics_patch.yaml
+#   target:
+#     kind: Deployment
