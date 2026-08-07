@@ -131,7 +131,7 @@ func TestNicoMachineReconciler_ProviderIDClaimedBy(t *testing.T) {
 	}
 }
 
-func nicoMachine(namespace, name, instanceID, uid string) infrav1.NicoMachine {
+func nicoMachine(namespace, name, instanceID, uid string) infrav1.NicoMachine { //nolint:unparam
 	return infrav1.NicoMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,

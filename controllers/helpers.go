@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"net"
 	"strings"
 	"time"
@@ -88,9 +89,7 @@ func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *i
 func mergeLabels(labelSets ...map[string]string) map[string]string {
 	out := map[string]string{}
 	for _, set := range labelSets {
-		for k, v := range set {
-			out[k] = v
-		}
+		maps.Copy(out, set)
 	}
 	if len(out) == 0 {
 		return nil

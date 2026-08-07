@@ -10,15 +10,15 @@ import (
 
 func TestClientGetSite(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Authorization"), "Bearer static-token"; got != want {
+		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
 			t.Fatalf("Authorization = %q, want %q", got, want)
 		}
 		switch r.URL.Path {
-		case "/v2/org/test-org/carbide/tenant/current":
+		case testTenantPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"tenant-1"}`))
 		case "/v2/org/test-org/carbide/site":
-			if got, want := r.URL.Query().Get("tenantId"), "tenant-1"; got != want {
+			if got, want := r.URL.Query().Get("tenantId"), testTenantID; got != want {
 				t.Fatalf("tenantId = %q, want %q", got, want)
 			}
 			if got, want := r.URL.Query().Get("pageSize"), "100"; got != want {
@@ -47,7 +47,7 @@ func TestClientGetVPC(t *testing.T) {
 		if got, want := r.URL.Path, "/v2/org/test-org/carbide/vpc/vpc-1"; got != want {
 			t.Fatalf("request path = %q, want %q", got, want)
 		}
-		if got, want := r.Header.Get("Authorization"), "Bearer static-token"; got != want {
+		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
 			t.Fatalf("Authorization = %q, want %q", got, want)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -68,15 +68,15 @@ func TestClientGetVPC(t *testing.T) {
 func TestClientGetSiteQueriesAdditionalPagesUntilFound(t *testing.T) {
 	var sitePageRequests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Authorization"), "Bearer static-token"; got != want {
+		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
 			t.Fatalf("Authorization = %q, want %q", got, want)
 		}
 		switch r.URL.Path {
-		case "/v2/org/test-org/carbide/tenant/current":
+		case testTenantPath:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"tenant-1"}`))
 		case "/v2/org/test-org/carbide/site":
-			if got, want := r.URL.Query().Get("tenantId"), "tenant-1"; got != want {
+			if got, want := r.URL.Query().Get("tenantId"), testTenantID; got != want {
 				t.Fatalf("tenantId = %q, want %q", got, want)
 			}
 			if got, want := r.URL.Query().Get("pageSize"), "100"; got != want {

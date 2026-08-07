@@ -372,7 +372,7 @@ func (c *Case) decodeObjects(filename, data string) ([]client.Object, error) {
 
 		content := []byte(document)
 		if strings.HasSuffix(filename, ".yaml") {
-			value := map[string]interface{}{}
+			value := map[string]any{}
 			if err := yaml.Unmarshal(content, &value); err != nil {
 				return nil, fmt.Errorf("decode YAML %s: %w", filename, err)
 			}
@@ -501,7 +501,7 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 		return nil
 	}
 	for i := range conditions {
-		condition, ok := conditions[i].(map[string]interface{})
+		condition, ok := conditions[i].(map[string]any)
 		if !ok {
 			return fmt.Errorf("condition %d for %s is %T", i, object.GetName(), conditions[i])
 		}
@@ -510,8 +510,8 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 		}
 	}
 	sort.Slice(conditions, func(i, j int) bool {
-		left, _, _ := unstructured.NestedString(conditions[i].(map[string]interface{}), "type")
-		right, _, _ := unstructured.NestedString(conditions[j].(map[string]interface{}), "type")
+		left, _, _ := unstructured.NestedString(conditions[i].(map[string]any), "type")
+		right, _, _ := unstructured.NestedString(conditions[j].(map[string]any), "type")
 		return left < right
 	})
 	if err := unstructured.SetNestedSlice(object.Object, conditions, "status", "conditions"); err != nil {
