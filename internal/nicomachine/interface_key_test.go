@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
-	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nicomachine"
+	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
 
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )

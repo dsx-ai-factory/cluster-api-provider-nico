@@ -15,9 +15,9 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
-	nicofake "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico/fake"
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/test/fixtures"
+	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+	nicofake "github.com/NVIDIA/cluster-api-provider-nico/internal/nico/fake"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/test/fixtures"
 )
 
 var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(

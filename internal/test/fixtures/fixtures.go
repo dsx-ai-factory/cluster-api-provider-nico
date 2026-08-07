@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/yaml"
 
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/test/matchers"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/test/matchers"
 )
 
 const (

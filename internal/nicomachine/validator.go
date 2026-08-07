@@ -5,7 +5,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
-	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
+	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )

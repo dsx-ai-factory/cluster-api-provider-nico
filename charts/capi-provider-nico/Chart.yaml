@@ -9,4 +9,4 @@ keywords:
   - capi
   - nico
 sources:
-  - https://gitlab-master.nvidia.com/nke/cluster-api-provider-nico
+  - https://github.com/NVIDIA/cluster-api-provider-nico

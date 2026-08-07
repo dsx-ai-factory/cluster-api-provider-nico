@@ -12,9 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
-	nicofake "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico/fake"
+	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
+	nicofake "github.com/NVIDIA/cluster-api-provider-nico/internal/nico/fake"
 )
 
 func TestNicoClientForCluster(t *testing.T) {

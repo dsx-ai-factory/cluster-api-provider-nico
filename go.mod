@@ -1,4 +1,4 @@
-module gitlab-master.nvidia.com/nke/cluster-api-provider-nico
+module github.com/NVIDIA/cluster-api-provider-nico
 
 go 1.25.5
 

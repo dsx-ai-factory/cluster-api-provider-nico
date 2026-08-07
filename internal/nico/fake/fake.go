@@ -9,7 +9,7 @@ import (
 
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
 )
 
 var _ nico.API = (*Client)(nil)

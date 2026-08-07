@@ -11,7 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/test/utils"
+	"github.com/NVIDIA/cluster-api-provider-nico/test/utils"
 )
 
 // namespace where the project is deployed in

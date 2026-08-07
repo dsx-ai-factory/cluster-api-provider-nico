@@ -14,9 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	infrav1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/controllers"
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nico"
+	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/NVIDIA/cluster-api-provider-nico/controllers"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
 	// +kubebuilder:scaffold:imports
 )
 

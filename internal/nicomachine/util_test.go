@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"gitlab-master.nvidia.com/nke/cluster-api-provider-nico/internal/nicomachine"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
 )
 
 func TestUtil_KeyedSlicesMatch(t *testing.T) {
