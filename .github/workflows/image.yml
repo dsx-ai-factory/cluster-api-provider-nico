@@ -90,6 +90,14 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           provenance: false
+          # BuildKit scans the built image and pushes an SBOM as an OCI
+          # attestation attached to it in GHCR, so every published image —
+          # including a tagged release — ships a machine-readable inventory of
+          # what it contains. This uses the packages:write token already granted
+          # to the job; no signing key or extra tooling. The manifest job's
+          # `imagetools create` preserves the attestation when it merges the
+          # per-arch tags into the multi-arch index.
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             TARGETOS=linux
