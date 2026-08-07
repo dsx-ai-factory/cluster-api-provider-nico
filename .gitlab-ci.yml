@@ -74,13 +74,10 @@ redirect-to-github:
         echo "Redirect comment already present; skipping"
         exit 0
       fi
-      body="$(cat <<EOF
-<!-- ${marker} -->
-This GitLab project is a **release mirror**. Please open development work and pull requests on GitHub:
-
-${GITHUB_DEV_REPO_URL}
-EOF
-)"
+      body="$(printf '<!-- %s -->\n%s\n\n%s\n' \
+        "${marker}" \
+        'This GitLab project is a **release mirror**. Please open development work and pull requests on GitHub:' \
+        "${GITHUB_DEV_REPO_URL}")"
       curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         --data-urlencode "body=${body}" \
         "${notes_url}"
