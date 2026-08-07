@@ -8,21 +8,25 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    rebase-strategy: "rebase"
 
   # Go modules — kubebuilder layout plugin module
   - package-ecosystem: "gomod"
     directory: "/hack/kubebuilder/plugins/capnico-layout/v1"
     schedule:
       interval: "weekly"
+    rebase-strategy: "rebase"
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    rebase-strategy: "rebase"
 
   # Container base images
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    rebase-strategy: "rebase"
