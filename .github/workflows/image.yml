@@ -38,10 +38,10 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            runner: linux-amd64-cpu16
             platform: linux/amd64
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: linux-arm64-cpu16
             platform: linux/arm64
     steps:
       - name: Checkout
@@ -103,7 +103,7 @@ jobs:
   sbom:
     if: false # publishing disabled
     name: SBOM (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu8
     needs: [build]
     timeout-minutes: 15
     permissions:
@@ -133,7 +133,7 @@ jobs:
   manifest:
     if: false # publishing disabled
     name: Multi-arch manifest
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu8
     needs: [build]
     timeout-minutes: 10
     permissions:
