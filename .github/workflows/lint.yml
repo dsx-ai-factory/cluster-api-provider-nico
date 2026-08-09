@@ -3,21 +3,14 @@
 
 name: Lint
 
+# Self-hosted runners do not pick up jobs from pull_request events, so pull
+# requests are tested through the pull-request/<number> branch instead.
 on:
   push:
     branches:
       - main
-  pull_request:
-  workflow_call:
-    inputs:
-      ref:
-        description: 'Git ref to checkout'
-        required: false
-        type: string
-      repository:
-        description: 'Repository to checkout'
-        required: false
-        type: string
+      - "pull-request/[0-9]+"
+  workflow_dispatch:
 
 permissions: {}
 
@@ -28,9 +21,10 @@ concurrency:
 jobs:
   lint:
     name: golangci-lint
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     timeout-minutes: 15
-    # Advisory until existing findings are cleaned up or the config is tuned.
+    # Advisory until the existing findings are fixed.
     continue-on-error: true
     permissions:
       contents: read
@@ -38,14 +32,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref || github.sha }}
-          repository: ${{ inputs.repository || github.repository }}
           persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Verify golangci-lint config
         run: make lint-config
