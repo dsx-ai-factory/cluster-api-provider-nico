@@ -72,13 +72,21 @@ jobs:
         working-directory: ${{ env.GO_MODULE }}
         run: |
           set -euo pipefail
+          raw="${RUNNER_TEMP}/govulncheck.raw.sarif"
           out="${RUNNER_TEMP}/govulncheck.sarif"
-          govulncheck -format sarif ./... > "${out}"
+          govulncheck -format sarif ./... > "${raw}"
           # Fail loudly rather than skip the upload and report a green check.
-          if [ ! -s "${out}" ]; then
-            echo "::error::govulncheck produced no SARIF at ${out}"
+          if [ ! -s "${raw}" ]; then
+            echo "::error::govulncheck produced no SARIF at ${raw}"
             exit 1
           fi
+          # GitHub validates SARIF with uniqueItems on properties.tags, and
+          # govulncheck can list the same CVE alias twice on one rule, which
+          # gets the whole upload rejected as invalid. Only reachable when
+          # there are findings, which is why the one clean repository in the
+          # fleet never hit it.
+          jq '(.runs[]?.tool?.driver?.rules[]?.properties?.tags) |= unique' \
+            "${raw}" > "${out}"
           echo "sarif=${out}" >> "${GITHUB_OUTPUT}"
 
       - name: Summarise
