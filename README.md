@@ -5,20 +5,54 @@
 [![License](https://img.shields.io/github/license/NVIDIA/cluster-api-provider-nico)](LICENSE)
 [![Latest Release](https://img.shields.io/github/v/release/NVIDIA/cluster-api-provider-nico?include_prereleases)](https://github.com/NVIDIA/cluster-api-provider-nico/releases)
 
-Kubernetes Cluster API (CAPI) infrastructure provider to provision bare metal nodes in [NCX Infra Controller (NICo)](https://github.com/NVIDIA/ncx-infra-controller-core).
+Kubernetes Cluster API (CAPI) infrastructure provider to provision bare metal nodes in [NVIDIA Infra Controller (NICo)](https://github.com/NVIDIA/infra-controller).
 
-* `NicoCluster` holds shared NICo configuration such as site and VPC, and may optionally reference a per-cluster credentials Secret.
-* `NicoMachine` represents one NICo instance managed by Cluster API.
+CAPNICo is a Cluster API **infrastructure provider** and does one job: give
+Cluster API the machines it asks for. It does not install Kubernetes and it does
+not join nodes — the kubeadm bootstrap and control-plane providers do that. You
+declare a `Cluster` and a `MachineDeployment` as usual, and this provider turns
+each requested machine into a NICo instance on real hardware.
+
+* `NicoCluster` holds the target site, and may optionally reference a per-cluster credentials Secret.
+* `NicoMachine` represents one NICo instance managed by Cluster API, and carries the VPC.
 * `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — how the pieces fit: the CRDs and
+  which fields live on which, credential resolution and client caching, machine
+  reconciliation and what the finalizer guards, provider ID and node matching,
+  teardown order, and the annotation-driven repair and reboot contracts.
+  **Read this before changing controller behaviour.**
+- [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and the pull-request flow
+- [RELEASE.md](RELEASE.md) — versioning and the Cluster API contract
+- [SECURITY.md](SECURITY.md) — vulnerability reporting
+- [NICo documentation](https://docs.nvidia.com/infra-controller/) — the
+  infrastructure this provider drives
+
+## Community and support
+
+- **Questions, bug reports, and feature requests** — open a
+  [GitHub issue](https://github.com/NVIDIA/cluster-api-provider-nico/issues).
+  Issues are this project's discussion forum; there is no separate mailing list
+  or chat channel.
+- **Code of Conduct** — everyone taking part is expected to follow the
+  [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Security** — report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+  **Do not open a public issue for a security report.**
+- **Cluster API itself** — for questions about Cluster API rather than this
+  provider, the upstream project runs `#cluster-api` on
+  [Kubernetes Slack](https://slack.k8s.io/), and the
+  [Cluster API book](https://cluster-api.sigs.k8s.io/) covers the core concepts.
+- **Support level** — Experimental.
 
 ## How It Works
 
-The provider uses a Secret for NICo connection details and authentication.
+The provider uses a Secret for NICo connection details and authentication. The
+Secret supports either a static bearer token or OAuth2 client-credentials.
 
-
-The Secret supports either a static bearer token or OAuth2 client-credentials.
-
-Each `NicoCluster` supplies the target site and VPC.
+Each `NicoCluster` supplies the target site. The VPC is set per machine, on
+`NicoMachine.spec.vpcID`.
 Each `NicoMachine` becomes one NICo instance, and `NicoMachineTemplate` is intended for use from `KubeadmControlPlane` and `MachineDeployment`.
 
 The controller discovers the current tenant through the NICo API and caches it in the client.
@@ -409,25 +443,19 @@ For template resources that do not need reconcilers:
 make -C hack/kubebuilder/plugins/capnico-layout/v1 create-api KIND=NicoClusterTemplate CONTROLLER=false
 ```
 
-The full scaffold command log and plugin validation notes are recorded in
-`docs/kubebuilder-setup.md`.
+The plugin's own
+[README](hack/kubebuilder/plugins/capnico-layout/v1/README.md) describes what it
+does and how to install it.
 
 ## Contributing
 
 - Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- Coding agents: [AGENTS.md](AGENTS.md)
+
+See [Community and support](#community-and-support) above for where to ask
+questions and how to report a vulnerability.
 
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
-
-## Security
-
-- Vulnerability disclosure: [SECURITY.md](SECURITY.md)
-- Do not file public issues for security reports.
-
-## Support
-
-- Level: Experimental
-- How to get help: GitHub Issues on
-  [NVIDIA/cluster-api-provider-nico](https://github.com/NVIDIA/cluster-api-provider-nico)
