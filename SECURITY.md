@@ -1,68 +1,147 @@
 # Security Policy
 
-## Supported Versions
+NVIDIA is dedicated to the security and trust of our software products and
+services, including all source code repositories managed through our
+organization.
+
+## Reporting a vulnerability
+
+**Report security vulnerabilities to NVIDIA PSIRT.** Do not open a GitHub
+issue, a pull request, or a GitHub Security Advisory. NVIDIA product security
+policy routes every external vulnerability report through PSIRT so that
+disclosure is coordinated across all affected NVIDIA products, not just this
+repository.
+
+- **Web:** [Security Vulnerability Submission Form](https://www.nvidia.com/object/submit-security-vulnerability.html)
+- **Email:** psirt@nvidia.com — encrypt with the [NVIDIA public PGP key](https://www.nvidia.com/en-us/security/pgp-key)
+
+Include as much of the following as you have:
+
+- The affected version, tag, or commit SHA
+- The type of vulnerability: remote code execution, privilege escalation,
+  credential exposure, authentication bypass, denial of service, and so on
+- Steps to reproduce, and a proof of concept if you have one
+- The impact, and how an attacker would reach the vulnerable code
+
+If a security issue is reported publicly by mistake, maintainers will limit
+discussion on the public thread and redirect the reporter to PSIRT.
+
+## Response and acknowledgement
+
+PSIRT acknowledges receipt of every report, coordinates with the reporter
+through the investigation, and provides progress updates as remediation
+proceeds. See [PSIRT Policies](https://www.nvidia.com/en-us/security/psirt-policies/)
+for NVIDIA's full coordinated-disclosure policy.
+
+Alongside that process, the maintainers of this repository aim to:
+
+| Stage | Target |
+|---|---|
+| Acknowledge a report forwarded by PSIRT | 5 business days |
+| Confirm or reject, with a severity assessment | 10 business days |
+| Give the reporter a remediation timeline | 14 business days |
+
+If you have not heard anything within a few business days of filing, resend to
+psirt@nvidia.com rather than opening a public issue.
+
+## Remediation targets
+
+Severity is assessed with CVSS v3.1. These are the targets the maintainers work
+to once a report is confirmed; PSIRT owns the disclosure date.
+
+| Severity | CVSS v3.1 | Target fix available |
+|---|---|---|
+| Critical | 9.0 – 10.0 | 14 calendar days, out-of-band release |
+| High | 7.0 – 8.9 | 30 calendar days |
+| Medium | 4.0 – 6.9 | 90 calendar days, next scheduled release |
+| Low | 0.1 – 3.9 | Next scheduled release |
+
+Dependency vulnerabilities are picked up by Dependabot and follow the same
+targets, measured from the date a fixed upstream version becomes available.
+
+## Embargo and coordinated disclosure
+
+Confirmed vulnerabilities are handled under embargo. PSIRT manages the
+timeline: the issue stays confidential while a fix is prepared, and an advisory
+is published when the embargo lifts. NVIDIA is a CVE Numbering Authority and
+assigns CVE identifiers for resolved issues that require action from users.
+
+Maintainers support this by developing fixes privately and holding public
+discussion — issues, pull requests, commit messages and release notes — until
+PSIRT lifts the embargo. Please keep anything you report confidential until the
+advisory is published.
+
+## Supported versions
+
+cluster-api-provider-nico has not yet published a release. Until it does,
+`main` is the only branch that receives security fixes.
 
 | Version | Supported |
-|---------|-----------|
-| `main` (unreleased) | ✅ Active development |
-| Earlier releases | ❌ No security backports |
+|---|---|
+| `main` | ✅ Receives security fixes |
+| Pre-release commits and forks | ❌ Not supported |
 
-Security fixes are applied to the `main` branch. Once the project reaches a
-stable release cadence, a backport policy will be documented here.
+Once releases begin, this table will name the release lines that receive
+backports, and the policy will be to support the latest minor release only
+until the project reaches 1.0.
 
-## Security
+## Reporter credit
 
-NVIDIA is dedicated to the security and trust of our software products and services, including all source code repositories managed through our organization.
+We credit reporters by name in the published advisory and in the release notes
+of the release that carries the fix, unless you ask to stay anonymous. Tell
+PSIRT your preference, and the name or handle you want used, when you file.
 
-If you need to report a security issue, please use the appropriate contact points outlined below. **Please do not report security vulnerabilities through GitHub public issues.** If a potential security issue is inadvertently reported via a public issue or pull request, NVIDIA maintainers may limit public discussion and redirect the reporter to the appropriate private disclosure channels.
+NVIDIA does not run a bug bounty program. We do acknowledge externally reported
+issues resolved under our coordinated vulnerability disclosure policy.
 
-## Reporting a Vulnerability in cluster-api-provider-nico
+## Artifact integrity
 
-For vulnerabilities specific to this repository's code, use [GitHub's private vulnerability reporting](https://github.com/NVIDIA/cluster-api-provider-nico/security/advisories/new). This keeps the report confidential while maintainers triage and prepare a fix.
+**This project has published no releases, so there is no signed artifact to
+verify today. Treat any binary or image claiming to come from this project as
+unverified.**
 
-**What to include:**
-- Affected version(s) or commit range
-- Type of vulnerability (e.g., code execution, data exposure, dependency issue)
-- Steps to reproduce or a proof-of-concept
-- Potential impact
+When releases begin, every release artifact will be published with a SHA-256
+checksum file, and container images will be signed with
+[cosign](https://docs.sigstore.dev/) keyless signing, with verification
+instructions published alongside the first signed release. Third-party
+dependency licenses are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), regenerated and verified in
+CI on every push.
 
-**Response timeline:** Maintainers aim to acknowledge reports within **5 business days** and provide a resolution timeline within **14 business days**. Critical issues will be prioritized and may result in an out-of-band release.
+## Out of scope
 
-**Scope:** This disclosure path covers vulnerabilities in cluster-api-provider-nico's own code and its direct dependencies. For vulnerabilities in underlying NVIDIA products or drivers, use the NVIDIA PSIRT channel below.
+These generally do not qualify as vulnerabilities in this provider:
 
-**Out of scope for this repository:**
-- Vulnerabilities in third-party dependencies not introduced by cluster-api-provider-nico (report upstream)
-- Social engineering attacks
-- Denial-of-service attacks requiring physical access
-- Findings from automated scanners without a working proof-of-concept
+- Vulnerabilities in upstream components — Cluster API core, controller-runtime,
+  cert-manager, Kubernetes itself. Report those to the owning project. If this
+  provider's use of one of them makes an upstream issue exploitable in a way it
+  otherwise would not be, that **is** in scope.
+- Findings that require cluster-admin on the management cluster to exploit.
+- Missing hardening that is the operator's responsibility: RBAC, network
+  policy, secrets management, webhook TLS configuration.
+- Denial of service that needs physical access to the hardware.
+- Scanner output with no demonstrated, practical exploit path.
+- Reports against a deployment operated by someone else — contact that operator.
 
-**Reporter acknowledgement:** We credit reporters in the GitHub Security Advisory and in release notes (unless you prefer to remain anonymous). Please indicate your preference when filing the report.
+When in doubt, report it. PSIRT would rather triage something out of scope than
+miss a real issue.
 
-## Security guidance for operators
+## Guidance for operators
 
-If you are deploying or operating cluster-api-provider-nico:
+If you deploy or operate this provider:
 
-- **Dependency hygiene:** Pin dependency versions and review Dependabot alerts regularly.
-- **Secrets management:** Do not hardcode credentials or API keys. Use environment variables or a secrets manager.
-- **Network exposure:** If cluster-api-provider-nico exposes a service, run it behind authentication and limit network exposure to trusted networks where possible.
-- **Updates:** Apply security patch releases promptly, and review release notes for supported versions.
-- **Supply chain:** Verify release artifact checksums when provided. See release notes for signing details.
-
-## Reporting Potential Security Vulnerability in an NVIDIA Product
-
-To report a potential security vulnerability in any NVIDIA product:
-- Web: [Security Vulnerability Submission Form](https://www.nvidia.com/object/submit-security-vulnerability.html)
-- E-Mail: psirt@nvidia.com
-    - We encourage you to use the following PGP key for secure email communication: [NVIDIA public PGP Key for communication](https://www.nvidia.com/en-us/security/pgp-key)
-    - Please include the following information:
-        - Product/Driver name and version/branch that contains the vulnerability
-        - Type of vulnerability (code execution, denial of service, buffer overflow, etc.)
-        - Instructions to reproduce the vulnerability
-        - Proof-of-concept or exploit code
-        - Potential impact of the vulnerability, including how an attacker could exploit the vulnerability
-
-While NVIDIA currently does not have a bug bounty program, we do offer acknowledgement when an externally reported security issue is addressed under our coordinated vulnerability disclosure policy. Please visit our [Product Security Incident Response Team (PSIRT)](https://www.nvidia.com/en-us/security/psirt-policies/) policies page for more information.
+- **Secrets.** Never commit credentials, API keys, tokens, or kubeconfigs.
+  Supply infrastructure credentials through Kubernetes Secrets referenced by the
+  provider's resources, not through checked-in manifests.
+- **RBAC.** The controller needs broad permissions on its own API group. Do not
+  widen the shipped ClusterRole beyond what the chart installs.
+- **Network exposure.** Keep the management cluster's API server behind
+  authentication and restricted to trusted networks.
+- **Updates.** Apply security releases promptly and read the release notes for
+  the supported-version policy in force at the time.
+- **Dependencies.** Review Dependabot alerts and keep pinned versions current.
 
 ## NVIDIA Product Security
 
-For all security-related concerns, please visit NVIDIA's Product Security portal at https://www.nvidia.com/en-us/security
+For all other security concerns, see NVIDIA's
+[Product Security portal](https://www.nvidia.com/en-us/security).
