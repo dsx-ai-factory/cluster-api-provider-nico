@@ -19,8 +19,28 @@ Releases are cut on demand. There is no fixed schedule.
 
 ## Steps to release
 
-1. **Update `CHANGELOG.md`** — move all `[Unreleased]` entries to a new versioned
-   section (e.g. `[0.2.0] - 2026-08-07`) and add a comparison link at the bottom.
+1. **Update `CHANGELOG.md`.** It is generated from commit subjects by
+   [git-cliff](https://git-cliff.org), configured in `cliff.toml`. **Do not
+   edit it by hand.**
+
+   ```bash
+   # 1. Drop the pending [Unreleased] section. Without this, --prepend leaves it
+   #    in place holding the same entries the new section just claimed, so the
+   #    file lists everything twice and keeps a stale [Unreleased] forever.
+   awk '/^## \[Unreleased\]/{s=1} /^## \[[0-9]/{s=0} !s' CHANGELOG.md > /tmp/cl && mv /tmp/cl CHANGELOG.md
+   
+   # 2. Prepend the new section. --prepend leaves published sections byte-identical;
+   #    regenerating the whole file re-derives their dates and rewrites history.
+   git-cliff --unreleased --tag v<VERSION> --prepend CHANGELOG.md
+   ```
+   
+   Run this in a **full clone**. On a shallow one git-cliff emits a near-empty
+   section and exits 0, so nothing fails.
+
+   The heading carries **no `v` prefix**, which is what the release workflow
+   expects when it reads the section back with `awk "/^## \[${VERSION}\]/"` —
+   and it falls back to a placeholder rather than failing, so a mismatch ships
+   empty notes.
 
 2. **Update `metadata.yaml`** if the major or minor version is new, or if the
    Cluster API contract version supported by this release differs from the previous one.

@@ -212,17 +212,23 @@ refer to a live instance, and keep auth and connection state in the client
 layer rather than in CR status. Getting the first wrong leaks an instance that
 nothing will clean up.
 
-## Changelog maintenance
+## Changelog
 
-User-visible changes go in `CHANGELOG.md` under `[Unreleased]` before each release.
-Add an entry when your PR:
-- Adds or changes user-facing behavior
-- Fixes a bug users could observe
-- Removes or deprecates a feature
+**Do not edit `CHANGELOG.md`.** It is generated from commit subjects by
+[git-cliff](https://git-cliff.org), configured in `cliff.toml`, and a new
+section is prepended when a release is cut.
 
-Use the `[Keep a Changelog](https://keepachangelog.com/)` headings: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
+Your commit subject is the changelog entry, so write it for a reader. The
+conventional-commit type picks the section: `feat` → Added, `refactor` →
+Changed, `fix` → Fixed, `perf` → Performance, `docs` → Documentation,
+`ci`/`build`/`chore`/`test`/`style` → Maintenance, `revert` → Reverted. A
+subject matching no type still appears, under Other. A breaking change — `!`
+after the type, or a `BREAKING CHANGE:` footer — is marked in the entry.
 
-You do not need a changelog entry for internal refactors, CI changes, or test-only PRs.
+This replaces the previous convention of adding an entry by hand in the same
+pull request. That did not scale: every open pull request appended to the same
+`### Added` list, so each conflicted with the next and whichever landed first
+forced a rebase on all the others.
 
 ## Code of Conduct
 
