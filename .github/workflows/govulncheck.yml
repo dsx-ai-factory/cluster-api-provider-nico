@@ -44,6 +44,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read          # upload-sarif reads the workflow run
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,14 +58,28 @@ jobs:
           cache-dependency-path: ${{ env.GO_MODULE }}/go.sum
 
       - name: Install govulncheck
+        # setup-go pins GOTOOLCHAIN=local. golang.org/x/vuln v1.6.0 needs
+        # go >= 1.25.0, which is newer than some of our modules declare, so the
+        # install alone is allowed to fetch a toolchain. The scan below still
+        # runs under the module's own Go.
+        env:
+          GOTOOLCHAIN: auto
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 
       - name: Run govulncheck
+        id: scan
         shell: bash
         working-directory: ${{ env.GO_MODULE }}
         run: |
           set -euo pipefail
-          govulncheck -format sarif ./... > "${RUNNER_TEMP}/govulncheck.sarif"
+          out="${RUNNER_TEMP}/govulncheck.sarif"
+          govulncheck -format sarif ./... > "${out}"
+          # Fail loudly rather than skip the upload and report a green check.
+          if [ ! -s "${out}" ]; then
+            echo "::error::govulncheck produced no SARIF at ${out}"
+            exit 1
+          fi
+          echo "sarif=${out}" >> "${GITHUB_OUTPUT}"
 
       - name: Summarise
         if: always()
@@ -83,9 +98,12 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload SARIF
-        if: always() && hashFiles(format('{0}/govulncheck.sarif', runner.temp)) != ''
+        # Guarded on a step output, not hashFiles(): hashFiles() only resolves
+        # paths under GITHUB_WORKSPACE, so against RUNNER_TEMP it silently
+        # returns '' and skips the upload while the job still reports green.
+        if: always() && steps.scan.outputs.sarif != ''
         uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
-          sarif_file: ${{ runner.temp }}/govulncheck.sarif
+          sarif_file: ${{ steps.scan.outputs.sarif }}
           checkout_path: ${{ github.workspace }}/${{ env.GO_MODULE }}
           category: govulncheck
