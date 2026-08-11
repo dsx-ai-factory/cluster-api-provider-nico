@@ -49,8 +49,23 @@ jobs:
         with:
           persist-credentials: false
 
+      # The docker-container driver runs BuildKit in its own container, so it
+      # does not inherit the daemon's registry-mirror configuration. NVIDIA
+      # runners ship a prepopulated buildkitd.toml pointing at the local mirror;
+      # use it when present so base-image pulls are cached and not subject to
+      # Docker Hub rate limits. Absent, buildx is set up exactly as before.
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
 
       - name: Login to GHCR
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -147,8 +162,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The docker-container driver runs BuildKit in its own container, so it
+      # does not inherit the daemon's registry-mirror configuration. NVIDIA
+      # runners ship a prepopulated buildkitd.toml pointing at the local mirror;
+      # use it when present so base-image pulls are cached and not subject to
+      # Docker Hub rate limits. Absent, buildx is set up exactly as before.
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
 
       - name: Create multi-arch manifests
         shell: bash
