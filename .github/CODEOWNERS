@@ -2,26 +2,26 @@
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default — all files not matched below
-*                     @NVIDIA/nke-maintainer
+*                     @NVIDIA/nke-write
 
 # GitHub config and CI
-.github/              @NVIDIA/nke-maintainer
+.github/              @NVIDIA/nke-write
 
 # Public API types and webhooks — changes here affect external consumers
-api/                  @NVIDIA/nke-maintainer
+api/                  @NVIDIA/nke-write
 
 # Core controllers
-controllers/          @NVIDIA/nke-maintainer
+controllers/          @NVIDIA/nke-write
 
 # Internal provider logic (NICo SDK integration, client caching)
-internal/             @NVIDIA/nke-maintainer
+internal/             @NVIDIA/nke-write
 
 # CRD and RBAC config
-config/               @NVIDIA/nke-maintainer
+config/               @NVIDIA/nke-write
 
 # clusterctl templates — user-facing cluster creation workflows
-examples/             @NVIDIA/nke-maintainer
+examples/             @NVIDIA/nke-write
 
 # Build and release
-Dockerfile            @NVIDIA/nke-maintainer
-Makefile              @NVIDIA/nke-maintainer
+Dockerfile            @NVIDIA/nke-write
+Makefile              @NVIDIA/nke-write
