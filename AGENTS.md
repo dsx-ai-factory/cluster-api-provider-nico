@@ -1,5 +1,26 @@
 # AGENTS.md
 
+## See also
+
+Read before your first change here:
+
+* [README.md](README.md) — what the provider does, how to install it, the
+  credentials Secret layout, and worked `clusterctl` examples
+* [CONTRIBUTING.md](CONTRIBUTING.md) — development setup, branch naming, commit
+  format, and pull request expectations
+
+Read when the change calls for it:
+
+* [RELEASE.md](RELEASE.md) — versioning and what counts as a breaking change.
+  Read this before changing `api/v1alpha1/` or `metadata.yaml`.
+* [SECURITY.md](SECURITY.md) — vulnerability reporting and the out-of-scope list
+* [MAINTAINERS.md](MAINTAINERS.md) — the maintainer roster
+* [CHANGELOG.md](CHANGELOG.md) — where user-visible changes are recorded
+* [config/samples/](config/samples/) — one sample manifest per CRD
+* [examples/kubeadm/](examples/kubeadm/) — the `clusterctl` cluster templates
+* [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) — the
+  checklist your pull request has to satisfy
+
 ## Overview
 
 `cluster-api-provider-nico` is a Cluster API infrastructure provider for NICo.
