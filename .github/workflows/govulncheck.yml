@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reports Go dependency vulnerabilities that this code actually calls. Results
+# go to Security -> Code scanning under the "govulncheck" category.
+#
+# This job does not gate. In SARIF mode govulncheck exits 0 whether or not it
+# finds anything, so a non-zero exit here is a real tool or module failure and
+# does fail the job. Findings are triaged in the Security tab, not by a red
+# check — three of the four NKE repositories have findings today, and a gating
+# job would bury a new regression in that backlog.
+#
+# The root module is covered. hack/kubebuilder/plugins/capnico-layout/v1 is
+# a separate module holding a scaffolding plugin, and is not scanned.
+
+name: govulncheck
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  schedule:
+    # Monday 06:30 UTC. New advisories land without the code changing.
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Go module to scan, relative to the repository root.
+  GO_MODULE: .
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ env.GO_MODULE }}/go.mod
+          cache: true
+          cache-dependency-path: ${{ env.GO_MODULE }}/go.sum
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+      - name: Run govulncheck
+        shell: bash
+        working-directory: ${{ env.GO_MODULE }}
+        run: |
+          set -euo pipefail
+          govulncheck -format sarif ./... > "${RUNNER_TEMP}/govulncheck.sarif"
+
+      - name: Summarise
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${RUNNER_TEMP}/govulncheck.sarif"
+          {
+            echo "## govulncheck — module \`${GO_MODULE}\`"
+            echo
+            if [ ! -s "${f}" ]; then
+              echo "No SARIF produced. The scan did not finish."
+            else
+              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`govulncheck\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload SARIF
+        if: always() && hashFiles(format('{0}/govulncheck.sarif', runner.temp)) != ''
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          sarif_file: ${{ runner.temp }}/govulncheck.sarif
+          checkout_path: ${{ github.workspace }}/${{ env.GO_MODULE }}
+          category: govulncheck

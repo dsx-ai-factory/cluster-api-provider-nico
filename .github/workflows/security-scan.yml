@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Anchore/Grype vulnerability scan of the checked-out tree. Results go to
+# Security -> Code scanning under the "grype" category.
+#
+# This complements govulncheck rather than repeating it. govulncheck reports
+# only what the code actually calls, in one module. Grype reads every dependency
+# manifest in the tree and reports the whole surface, which is what a consumer
+# of a released artifact is exposed to.
+#
+# `fail-build: false` matches NVIDIA/aicr: the scan reports, it does not gate.
+# `only-fixed: true` hides advisories with no fixed version, which are noise
+# until upstream ships something to upgrade to.
+
+name: Security Scan
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  schedule:
+    - cron: '30 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  grype:
+    name: grype
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Grype
+        id: scan
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        with:
+          path: "."
+          severity-cutoff: medium
+          output-format: sarif
+          only-fixed: true
+          fail-build: false
+
+      - name: Summarise
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${{ steps.scan.outputs.sarif }}"
+          {
+            echo "## Grype — medium severity and above, fixed versions only"
+            echo
+            if [ -z "${f}" ] || [ ! -s "${f}" ]; then
+              echo "No SARIF produced. The scan did not finish."
+            else
+              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`grype\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload SARIF
+        if: always() && steps.scan.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: grype

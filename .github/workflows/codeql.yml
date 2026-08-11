@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# CodeQL static analysis for Go. Results go to Security -> Code scanning.
+#
+# `build-mode: manual` because CodeQL has to observe a real compile to build its
+# database. The build runs in GO_MODULE, so the analysis covers that module.
+#
+# The root module is covered. hack/kubebuilder/plugins/capnico-layout/v1 is
+# a separate module holding a scaffolding plugin, and is not scanned.
+
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Go module to analyse, relative to the repository root.
+  GO_MODULE: .
+
+jobs:
+  analyze:
+    name: Analyze Go
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ env.GO_MODULE }}/go.mod
+          cache: true
+          cache-dependency-path: ${{ env.GO_MODULE }}/go.sum
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          languages: go
+          build-mode: manual
+
+      - name: Build
+        working-directory: ${{ env.GO_MODULE }}
+        run: go build ./...
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          category: "/language:go"
