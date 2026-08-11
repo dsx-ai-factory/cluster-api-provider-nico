@@ -11,3 +11,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - NVIDIA PLC-OSS community files (code of conduct, contributing guide, GitHub issue/PR templates) ahead of public GitHub publication.
 - GitHub Actions workflows aligned with Kubebuilder (test, lint); GHCR image publish workflow present but disabled.
+- `NOTICE` — root-level copyright and attribution statement.
