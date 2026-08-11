@@ -9,3 +9,11 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Re-include the licence and attribution files the image has to carry.
+# Without these the `**` above keeps them out of the build context and the
+# COPY in the Dockerfile fails, so a missing file breaks the build rather
+# than shipping an image with no attribution.
+!LICENSE
+!NOTICE
+!THIRD_PARTY_NOTICES.md
