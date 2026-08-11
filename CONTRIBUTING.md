@@ -139,6 +139,79 @@ feat!: remove deprecated v1alpha1 NicoCluster fields
 BREAKING CHANGE: spec.legacyEndpoint is removed. Use spec.identityRef instead.
 ```
 
+### Sign your commits (DCO)
+
+Commits carry a `Signed-off-by:` trailer. Add one with `-s`:
+
+```bash
+git commit -s -m "fix(controller): retry instance lookup on conflict"
+```
+
+That appends a line matching the name and email in your Git configuration:
+
+```
+Signed-off-by: Jane Developer <jane@example.com>
+```
+
+The sign-off is your statement that you have the right to submit the work under
+this repository's license. It is the [Developer Certificate of
+Origin](https://developercertificate.org/), the same mechanism the Linux kernel
+and Kubernetes use.
+
+**Organization members are relaxed, not exempt.** The check skips a commit only
+when the author is an NVIDIA organization member **and** GitHub reports the
+commit as verified-signed. An unsigned commit from a member with no sign-off
+still fails, reporting "Commit by organization member is not verified". Signing
+your commits (`-S`) is what makes the exemption apply.
+
+If you forget the `-s`, the simplest fix is to add it to every commit on the
+branch:
+
+```bash
+git rebase --keep-base --signoff main
+git push --force-with-lease
+```
+
+`--keep-base` matters: without it the rebase quietly moves your branch onto
+whatever your local `main` points at, which on a fork is usually stale.
+
+Remediation without rewriting history is also allowed, but it is not simply an
+empty `-s` commit. The app looks for one exact sentence per unsigned commit,
+each naming that commit's full SHA:
+
+```
+I, Jane Developer <jane@example.com>, hereby add my Signed-off-by to this commit: 3f53ada...
+
+Signed-off-by: Jane Developer <jane@example.com>
+```
+
+The failing check prints the exact text to copy, so take it from there rather
+than typing it by hand. Note the app itself advises against `--allow-empty` for
+this, because an empty commit is dropped if anyone rebases the branch.
+
+The configuration lives in [`.github/dco.yml`](.github/dco.yml).
+
+## AI-assisted contributions
+
+We welcome contributions written with the help of AI coding assistants (Claude,
+Copilot, Cursor, and so on). When using AI assistance:
+
+- **You are responsible** for reviewing and understanding all AI-generated code
+  before submitting it. Do not submit code you cannot explain or defend in review.
+- **Run the full local gate**, not just the tests: `make generate manifests fmt
+  test build`. An assistant will usually run the tests and skip regeneration,
+  which is what leaves `config/crd/bases/` stale.
+- **Say so in the pull request description** if a substantial part of the change
+  was generated, so reviewers can calibrate how closely to read it.
+- **Point your assistant at [AGENTS.md](AGENTS.md)** first. It carries the rules
+  that are not inferable from the surrounding code.
+
+Two of those rules matter most here, because this provider manages real NICo
+instances: hold the `NicoMachine` finalizer while `status.instanceID` may still
+refer to a live instance, and keep auth and connection state in the client
+layer rather than in CR status. Getting the first wrong leaks an instance that
+nothing will clean up.
+
 ## Changelog maintenance
 
 User-visible changes go in `CHANGELOG.md` under `[Unreleased]` before each release.
