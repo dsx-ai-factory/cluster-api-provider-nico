@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Code of Conduct upgraded from Contributor Covenant 1.4 to 2.1, adding the four-step Community Impact enforcement ladder
 ### Added
 
 - NVIDIA PLC-OSS community files (code of conduct, contributing guide, GitHub issue/PR templates) ahead of public GitHub publication.
