@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds the container image and throws it away.
+#
+# `image.yml` publishes and is disabled until the GHCR-versus-NVCR decision is
+# made, so nothing built this image on any commit. It could stop building and
+# nobody would find out until a release was attempted.
+#
+# The cache scope is shared with `image.yml` on purpose: same Dockerfile, same
+# platforms, same build-args. A verify build then warms the publish build rather
+# than competing with it for the repository's 10 GB cache budget.
+#
+# `push: false`, so this needs no registry credentials and no `packages` scope,
+# and it does not pre-empt the registry decision.
+#
+# The path filter is derived from `.dockerignore`, which is what actually
+# defines the build context: `**/*.go` excluding tests, go.mod, go.sum, LICENSE,
+# NOTICE and THIRD_PARTY_NOTICES.md. Listing source directories instead looks
+# tidier and is wrong — deleting THIRD_PARTY_NOTICES.md breaks the final `COPY`
+# and would not have matched. If `.dockerignore` changes, change this with it.
+
+name: Image Build
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'THIRD_PARTY_NOTICES.md'
+      - '.github/workflows/image-build.yml'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: Build image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: linux-amd64-cpu16
+            platform: linux/amd64
+          - arch: arm64
+            runner: linux-arm64-cpu16
+            platform: linux/arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The docker-container driver runs BuildKit in its own container, so it
+      # does not inherit the daemon's registry-mirror configuration. Use the
+      # runner's config when present; absent, buildx is set up as normal.
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
+
+      # cache-to only from main. A cache written on a pull-request/N branch can
+      # be read by nothing else — GitHub restores caches from the current ref or
+      # the default branch only — so it returns nothing and evicts entries the
+      # rest of CI does depend on, against a 10 GB per-repository ceiling.
+      # cache-from stays on every branch, because main's cache is readable
+      # everywhere.
+      - name: Build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: false
+          provenance: false
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=${{ matrix.arch }}
+          cache-from: type=gha,scope=capnico-${{ matrix.arch }}
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,mode=max,scope=capnico-{0}', matrix.arch) || '' }}
