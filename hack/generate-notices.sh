@@ -43,7 +43,7 @@ log() { echo "  $*" >&2; }
 # license containing a code sample would terminate the block early.
 fence_for() {
     local longest
-    longest=$(grep -oE '`+' "$1" 2>/dev/null | awk '{ if (length($0) > n) n = length($0) } END { print n+0 }')
+    longest=$(grep -aoE '`+' "$1" 2>/dev/null | awk '{ if (length($0) > n) n = length($0) } END { print n+0 }')
     printf '%*s' $(( longest < 3 ? 3 : longest + 1 )) '' | tr ' ' '`'
 }
 
@@ -146,15 +146,59 @@ EOF
     echo "## License Texts"
     echo
 
+    # Every attribution file for the package, not just the first. go-licenses
+    # saves LICENSE and NOTICE side by side, and this loop used to take
+    # `sort | head -1` — which under LC_ALL=C always kept LICENSE and always
+    # discarded NOTICE. Apache-2.0 section 4(d) requires the NOTICE text to
+    # travel with the distribution, and this file is how it travels.
+    #
+    # The licence file itself comes from the URL go-licenses reported, not from
+    # a name pattern. Guessing is how the first attempt at this fix went wrong:
+    # go-licenses accepts UNLICENSE and README as licence files (its
+    # licenseRegexp is `^(?i)((UN)?LICEN(S|C)E|COPYING|README|NOTICE).*$`), and
+    # a narrower allowlist drops such a dependency's entire licence text without
+    # a word. The URL's last segment is the file it actually classified;
+    # googlesource spells that "<tag>:LICENSE", hence the second strip.
+    PKGFILES="${WORK}/pkgfiles"
     while IFS=$'\t' read -r pkg lic url; do
-        f=$(find "${LICENSES_DIR}/${pkg}" -maxdepth 1 -type f 2>/dev/null | sort | head -1)
-        [[ -n "${f}" ]] || continue
-        fence=$(fence_for "${f}")
+        : >"${PKGFILES}"
+        classified="${url##*/}"; classified="${classified##*:}"
+        if [[ -n "${classified}" && -f "${LICENSES_DIR}/${pkg}/${classified}" ]]; then
+            printf '%s\n' "${LICENSES_DIR}/${pkg}/${classified}" >>"${PKGFILES}"
+        fi
+
+        # Plus any NOTICE. go-licenses saves it but never reports it, so it has
+        # to be found by name. This is the file the old code discarded.
+        find "${LICENSES_DIR}/${pkg}" -maxdepth 1 -type f -iname 'NOTICE*' \
+            2>/dev/null >>"${PKGFILES}"
+
+        # Fallback for a reported URL that names no saved file. Mirrors
+        # go-licenses' own regexp rather than a narrower guess.
+        if [[ ! -s "${PKGFILES}" ]]; then
+            find "${LICENSES_DIR}/${pkg}" -maxdepth 1 -type f \
+                \( -iname 'LICEN[SC]E*' -o -iname 'UNLICEN[SC]E*' \
+                   -o -iname 'COPYING*' -o -iname 'README*' \) \
+                2>/dev/null >>"${PKGFILES}"
+        fi
+
+        sort -u -o "${PKGFILES}" "${PKGFILES}"
+        count=$(wc -l <"${PKGFILES}" | tr -d ' ')
+        # Silence here would mean shipping a dependency with no attribution at
+        # all, which is the one outcome this file exists to prevent.
+        [[ "${count}" -gt 0 ]] || die "no attribution file for ${pkg} (go-licenses reported '${classified}')"
+
         printf '### %s\n\n' "${pkg}"
         printf '_%s_\n\n' "${lic}"
-        printf '%s\n' "${fence}"
-        cat "${f}"
-        printf '\n%s\n\n' "${fence}"
+        while IFS= read -r f; do
+            [[ -n "${f}" ]] || continue
+            # Name the file only when there is more than one, so the common
+            # single-licence case reads exactly as it did before.
+            if [[ "${count}" -gt 1 ]]; then printf '**%s**\n\n' "$(basename "${f}")"; fi
+            fence=$(fence_for "${f}")
+            printf '%s\n' "${fence}"
+            cat "${f}"
+            printf '\n%s\n\n' "${fence}"
+        done <"${PKGFILES}"
     done <"${INDEX}"
 } >"${TMP}"
 
