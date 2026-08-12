@@ -44,7 +44,24 @@ help: ## Display this help.
 ##@ Development
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+
+# The chart is a distributed artefact in the same way the container image is, so
+# it carries the same attribution. The image gained these files earlier; the
+# chart was missed.
+#
+# Copied rather than symlinked: `helm package` does not follow symlinks, and a
+# consumer who unpacks the chart should find the real text. Copying means they
+# can drift, so this target is a dependency of `manifests` and the copies are
+# regenerated with everything else. Verified that `kubebuilder edit
+# --plugins=helm/v2-alpha` leaves non-generated files in the chart directory
+# alone, so this survives regeneration.
+CHART_DIR := charts/capi-provider-nico
+
+.PHONY: chart-licenses
+chart-licenses: ## Copy the licence files into the Helm chart.
+	cp LICENSE NOTICE THIRD_PARTY_NOTICES.md "$(CHART_DIR)/"
+
+manifests: chart-licenses controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" crd:crdVersions=v1 paths=./api/... output:crd:artifacts:config=config/crd/bases
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role paths=./controllers/... output:rbac:artifacts:config=config/rbac
 
@@ -356,9 +373,27 @@ bin/go-licenses:
 	GOTOOLCHAIN=$(GO_TOOLCHAIN) GOBIN=$(CURDIR)/bin \
 		go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
 
+CHART_LICENSE_DIR ?= charts/capi-provider-nico
+
+# The chart is a distributed artefact in the same way the container image is, so
+# it carries the same attribution. The image gained these files earlier; the
+# chart was missed.
+#
+# Copied rather than symlinked: `helm package` does not follow symlinks, and a
+# consumer who unpacks the chart should find the real text. Copying means they
+# can drift, so this hangs off `notices` -- the target that rewrites the file
+# that drifts -- and `notices-check` compares both copies.
+.PHONY: chart-licenses
+chart-licenses: ## Copy the license files into the Helm chart.
+	mkdir -p "$(CHART_LICENSE_DIR)"
+	cp LICENSE NOTICE THIRD_PARTY_NOTICES.md "$(CHART_LICENSE_DIR)/"
+
 .PHONY: notices
 notices: bin/go-licenses ## Regenerate THIRD_PARTY_NOTICES.md.
 	@bash hack/generate-notices.sh
+	@# After the generator, not before: as a prerequisite this would copy the
+	@# previous file and leave the chart stale the moment the root one changed.
+	@$(MAKE) --no-print-directory chart-licenses
 
 .PHONY: notices-check
 notices-check: ## Verify THIRD_PARTY_NOTICES.md matches the dependency tree.
@@ -369,5 +404,6 @@ notices-check: ## Verify THIRD_PARTY_NOTICES.md matches the dependency tree.
 	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md >/dev/null 2>&1 \
 		|| { echo "ERROR: THIRD_PARTY_NOTICES.md is not tracked. Run 'make notices' and commit it."; exit 1; }
 	@$(MAKE) notices
-	@git diff --exit-code -- THIRD_PARTY_NOTICES.md \
+	@$(MAKE) --no-print-directory chart-licenses
+	@git diff --exit-code -- THIRD_PARTY_NOTICES.md "$(CHART_LICENSE_DIR)/THIRD_PARTY_NOTICES.md" \
 		|| { echo "ERROR: THIRD_PARTY_NOTICES.md is stale. Run 'make notices' and commit the change."; exit 1; }
