@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM golang:1.25@sha256:2ddaec94e9a119c926e843982c01e15c1d4d22a05bd5db8248722d1c50b7cca9 AS builder
+FROM golang:1.25@sha256:2c7ebcaf2c1032b4b4d15df14b7edf3221b1e45dadfaa36ab6a2f8555feacaa6 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -16,7 +16,7 @@ COPY internal/ internal/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o /manager ./cmd
 
-FROM gcr.io/distroless/static:nonroot@sha256:23795be0fe67b7d47d1ee62b19c7db750152db627d5bbfa31307e892a7575bec
+FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 WORKDIR /
 COPY --from=builder /manager /manager
 
