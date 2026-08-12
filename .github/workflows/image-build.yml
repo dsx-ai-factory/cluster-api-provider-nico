@@ -30,6 +30,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - '**.go'
+      - 'vendor/**'
       - 'go.mod'
       - 'go.sum'
       - 'LICENSE'
