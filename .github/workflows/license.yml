@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# License enforcement, modelled on .github/workflows/license.yml in NVIDIA/nke.
+#
+#   header-check     runs `make file-license-check`, which applies addlicense in
+#                    place and fails on the resulting diff. See the Makefile for
+#                    what addlicense does and does not cover -- it adds a header
+#                    to a file that has none, and reads a fixed set of file
+#                    extensions, so this is a floor rather than a guarantee.
+#
+#   dependency-check rejects any transitive dependency whose license type is
+#                    restricted, reciprocal, forbidden or unknown. Nothing else
+#                    here blocks a copyleft dependency from landing:
+#                    THIRD_PARTY_NOTICES.md records what is present but never
+#                    fails.
+#
+# Both run on ubuntu-latest, unlike the rest of this repository. Neither needs a
+# private dependency or an NVIDIA runner, and a GitHub-hosted runner is the only
+# way a contributor working from a fork sees these go green.
+#
+# go-licenses has to be installed by the same Go that runs it. Built with one
+# toolchain and used with another, it reports standard library packages as
+# "does not have module info" and fails. Installing it after setup-go, as
+# below, is what keeps the two in step.
+
+name: License Checks
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  workflow_call:
+  workflow_dispatch:
+
+permissions: {}
+
+# The group name is prefixed rather than using github.workflow alone. In a
+# called workflow github.workflow resolves to the CALLER's name, so a bare
+# ${{ github.workflow }} group makes this workflow collide with the very job
+# that called it -- the caller already holds that group with
+# cancel-in-progress, and the call is dropped before any job starts.
+concurrency:
+  group: license-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  header-check:
+    name: License headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Needs a clean tree, which a fresh checkout is.
+      - name: Verify license headers
+        run: make file-license-check
+
+  dependency-check:
+    name: Dependency licenses
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses/v2@v2.0.1
+
+      # GOTOOLCHAIN=local stops Go fetching a golang.org/toolchain module for the
+      # standard library, which go-licenses then treats as unrecognised external
+      # packages.
+      - name: Check dependency licenses
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go-licenses check ./... \
+            --disallowed_types=restricted,reciprocal,forbidden,unknown \
+            --ignore github.com/NVIDIA/cluster-api-provider-nico

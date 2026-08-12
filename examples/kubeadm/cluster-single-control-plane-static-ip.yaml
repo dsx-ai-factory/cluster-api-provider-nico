@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Developer-only kubeadm template for single-control-plane requested IP testing.
 # CONTROL_PLANE_ENDPOINT_IP is requested as the control-plane NICo interface IP
 # and used as the Kubernetes API endpoint.

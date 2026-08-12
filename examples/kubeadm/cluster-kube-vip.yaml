@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # kubeadm template that bootstraps kube-vip as the Kubernetes API endpoint.
 #
 # NICO_NETWORK_METHOD defaults to vpcPrefixID. Set it to subnetID for legacy

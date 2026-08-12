@@ -101,6 +101,56 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
+# Every source file carries an SPDX header; the check runs in
+# .github/workflows/license.yml.
+# config/ holds generated output that `make manifests` rewrites. charts/ is
+# NOT excluded: charts/capi-provider-nico is this project's own chart. Only its
+# generated files/ subdirectory is skipped, which .gitignore also lists.
+#
+# addlicense only ever ADDS a header to a file that has none. It cannot detect a
+# wrong header, a stale year or a foreign copyright holder, and it skips any
+# file whose first bytes already mention a copyright. It also understands a
+# fixed set of file extensions, so .tpl, .lua, .json, .toml and extensionless
+# files such as Tiltfile are outside its reach.
+ADDLICENSE := go run github.com/google/addlicense@v1.1.1
+ADDLICENSE_IGNORES := \
+	-ignore '**/*.pb.go' \
+	-ignore '**/testdata/**' \
+	-ignore 'bin/**' \
+	-ignore 'charts/*/files/**' \
+	-ignore 'config/**' \
+	-ignore 'vendor/**'
+
+# A file that must always be inspected. If a typo in ADDLICENSE_IGNORES ever
+# excludes first-party source, the check would pass having inspected nothing --
+# so assert this one file is not among the skipped before trusting the result.
+LICENSE_CANARY := cmd/main.go
+
+.PHONY: license
+license: ## Add a license header to any source file that lacks one.
+	$(ADDLICENSE) -f ./hack/boilerplate.addlicense.txt $(ADDLICENSE_IGNORES) .
+
+# Expects a clean working directory.
+.PHONY: file-license-check
+file-license-check: license ## Verify every source file carries a license header.
+	@if $(ADDLICENSE) -v -f ./hack/boilerplate.addlicense.txt $(ADDLICENSE_IGNORES) . 2>&1 \
+		| grep -q "skipping: $(LICENSE_CANARY)"; then \
+		echo "ADDLICENSE_IGNORES excludes $(LICENSE_CANARY). The check would report success without inspecting first-party source."; \
+		exit 1; \
+	fi
+	@untracked=$$(git ls-files --others --exclude-standard); \
+	if [ -n "$$untracked" ]; then \
+		echo "Untracked files present; git diff cannot see them. Commit or remove:"; \
+		echo "$$untracked"; \
+		exit 1; \
+	fi
+	@if ! git diff --exit-code -- . > /dev/null 2>&1; then \
+		echo "License headers are missing. Run 'make license' locally and commit the result."; \
+		echo "Files without a license header:"; \
+		git diff --name-only -- .; \
+		exit 1; \
+	fi
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run

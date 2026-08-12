@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Generic kubeadm template. Use when CONTROL_PLANE_ENDPOINT_HOST already points
 # to a stable Kubernetes API endpoint, such as DNS, an external load balancer,
 # or kube-vip managed outside this template.
