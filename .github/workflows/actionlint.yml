@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Lints the workflow files themselves.
+#
+# A workflow that fails to parse, or that references a job output or secret that
+# does not exist, produces a run with no jobs and no useful error. Nothing here
+# checked for that. `cluster-api-provider-launchlayer` has run actionlint inside
+# its merge gate for a while; this is the same check for a repository without a
+# merge gate.
+#
+# Runs on ubuntu-latest. actionlint is a static binary that reads YAML — it needs
+# no Docker, no private dependency and no NVIDIA runner, so it should not consume
+# self-hosted capacity, and a contributor working from a fork can see it.
+
+name: Actionlint
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+    paths:
+      - '.github/workflows/**'
+      - '.github/actionlint.yaml'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A prebuilt binary rather than `go run`, which would compile actionlint
+      # from source on every run. The checksum is verified against the release
+      # the version pins, so a compromised download fails closed.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+        run: |
+          set -euo pipefail
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          tar="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tmp="$(mktemp -d)"
+
+          curl -fsSL -o "${tmp}/${tar}" "${base}/${tar}"
+          curl -fsSL -o "${tmp}/checksums.txt" "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+
+          expected="$(awk -v t="${tar}" '$2 == t {print $1}' "${tmp}/checksums.txt")"
+          if [ -z "${expected}" ]; then
+            echo "::error::no checksum entry for ${tar}"
+            exit 1
+          fi
+          actual="$(sha256sum "${tmp}/${tar}" | awk '{print $1}')"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::checksum mismatch for ${tar}"
+            exit 1
+          fi
+
+          tar -xzf "${tmp}/${tar}" -C "${tmp}" actionlint
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 "${tmp}/actionlint" "${HOME}/.local/bin/actionlint"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Lint the workflows
+        run: actionlint

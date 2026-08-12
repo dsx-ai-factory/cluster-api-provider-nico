@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# actionlint fails on any runs-on label it does not know. Without this file it
+# reports every workflow that uses a self-hosted runner as broken, which is
+# nearly all of them, and that makes it useless locally as well as in CI.
+
+self-hosted-runner:
+  labels:
+    - linux-amd64-cpu4
+    - linux-amd64-cpu8
+    - linux-amd64-cpu16
+    - linux-arm64-cpu16
+
+# image.yml is inert on purpose: publishing is disabled pending the
+# GHCR-versus-NVCR decision, so its `on:` block is commented out and every job
+# carries `if: false`. actionlint's if-cond rule flags a constant condition as a
+# mistake, which here it is not. Scoped to that one file so the rule still
+# applies everywhere else — delete this block when publishing is re-enabled.
+paths:
+  .github/workflows/image.yml:
+    ignore:
+      - 'constant expression "false" in condition'
