@@ -23,6 +23,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # clusterctl resolves a provider repository from the release assets, so
+      # metadata.yaml and infrastructure-components.yaml have to be attached to
+      # the release itself, not just generated.
+      - name: Generate clusterctl provider artifacts
+        run: |
+          set -euo pipefail
+          make kustomize
+          KUSTOMIZE="$(pwd)/bin/kustomize" \
+          CONTROLLER_IMG="ghcr.io/nvidia/cluster-api-provider-nico:${GITHUB_REF_NAME}" \
+            make release-manifests
+
       - name: Extract changelog for this version
         id: changelog
         run: |
@@ -44,3 +60,6 @@ jobs:
           body: ${{ steps.changelog.outputs.notes }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            out/metadata.yaml
+            out/infrastructure-components.yaml

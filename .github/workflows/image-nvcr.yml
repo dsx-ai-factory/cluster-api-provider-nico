@@ -1,0 +1,264 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: NVCR
+
+# Everything CAPNICo publishes to nvcr.io: controller images to both the NKE and
+# DSX orgs, and the Helm chart to DSX. Kept out of `image.yml` so a fork can
+# disable NVCR publishing on its own and keep its GHCR builds.
+#
+# The two orgs share the nvcr.io host but need different NGC keys, and a Docker
+# config holds one credential per host, so each destination gets its own job
+# rather than one build pushing both tags.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DSX_IMAGE: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+
+jobs:
+  build:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Build ${{ matrix.dest.name }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    environment: nvcr
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        dest:
+          - name: nke
+            image: nvcr.io/j7sbcjl3qgta/cluster-api-provider-nico
+            secret: NVCR_NKE_AUTH_TOKEN
+          - name: dsx
+            image: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+            secret: NGC_REGISTRY_TOKEN_DSX
+        include:
+          - arch: amd64
+            runner: linux-amd64-cpu16
+            platform: linux/amd64
+          - arch: arm64
+            runner: linux-arm64-cpu16
+            platform: linux/arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # See image.yml: BuildKit runs in its own container and needs the runner's
+      # registry-mirror config when one is present.
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
+
+      # `$oauthtoken` is NGC's literal username, not a variable reference.
+      - name: Login to NVCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets[matrix.dest.secret] }}
+
+      - name: Image tags
+        id: meta
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.dest.image }}
+        run: |
+          set -euo pipefail
+          arch="${{ matrix.arch }}"
+          tags=("${IMAGE}:sha-${GITHUB_SHA}-${arch}")
+
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            tags+=("${IMAGE}:edge-${arch}" "${IMAGE}:latest-${arch}")
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tags+=("${IMAGE}:${GITHUB_REF_NAME}-${arch}")
+          fi
+
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      # Reads image.yml's cache scope (identical Dockerfile and build-args) but
+      # does not write it, so the publish workflows do not race each other for
+      # the repository's 10 GB cache budget.
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=${{ matrix.arch }}
+          cache-from: type=gha,scope=capnico-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  manifest:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Manifest ${{ matrix.dest.name }}
+    runs-on: linux-amd64-cpu8
+    needs: [build]
+    environment: nvcr
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dest:
+          - name: nke
+            image: nvcr.io/j7sbcjl3qgta/cluster-api-provider-nico
+            secret: NVCR_NKE_AUTH_TOKEN
+          - name: dsx
+            image: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+            secret: NGC_REGISTRY_TOKEN_DSX
+    steps:
+      - name: Login to NVCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets[matrix.dest.secret] }}
+
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
+
+      - name: Create multi-arch manifests
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.dest.image }}
+        run: |
+          set -euo pipefail
+          aliases=("sha-${GITHUB_SHA}")
+
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            aliases+=("edge" "latest")
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            aliases+=("${GITHUB_REF_NAME}")
+          fi
+
+          for alias in "${aliases[@]}"; do
+            docker buildx imagetools create \
+              -t "${IMAGE}:${alias}" \
+              "${IMAGE}:${alias}-amd64" \
+              "${IMAGE}:${alias}-arm64"
+          done
+
+  chart:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico' && startsWith(github.ref, 'refs/tags/v')
+    name: Helm chart (dsx)
+    runs-on: linux-amd64-cpu8
+    needs: [manifest]
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      # CONTROLLER_IMG is the DSX image so the packaged manifest points at the
+      # registry the chart's consumers can actually pull from.
+      - name: Render chart manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          make kustomize
+          KUSTOMIZE="$(pwd)/bin/kustomize" \
+          CONTROLLER_IMG="${DSX_IMAGE}:${GITHUB_REF_NAME}" \
+            make helm-chart-manifests
+
+      - name: Install NGC CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL \
+            https://ngc.nvidia.com/downloads/ngccli_linux.zip -o ngccli_linux.zip
+          unzip -q -o ngccli_linux.zip
+          chmod +x ngc-cli/ngc
+          echo "$(pwd)/ngc-cli" >> "${GITHUB_PATH}"
+
+      - name: Package chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm lint charts/capi-provider-nico
+          helm package charts/capi-provider-nico \
+            --version "${GITHUB_REF_NAME#v}" \
+            --app-version "${GITHUB_REF_NAME}" \
+            --destination dist/capi-provider-nico
+
+      - name: Push chart to NGC
+        shell: bash
+        env:
+          NGC_CLI_API_KEY: ${{ secrets.NGC_REGISTRY_TOKEN_DSX }}
+          NGC_CLI_ORG: "0837451325059433"
+          NGC_CLI_TEAM: components-dev
+        run: |
+          set -euo pipefail
+          target="${NGC_CLI_ORG}/${NGC_CLI_TEAM}/capi-provider-nico"
+
+          if ! ngc registry chart info "${target}" > /dev/null 2>&1; then
+            ngc registry chart create "${target}" \
+              --short-desc "Helm chart for capi-provider-nico"
+          fi
+
+          # Re-running a release must not fail once the version is published.
+          if ! out="$(ngc registry chart push "${target}:${GITHUB_REF_NAME#v}" \
+                        --source dist/capi-provider-nico 2>&1)"; then
+            printf '%s\n' "${out}"
+            printf '%s\n' "${out}" | grep -qi "already exists"
+          fi

@@ -95,27 +95,19 @@ CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
 Generate the local artifacts with the controller image you want to publish:
 
 ```bash
-CONTROLLER_IMG=registry.gitlab-master.nvidia.com/nke/cluster-api-provider-nico:v0.0.8 \
+CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico:v0.0.8 \
 make release-manifests
 ```
 
-This writes the clusterctl artifacts to `out/`. Release pipelines publish those
-files to GitLab Generic Packages under a versioned package path:
-
-```text
-${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/cluster-api-provider-nico/<version>/
-```
+This writes the clusterctl artifacts to `out/`. Tagging a release attaches the
+same two files to the GitHub Release.
 
 Update `metadata.yaml` only when introducing a new major/minor release series or
 changing the Cluster API contract supported by a release series. Patch releases
 within the same series should keep the existing metadata entry.
 
-To consume a released CAPNICo provider from `clusterctl`, add the GitLab Generic
-Package URL to your clusterctl configuration. Use the `gitlab.nvidia.com` alias instead of
-`gitlab-master.nvidia.com`; `clusterctl` only recognizes self-hosted GitLab
-provider URLs when the hostname starts with `gitlab.`.
-
-Create or update the default `clusterctl` config file:
+To consume a released CAPNICo provider from `clusterctl`, add the release asset
+URL to your clusterctl configuration. Create or update the default config file:
 
 ```bash
 mkdir -p ~/.config/cluster-api
@@ -130,7 +122,7 @@ does not specify one explicitly:
 providers:
   - name: nico
     type: InfrastructureProvider
-    url: https://gitlab.nvidia.com/api/v4/projects/263631/packages/generic/cluster-api-provider-nico/v0.0.10/infrastructure-components.yaml
+    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.10/infrastructure-components.yaml
 ```
 
 Then initialize the provider:
@@ -145,7 +137,7 @@ template when generating clusters.
 
 The generated provider manifest references the controller image you pass through
 `CONTROLLER_IMG`. Management clusters must be able to pull that image. For local
-or private deployments, either grant access to the GitLab registry image or
+or private deployments, either grant the cluster access to that registry or
 regenerate the artifacts with an image mirrored to a registry the cluster can
 reach.
 

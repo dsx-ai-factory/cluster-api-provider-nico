@@ -3,8 +3,9 @@
 
 name: Image
 
-# Publishes multi-arch images to GHCR. GitLab still publishes the same commit to
-# NGC for DSX (see .gitlab-ci.yml); the two pipelines are independent.
+# Publishes multi-arch images to GHCR. NVCR publishing is a separate workflow
+# (image-nvcr.yml) so forks can disable it on its own. The two are independent
+# rebuilds; neither can break the other.
 on:
   push:
     branches:
