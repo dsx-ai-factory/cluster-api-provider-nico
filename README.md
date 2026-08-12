@@ -32,10 +32,11 @@ each requested machine into a NICo instance on real hardware.
 
 ## Community and support
 
-- **Questions, bug reports, and feature requests** — open a
+- **Questions and discussion** — ask in
+  [GitHub Discussions](https://github.com/NVIDIA/cluster-api-provider-nico/discussions/categories/q-a),
+  where an answer can be marked as the accepted one.
+- **Bug reports and feature requests** — open a
   [GitHub issue](https://github.com/NVIDIA/cluster-api-provider-nico/issues).
-  Issues are this project's discussion forum; there is no separate mailing list
-  or chat channel.
 - **Code of Conduct** — everyone taking part is expected to follow the
   [Code of Conduct](CODE_OF_CONDUCT.md).
 - **Security** — report vulnerabilities as described in [SECURITY.md](SECURITY.md).
