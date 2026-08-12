@@ -45,23 +45,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 
-# The chart is a distributed artefact in the same way the container image is, so
-# it carries the same attribution. The image gained these files earlier; the
-# chart was missed.
-#
-# Copied rather than symlinked: `helm package` does not follow symlinks, and a
-# consumer who unpacks the chart should find the real text. Copying means they
-# can drift, so this target is a dependency of `manifests` and the copies are
-# regenerated with everything else. Verified that `kubebuilder edit
-# --plugins=helm/v2-alpha` leaves non-generated files in the chart directory
-# alone, so this survives regeneration.
-CHART_DIR := charts/capi-provider-nico
-
-.PHONY: chart-licenses
-chart-licenses: ## Copy the licence files into the Helm chart.
-	cp LICENSE NOTICE THIRD_PARTY_NOTICES.md "$(CHART_DIR)/"
-
-manifests: chart-licenses controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	"$(CONTROLLER_GEN)" crd:crdVersions=v1 paths=./api/... output:crd:artifacts:config=config/crd/bases
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role paths=./controllers/... output:rbac:artifacts:config=config/rbac
 
