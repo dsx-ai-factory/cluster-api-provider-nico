@@ -3,16 +3,15 @@
 #
 # Builds the container image and throws it away.
 #
-# `image.yml` publishes and is disabled until the GHCR-versus-NVCR decision is
-# made, so nothing built this image on any commit. It could stop building and
-# nobody would find out until a release was attempted.
+# PR and path-filtered verify companion to `image.yml` (which publishes to
+# GHCR). Without this, a broken Dockerfile would only surface when main or a
+# tag pushed and the publish workflow failed.
 #
 # The cache scope is shared with `image.yml` on purpose: same Dockerfile, same
 # platforms, same build-args. A verify build then warms the publish build rather
 # than competing with it for the repository's 10 GB cache budget.
 #
-# `push: false`, so this needs no registry credentials and no `packages` scope,
-# and it does not pre-empt the registry decision.
+# `push: false`, so this needs no registry credentials and no `packages` scope.
 #
 # The path filter is derived from `.dockerignore`, which is what actually
 # defines the build context: `**/*.go` excluding tests, go.mod, go.sum, LICENSE,

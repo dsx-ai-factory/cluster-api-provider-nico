@@ -57,10 +57,19 @@ Releases are cut on demand. There is no fixed schedule.
    git push upstream v<VERSION>
    ```
 
-5. **The release workflow fires automatically** on the tag push.
-   It creates a GitHub Release with changelog notes extracted from `CHANGELOG.md`.
+5. **Two workflows fire on the tag push** (independent; neither can break the other):
+   - **Release** creates a GitHub Release with notes extracted from `CHANGELOG.md`.
+   - **Image** builds `linux/amd64` and `linux/arm64`, uploads SPDX SBOM
+     artifacts, and pushes a multi-arch manifest to
+     `ghcr.io/nvidia/cluster-api-provider-nico:<tag>` (plus the matching
+     `sha-<commit>` tag). Pushes to `main` publish `:edge` the same way.
 
-6. **Verify** at `https://github.com/NVIDIA/cluster-api-provider-nico/releases`.
+   The GitLab mirror still publishes the same commit to NGC for DSX. That is an
+   independent rebuild, not a copy of the GHCR digest.
+
+6. **Verify**
+   - GitHub Release: `https://github.com/NVIDIA/cluster-api-provider-nico/releases`
+   - GHCR image: `ghcr.io/nvidia/cluster-api-provider-nico:v<VERSION>`
 
 ## Backport policy
 

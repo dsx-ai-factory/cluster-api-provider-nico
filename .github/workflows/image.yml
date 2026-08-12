@@ -3,15 +3,14 @@
 
 name: Image
 
-# Disabled until public GHCR publishing is ready.
-# To re-enable: restore the push triggers below and remove the job-level
-# `if: false` guards on build, sbom, and manifest.
+# Publishes multi-arch images to GHCR. GitLab still publishes the same commit to
+# NGC for DSX (see .gitlab-ci.yml); the two pipelines are independent.
 on:
-  # push:
-  #   branches:
-  #     - main
-  #   tags:
-  #     - "v*"
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
   workflow_dispatch: {}
 
 permissions:
@@ -26,7 +25,7 @@ env:
 
 jobs:
   build:
-    if: false # publishing disabled
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     name: Build (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -116,7 +115,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
   sbom:
-    if: false # publishing disabled
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     name: SBOM (${{ matrix.arch }})
     runs-on: linux-amd64-cpu8
     needs: [build]
@@ -146,7 +145,7 @@ jobs:
           upload-release-assets: false
 
   manifest:
-    if: false # publishing disabled
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     name: Multi-arch manifest
     runs-on: linux-amd64-cpu8
     needs: [build]
