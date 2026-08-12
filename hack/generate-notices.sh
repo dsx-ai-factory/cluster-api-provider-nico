@@ -65,12 +65,17 @@ LOCAL_MODULE="$(go list -m)"
 # short flags. Applied only when vendor/ exists, because -mod=mod is also the
 # mode that lets the go tool rewrite go.mod, and in readonly mode an untidy
 # module fails loudly here -- a signal worth keeping.
+# `|| true` because shasum exits non-zero when go.sum is absent, and under
+# `set -e` with pipefail that kills the script with no message at all. A module
+# with no go.sum still hashes its go.mod, which is what the guard needs.
+mod_digest() { shasum go.mod go.sum 2>/dev/null | shasum | cut -d" " -f1 || true; }
+
 MOD_ENV=()
 MOD_BEFORE=""
 if [[ -d vendor ]]; then
     log "vendor/ present - reading the module graph rather than vendor/"
     MOD_ENV=(GOFLAGS=-mod=mod)
-    MOD_BEFORE="$(shasum go.mod go.sum 2>/dev/null | shasum | cut -d" " -f1)"
+    MOD_BEFORE="$(mod_digest)"
 fi
 
 WORK="$(mktemp -d)"
@@ -88,6 +93,7 @@ mkdir -p "${SAVE_ROOT}" "${LICENSES_DIR}"
 # once hid a fatal argument error behind a bare non-zero exit, and the run then
 # looked like an empty dependency tree rather than a broken invocation.
 run_go_licenses() {
+    : >"${ERRLOG}"
     env ${MOD_ENV[@]+"${MOD_ENV[@]}"} GOOS="${goos}" GOARCH="${goarch}" \
         "${GO_LICENSES}" "$@" 2>>"${ERRLOG}" && return 0
     cat "${ERRLOG}" >&2
@@ -123,28 +129,37 @@ done
 
 [[ -s "${CSV}" ]] || die "go-licenses produced no rows for ${PACKAGES[*]}."
 
+# -mod=mod is allowed to rewrite go.mod. Generating a documentation file must
+# not quietly change the dependency set. Checked before the URL scan below, so
+# that a run which both rewrote go.mod and self-attributed reports the rewrite
+# rather than hiding it behind the other message.
+if [[ -n "${MOD_BEFORE}" ]]; then
+    [[ "$(mod_digest)" == "${MOD_BEFORE}" ]] \
+        || die "go.mod or go.sum changed while generating notices. Run 'go mod tidy' and commit that separately."
+fi
+
 # Backstop, in case go-licenses still self-attributes. Anchored on the module
 # path trimmed to its repository root, which is what go-licenses actually builds
 # URLs from -- a module in a subdirectory (github.com/NVIDIA/nke/agent) still
 # yields https://github.com/NVIDIA/nke/blob/..., so anchoring on the full module
 # path would miss every row. Not taken from the git remote either: that varies
 # by checkout (a fork remote would disable the check silently) while the URL
-# does not. Deduplicated because the CSV holds one row set per platform.
+# does not.
+#
+# A package that genuinely lives in this repository is allowed to have a URL
+# here: these are multi-module repositories, and a sibling module really is
+# licensed by us. What must never happen is a THIRD-PARTY package carrying our
+# URL, so the package path decides, not the URL alone.
 SELF_ROOT="$(printf '%s\n' "${LOCAL_MODULE}" | cut -d/ -f1-3)"
-SELF_RE="^https://${SELF_ROOT//./\\.}(/|$)"
-if SELF_REF=$(cut -d, -f2 "${CSV}" | sort -u | grep -cE "${SELF_RE}"); then
-    die "${SELF_REF} licence URL(s) resolve to ${SELF_ROOT} itself. go-licenses is attributing upstream code to this repository."
-elif [[ $? -gt 1 ]]; then
-    die "could not scan licence URLs for self-references."
+SELF_REF="$(awk -F, -v root="${SELF_ROOT}" '
+    BEGIN { esc = root; gsub(/\./, "\\.", esc); re = "^https://" esc "(/|$)" }
+    $2 ~ re && $1 != root && index($1, root "/") != 1 { print $1 }
+' "${CSV}" | sort -u)"
+if [[ -n "${SELF_REF}" ]]; then
+    log "third-party packages carrying a ${SELF_ROOT} licence URL:"
+    while IFS= read -r pkg; do log "  ${pkg}"; done <<<"${SELF_REF}"
+    die "$(wc -l <<<"${SELF_REF}" | tr -d ' ') package(s) above are not ours. go-licenses is attributing upstream code to this repository."
 fi
-
-# -mod=mod is allowed to rewrite go.mod. Generating a documentation file must
-# not quietly change the dependency set.
-if [[ -n "${MOD_BEFORE}" ]]; then
-    [[ "$(shasum go.mod go.sum 2>/dev/null | shasum | cut -d" " -f1)" == "${MOD_BEFORE}" ]] \
-        || die "go.mod or go.sum changed while generating notices. Run 'go mod tidy' and commit that separately."
-fi
-
 
 # package -> module@version, so a reader can pin what was actually linked.
 MODMAP="${WORK}/modmap"

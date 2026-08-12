@@ -15,9 +15,12 @@
 #
 # The path filter is derived from `.dockerignore`, which is what actually
 # defines the build context: `**/*.go` excluding tests, go.mod, go.sum, LICENSE,
-# NOTICE and THIRD_PARTY_NOTICES.md. Listing source directories instead looks
-# tidier and is wrong — deleting THIRD_PARTY_NOTICES.md breaks the final `COPY`
-# and would not have matched. If `.dockerignore` changes, change this with it.
+# NOTICE, THIRD_PARTY_NOTICES.md and vendor/**. Listing source directories
+# instead looks tidier and is wrong — deleting THIRD_PARTY_NOTICES.md breaks the
+# final `COPY` and would not have matched. `vendor/**` is listed even though
+# `**.go` covers vendored Go source, because vendor/modules.txt and the vendored
+# licence files change on their own. If `.dockerignore` changes, change this
+# with it.
 
 name: Image Build
 
