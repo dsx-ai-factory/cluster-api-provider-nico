@@ -280,10 +280,12 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GINKGO ?= $(LOCALBIN)/ginkgo
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+CRANE ?= $(LOCALBIN)/crane
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
+CRANE_VERSION ?= v0.21.9
 GINKGO_VERSION ?= $(call gomodver,github.com/onsi/ginkgo/v2)
 
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
@@ -301,6 +303,11 @@ GOLANGCI_LINT_VERSION ?= v2.11.4
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+.PHONY: crane
+crane: $(CRANE) ## Download crane locally if necessary.
+$(CRANE): $(LOCALBIN)
+	$(call go-install-tool,$(CRANE),github.com/google/go-containerregistry/cmd/crane,$(CRANE_VERSION))
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.

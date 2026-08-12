@@ -17,6 +17,34 @@ credentials Secrets, or `clusterctl` configuration before upgrading.
 
 Releases are cut on demand. There is no fixed schedule.
 
+## Registries and promotion
+
+Nothing is built for a release. Every commit merged to `main` is built once and
+published to NVCR as `sha-<commit>`, and tagging a release renames that exact
+digest and copies it to GHCR. A release therefore ships the image that has
+already been running as `edge`, byte for byte, and `v1.2.3-rc.1` and `v1.2.3` are
+the same image whenever they name the same commit.
+
+| Registry | Audience | Receives |
+| --- | --- | --- |
+| NVCR, at `NVCR_NKE_IMAGE` and `NVCR_DSX_IMAGE` | NVIDIA-internal | every `main` commit as `sha-<commit>`, `edge` and `latest`, plus every tag |
+| `ghcr.io/nvidia/cluster-api-provider-nico` | public | tagged versions only, release candidates included |
+
+The NKE org is the promotion source; the DSX org is where internal consumers and
+the Helm chart point. GHCR receives only the multi-arch index for a tag, so the
+per-arch tags a build produces stay internal, and untagged commits never become
+public at all.
+
+The one constraint this imposes is that **a tag must point at a commit that was
+built on `main`.** Tagging anything else fails with an error naming the missing
+`sha-<commit>`, rather than quietly building something that was never tested.
+
+Promotion uses [crane](https://github.com/google/go-containerregistry), pinned in
+the `Makefile` as `CRANE_VERSION` and built by `make crane`, so a maintainer can
+run the same copy by hand. Kubernetes promotes with `kpromo` instead, but its
+provider-side command only opens a pull request against `kubernetes/k8s.io` for
+the central promoter to act on, which has no equivalent here.
+
 ## Steps to release
 
 1. **Update `CHANGELOG.md`.** It is generated from commit subjects by
@@ -57,35 +85,60 @@ Releases are cut on demand. There is no fixed schedule.
    git push upstream v<VERSION>
    ```
 
-5. **Three workflows fire on the tag push** (independent; none can break the others):
-   - **Release** creates a GitHub Release with notes extracted from
-     `CHANGELOG.md` and attaches the clusterctl provider artifacts,
-     `metadata.yaml` and `infrastructure-components.yaml`. The attached manifest
-     references the GHCR image for that tag.
-   - **Image** builds `linux/amd64` and `linux/arm64`, uploads SPDX SBOM
-     artifacts, and pushes a multi-arch manifest to
-     `ghcr.io/nvidia/cluster-api-provider-nico:<tag>` (plus the matching
-     `sha-<commit>` tag). Pushes to `main` publish `:edge` the same way.
-   - **NVCR** pushes the same image tags to the two NGC destinations named by
-     the `NVCR_NKE_IMAGE` and `NVCR_DSX_IMAGE` variables, adding `:latest` on
-     `main`. On a tag it also packages the `capi-provider-nico` Helm chart and
-     pushes it to the NGC chart registry under `DSX_NGC_ORG`/`DSX_NGC_TEAM`,
-     with the chart's manifest pointing at the DSX image.
+5. **The Release workflow runs**, in this order:
+   - **Tag NVCR** repoints `<tag>` at the `sha-<commit>` digest in both NGC
+     orgs. Nothing is uploaded.
+   - **Promote to GHCR** copies that digest to
+     `ghcr.io/nvidia/cluster-api-provider-nico:<tag>`, plus the matching
+     `sha-<commit>` tag, and records the digest in the job summary.
+   - **SBOM** generates an SPDX SBOM per architecture, addressing each one by
+     digest, and uploads them as workflow artifacts.
+   - **Helm chart (dsx)** packages `capi-provider-nico` and pushes it to the NGC
+     chart registry under `DSX_NGC_ORG`/`DSX_NGC_TEAM`, with the chart's manifest
+     pointing at the DSX image.
+   - **Create GitHub Release** publishes notes extracted from `CHANGELOG.md`,
+     the promoted digest, and the clusterctl provider artifacts `metadata.yaml`
+     and `infrastructure-components.yaml`. It runs last so the release never
+     advertises an image that has not landed yet.
 
-   The NVCR workflow is skipped outside `NVIDIA/cluster-api-provider-nico`, so
-   forks can disable or ignore it without affecting the GHCR publish. It reads
-   its destinations and credentials from the `nvcr` environment: the variables
-   `NVCR_NKE_IMAGE`, `NVCR_DSX_IMAGE`, `DSX_NGC_ORG` and `DSX_NGC_TEAM`, and the
-   secrets `NVCR_NKE_AUTH_TOKEN` and `NGC_REGISTRY_TOKEN_DSX`. A missing
-   variable fails the job with a named error rather than pushing somewhere
-   unintended. Each workflow rebuilds from source rather than copying the GHCR
-   digest.
+   The whole workflow no-ops outside `NVIDIA/cluster-api-provider-nico`,
+   including the GitHub Release, which depends on the promotion that a fork
+   cannot run. Destinations and credentials come from the
+   `nvcr` environment: the variables `NVCR_NKE_IMAGE`, `NVCR_DSX_IMAGE`,
+   `DSX_NGC_ORG` and `DSX_NGC_TEAM`, and the secrets `NVCR_NKE_AUTH_TOKEN` and
+   `NGC_REGISTRY_TOKEN_DSX`. A missing variable fails the job with a named error
+   rather than pushing somewhere unintended.
 
 6. **Verify**
    - GitHub Release: `https://github.com/NVIDIA/cluster-api-provider-nico/releases`
    - GHCR image: `ghcr.io/nvidia/cluster-api-provider-nico:v<VERSION>`
    - NVCR images: `<NVCR_NKE_IMAGE>:v<VERSION>` and `<NVCR_DSX_IMAGE>:v<VERSION>`
    - NGC chart: `ngc registry chart info <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico`
+   - The digests agree, which is the point of promoting rather than rebuilding:
+
+     ```bash
+     make crane
+     bin/crane digest ghcr.io/nvidia/cluster-api-provider-nico:v<VERSION>
+     bin/crane digest <NVCR_NKE_IMAGE>:v<VERSION>
+     ```
+
+## Release candidates
+
+Tag a candidate on the commit you intend to release:
+
+```bash
+git tag -s v<VERSION>-rc.1 -m "Release candidate v<VERSION>-rc.1"
+git push upstream v<VERSION>-rc.1
+```
+
+A candidate takes the identical path a release does — same digest promoted to the
+same registries, a public GitHub prerelease, and clusterctl artifacts you can
+`clusterctl init` from. Iterate with `-rc.2` and so on. When the candidate is
+good, tag the same commit as `v<VERSION>`, and the release is that same digest
+under a new name.
+
+Candidate tags are kept, not deleted, so `v<VERSION>-rc.1` and `v<VERSION>` both
+remain resolvable and, on the same commit, identical.
 
 ## Backport policy
 

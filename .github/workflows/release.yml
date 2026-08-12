@@ -3,6 +3,17 @@
 
 name: Release
 
+# Releases are promotions, not builds. image-nvcr.yml builds every `main` commit
+# and publishes it to NVCR as `sha-<commit>`; a tag renames that exact digest and
+# copies it to GHCR. A release therefore ships the artifact that has already been
+# running as `edge`, byte for byte, and `v1.2.3-rc.1` and `v1.2.3` are the same
+# image whenever they name the same commit.
+#
+# The consequence is that a tag has to point at a commit that was built on
+# `main`. Tagging anything else fails rather than quietly building something new.
+#
+# Reads the `nvcr` environment's NVCR_NKE_IMAGE (the promotion source),
+# NVCR_DSX_IMAGE, DSX_NGC_ORG and DSX_NGC_TEAM.
 on:
   push:
     tags:
@@ -10,15 +21,291 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GHCR_IMAGE: ghcr.io/nvidia/cluster-api-provider-nico
+
 jobs:
-  release:
-    permissions:
-      contents: write
-    name: Create GitHub Release
+  # Both NVCR orgs are on nvcr.io but take different NGC keys, and a Docker
+  # config holds one credential per host, so they cannot share a job.
+  promote-nvcr:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Tag NVCR (${{ matrix.dest.name }})
     runs-on: linux-amd64-cpu4
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        dest:
+          - name: nke
+            var: NVCR_NKE_IMAGE
+            secret: NVCR_NKE_AUTH_TOKEN
+          - name: dsx
+            var: NVCR_DSX_IMAGE
+            secret: NGC_REGISTRY_TOKEN_DSX
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build crane
+        run: make crane
+
+      # `$oauthtoken` is NGC's literal username, not a variable reference.
+      - name: Login to NVCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets[matrix.dest.secret] }}
+
+      # `crane tag` repoints a tag at an existing digest without transferring
+      # anything, so this publishes no new bits.
+      - name: Tag the release digest
+        shell: bash
+        env:
+          IMAGE: ${{ vars[matrix.dest.var] }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${IMAGE}" ]]; then
+            echo "::error::${{ matrix.dest.var }} is not set in the nvcr environment"
+            exit 1
+          fi
+
+          src="${IMAGE}:sha-${GITHUB_SHA}"
+          if ! digest="$(bin/crane digest "${src}")"; then
+            echo "::error::${src} does not exist. A release tag has to point at a commit that was built and published from main."
+            exit 1
+          fi
+
+          bin/crane tag "${src}" "${GITHUB_REF_NAME}"
+          echo "- \`${IMAGE}:${GITHUB_REF_NAME}\` is \`${digest}\`" >> "${GITHUB_STEP_SUMMARY}"
+
+  # Cross-host, so this is the one promotion that can hold both credentials at
+  # once: NKE to read, GHCR to write.
+  promote-ghcr:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Promote to GHCR
+    runs-on: linux-amd64-cpu4
+    needs: [promote-nvcr]
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.promote.outputs.digest }}
+      digest_amd64: ${{ steps.promote.outputs.digest_amd64 }}
+      digest_arm64: ${{ steps.promote.outputs.digest_arm64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build crane
+        run: make crane
+
+      - name: Login to NVCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NVCR_NKE_AUTH_TOKEN }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Only the index is copied. Its per-arch children come with it, so the
+      # per-arch tags NVCR carries as build byproducts stay off the public
+      # registry; the SBOM job addresses those children by digest instead.
+      - name: Copy the digest to GHCR
+        id: promote
+        shell: bash
+        env:
+          SOURCE: ${{ vars.NVCR_NKE_IMAGE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SOURCE}" ]]; then
+            echo "::error::NVCR_NKE_IMAGE is not set in the nvcr environment"
+            exit 1
+          fi
+
+          src="${SOURCE}:sha-${GITHUB_SHA}"
+          if ! digest="$(bin/crane digest "${src}")"; then
+            echo "::error::${src} does not exist. A release tag has to point at a commit that was built and published from main."
+            exit 1
+          fi
+
+          bin/crane copy "${src}" "${GHCR_IMAGE}:${GITHUB_REF_NAME}"
+          bin/crane tag "${GHCR_IMAGE}:${GITHUB_REF_NAME}" "sha-${GITHUB_SHA}"
+
+          # Read the children off the source: the copy preserves digests, so
+          # these are the same manifests, without a read-after-write on GHCR.
+          {
+            echo "digest=${digest}"
+            for arch in amd64 arm64; do
+              echo "digest_${arch}=$(bin/crane digest --platform "linux/${arch}" "${src}")"
+            done
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "- \`${GHCR_IMAGE}:${GITHUB_REF_NAME}\` is \`${digest}\`"
+            echo "- promoted from \`${src}\`, not rebuilt"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  sbom:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: SBOM (${{ matrix.arch }})
+    runs-on: linux-amd64-cpu8
+    needs: [promote-ghcr]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # By digest, so this runs on an amd64 runner for either architecture.
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.GHCR_IMAGE }}@${{ needs.promote-ghcr.outputs[format('digest_{0}', matrix.arch)] }}
+          format: spdx-json
+          artifact-name: cluster-api-provider-nico-sbom-linux-${{ matrix.arch }}.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+  chart:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Helm chart (dsx)
+    runs-on: linux-amd64-cpu8
+    needs: [promote-nvcr]
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      # CONTROLLER_IMG is the DSX image so the packaged manifest points at the
+      # registry the chart's consumers can actually pull from.
+      - name: Render chart manifests
+        shell: bash
+        env:
+          DSX_IMAGE: ${{ vars.NVCR_DSX_IMAGE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DSX_IMAGE}" ]]; then
+            echo "::error::NVCR_DSX_IMAGE is not set in the nvcr environment"
+            exit 1
+          fi
+
+          make kustomize
+          KUSTOMIZE="$(pwd)/bin/kustomize" \
+          CONTROLLER_IMG="${DSX_IMAGE}:${GITHUB_REF_NAME}" \
+            make helm-chart-manifests
+
+      - name: Install NGC CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL \
+            https://ngc.nvidia.com/downloads/ngccli_linux.zip -o ngccli_linux.zip
+          unzip -q -o ngccli_linux.zip
+          chmod +x ngc-cli/ngc
+          echo "$(pwd)/ngc-cli" >> "${GITHUB_PATH}"
+
+      - name: Package chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm lint charts/capi-provider-nico
+          helm package charts/capi-provider-nico \
+            --version "${GITHUB_REF_NAME#v}" \
+            --app-version "${GITHUB_REF_NAME}" \
+            --destination dist/capi-provider-nico
+
+      - name: Push chart to NGC
+        shell: bash
+        env:
+          NGC_CLI_API_KEY: ${{ secrets.NGC_REGISTRY_TOKEN_DSX }}
+          NGC_CLI_ORG: ${{ vars.DSX_NGC_ORG }}
+          NGC_CLI_TEAM: ${{ vars.DSX_NGC_TEAM }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NGC_CLI_ORG}" || -z "${NGC_CLI_TEAM}" ]]; then
+            echo "::error::DSX_NGC_ORG and DSX_NGC_TEAM must be set in the nvcr environment"
+            exit 1
+          fi
+
+          target="${NGC_CLI_ORG}/${NGC_CLI_TEAM}/capi-provider-nico"
+
+          if ! ngc registry chart info "${target}" > /dev/null 2>&1; then
+            ngc registry chart create "${target}" \
+              --short-desc "Helm chart for capi-provider-nico"
+          fi
+
+          # Re-running a release must not fail once the version is published.
+          if ! out="$(ngc registry chart push "${target}:${GITHUB_REF_NAME#v}" \
+                        --source dist/capi-provider-nico 2>&1)"; then
+            printf '%s\n' "${out}"
+            printf '%s\n' "${out}" | grep -qi "already exists"
+          fi
+
+  # Last, so the release never advertises an image that is not there yet: the
+  # attached infrastructure-components.yaml references the GHCR tag by name.
+  release:
+    name: Create GitHub Release
+    runs-on: linux-amd64-cpu4
+    needs: [promote-ghcr]
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -36,11 +323,13 @@ jobs:
           set -euo pipefail
           make kustomize
           KUSTOMIZE="$(pwd)/bin/kustomize" \
-          CONTROLLER_IMG="ghcr.io/nvidia/cluster-api-provider-nico:${GITHUB_REF_NAME}" \
+          CONTROLLER_IMG="${GHCR_IMAGE}:${GITHUB_REF_NAME}" \
             make release-manifests
 
       - name: Extract changelog for this version
         id: changelog
+        env:
+          DIGEST: ${{ needs.promote-ghcr.outputs.digest }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
@@ -50,6 +339,13 @@ jobs:
           {
             echo 'notes<<EOF'
             echo "$NOTES"
+            echo
+            echo "### Image"
+            echo
+            echo '```'
+            echo "${GHCR_IMAGE}:${GITHUB_REF_NAME}"
+            echo "${GHCR_IMAGE}@${DIGEST}"
+            echo '```'
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 

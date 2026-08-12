@@ -3,13 +3,13 @@
 #
 # Builds the container image and throws it away.
 #
-# PR and path-filtered verify companion to `image.yml` (which publishes to
-# GHCR). Without this, a broken Dockerfile would only surface when main or a
-# tag pushed and the publish workflow failed.
+# PR verify companion to `image-nvcr.yml`. Without this, a broken Dockerfile
+# would only surface after merge, when the publish build failed.
 #
-# The cache scope is shared with `image.yml` on purpose: same Dockerfile, same
-# platforms, same build-args. A verify build then warms the publish build rather
-# than competing with it for the repository's 10 GB cache budget.
+# The cache scope is shared with `image-nvcr.yml` on purpose: same Dockerfile,
+# same platforms, same build-args. This is the only workflow that writes it, so
+# verify builds warm the publish build rather than competing with it for the
+# repository's 10 GB cache budget.
 #
 # `push: false`, so this needs no registry credentials and no `packages` scope.
 #
