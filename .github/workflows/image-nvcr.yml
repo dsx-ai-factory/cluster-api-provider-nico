@@ -10,6 +10,14 @@ name: NVCR
 # The two orgs share the nvcr.io host but need different NGC keys, and a Docker
 # config holds one credential per host, so each destination gets its own job
 # rather than one build pushing both tags.
+#
+# Destinations come from the `nvcr` environment's variables rather than being
+# written here, so a repository move does not need a code change:
+#
+#   NVCR_NKE_IMAGE  nvcr.io/<nke-org>/cluster-api-provider-nico
+#   NVCR_DSX_IMAGE  nvcr.io/<dsx-org>/<team>/cluster-api-provider-nico
+#   DSX_NGC_ORG     NGC org for the chart push
+#   DSX_NGC_TEAM    NGC team for the chart push
 on:
   push:
     branches:
@@ -24,9 +32,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
-
-env:
-  DSX_IMAGE: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
 
 jobs:
   build:
@@ -43,10 +48,10 @@ jobs:
         arch: [amd64, arm64]
         dest:
           - name: nke
-            image: nvcr.io/j7sbcjl3qgta/cluster-api-provider-nico
+            var: NVCR_NKE_IMAGE
             secret: NVCR_NKE_AUTH_TOKEN
           - name: dsx
-            image: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+            var: NVCR_DSX_IMAGE
             secret: NGC_REGISTRY_TOKEN_DSX
         include:
           - arch: amd64
@@ -88,9 +93,14 @@ jobs:
         id: meta
         shell: bash
         env:
-          IMAGE: ${{ matrix.dest.image }}
+          IMAGE: ${{ vars[matrix.dest.var] }}
         run: |
           set -euo pipefail
+          if [[ -z "${IMAGE}" ]]; then
+            echo "::error::${{ matrix.dest.var }} is not set in the nvcr environment"
+            exit 1
+          fi
+
           arch="${{ matrix.arch }}"
           tags=("${IMAGE}:sha-${GITHUB_SHA}-${arch}")
 
@@ -140,10 +150,10 @@ jobs:
       matrix:
         dest:
           - name: nke
-            image: nvcr.io/j7sbcjl3qgta/cluster-api-provider-nico
+            var: NVCR_NKE_IMAGE
             secret: NVCR_NKE_AUTH_TOKEN
           - name: dsx
-            image: nvcr.io/0837451325059433/components-dev/cluster-api-provider-nico
+            var: NVCR_DSX_IMAGE
             secret: NGC_REGISTRY_TOKEN_DSX
     steps:
       - name: Login to NVCR
@@ -169,9 +179,14 @@ jobs:
       - name: Create multi-arch manifests
         shell: bash
         env:
-          IMAGE: ${{ matrix.dest.image }}
+          IMAGE: ${{ vars[matrix.dest.var] }}
         run: |
           set -euo pipefail
+          if [[ -z "${IMAGE}" ]]; then
+            echo "::error::${{ matrix.dest.var }} is not set in the nvcr environment"
+            exit 1
+          fi
+
           aliases=("sha-${GITHUB_SHA}")
 
           if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
@@ -214,8 +229,15 @@ jobs:
       # registry the chart's consumers can actually pull from.
       - name: Render chart manifests
         shell: bash
+        env:
+          DSX_IMAGE: ${{ vars.NVCR_DSX_IMAGE }}
         run: |
           set -euo pipefail
+          if [[ -z "${DSX_IMAGE}" ]]; then
+            echo "::error::NVCR_DSX_IMAGE is not set in the nvcr environment"
+            exit 1
+          fi
+
           make kustomize
           KUSTOMIZE="$(pwd)/bin/kustomize" \
           CONTROLLER_IMG="${DSX_IMAGE}:${GITHUB_REF_NAME}" \
@@ -245,10 +267,15 @@ jobs:
         shell: bash
         env:
           NGC_CLI_API_KEY: ${{ secrets.NGC_REGISTRY_TOKEN_DSX }}
-          NGC_CLI_ORG: "0837451325059433"
-          NGC_CLI_TEAM: components-dev
+          NGC_CLI_ORG: ${{ vars.DSX_NGC_ORG }}
+          NGC_CLI_TEAM: ${{ vars.DSX_NGC_TEAM }}
         run: |
           set -euo pipefail
+          if [[ -z "${NGC_CLI_ORG}" || -z "${NGC_CLI_TEAM}" ]]; then
+            echo "::error::DSX_NGC_ORG and DSX_NGC_TEAM must be set in the nvcr environment"
+            exit 1
+          fi
+
           target="${NGC_CLI_ORG}/${NGC_CLI_TEAM}/capi-provider-nico"
 
           if ! ngc registry chart info "${target}" > /dev/null 2>&1; then
