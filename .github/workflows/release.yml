@@ -52,10 +52,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # Every job here installs a pinned tool rather than building this module,
+      # so a cache keyed on go.sum serves nothing and only widens what a job
+      # holding registry credentials restores.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: Build crane
         run: make crane
@@ -117,6 +121,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: Build crane
         run: make crane
@@ -226,6 +231,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -315,6 +321,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
 
       # clusterctl resolves a provider repository from the release assets, so
       # metadata.yaml and infrastructure-components.yaml have to be attached to
