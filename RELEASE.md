@@ -134,10 +134,26 @@ git push upstream v<VERSION>-rc.1
 ```
 
 A candidate takes the identical path a release does — same digest promoted to the
-same registries, a public GitHub prerelease, and clusterctl artifacts you can
-`clusterctl init` from. Iterate with `-rc.2` and so on. When the candidate is
-good, tag the same commit as `v<VERSION>`, and the release is that same digest
-under a new name.
+same registries, a GitHub prerelease, and clusterctl artifacts you can
+`clusterctl init` from. Iterate with `-rc.2` and so on.
+
+When a candidate is good, release it by tagging the commit it points at:
+
+```bash
+git tag -s v<VERSION> 'v<VERSION>-rc.1^{}' -m "Release v<VERSION>"
+git push upstream v<VERSION>
+```
+
+`^{}` dereferences the candidate tag to its commit; without it git creates a
+nested tag, one tag pointing at another, rather than a second name for the same
+commit. Quote it — `^` and `{}` are shell metacharacters. Tagging the commit
+directly works just as well; naming the candidate only records which one was
+promoted.
+
+Because the release promotes whatever `sha-<commit>` names, releasing the
+candidate's commit ships the digest that was tested. Tagging a later commit is
+allowed and still promotes rather than builds, but it is no longer the artifact
+the candidate validated.
 
 Candidate tags are kept, not deleted, so `v<VERSION>-rc.1` and `v<VERSION>` both
 remain resolvable and, on the same commit, identical.
