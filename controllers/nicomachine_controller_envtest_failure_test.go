@@ -13,7 +13,6 @@ import (
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -204,7 +203,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 		ginkgo.It("reconciles after unpause", func(ctx ginkgo.SpecContext) {
 			var cluster clusterv1.Cluster
 			gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "cluster-1"}, &cluster)).To(gomega.Succeed())
-			cluster.Spec.Paused = ptr.To(false)
+			cluster.Spec.Paused = new(false)
 			gomega.Expect(tc.Client.Update(ctx, &cluster)).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {

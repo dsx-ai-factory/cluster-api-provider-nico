@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -263,7 +262,7 @@ func nicoMachineCaseSet(
 			mgr, err := manager.New(tc.Config, manager.Options{
 				Scheme: tc.Scheme,
 				Controller: config.Controller{
-					SkipNameValidation: ptr.To(true),
+					SkipNameValidation: new(true),
 				},
 				Metrics: metricsserver.Options{BindAddress: "0"},
 			})

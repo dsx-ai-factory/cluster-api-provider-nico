@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
@@ -74,7 +73,7 @@ func TestNVLinkInterfaceKey_MachineNVLinkInterfaceKey(t *testing.T) {
 		"set optional zero values": {
 			in: infrav1.NicoMachineNVLinkInterface{
 				NVLinkLogicalPartitionID: testNVLinkLogicalPartitionID,
-				DeviceInstance:           ptr.To(testDeviceIndex),
+				DeviceInstance:           new(testDeviceIndex),
 			},
 			want: nicomachine.NVLinkInterfaceKey{
 				NVLinkLogicalPartitionID: testNVLinkLogicalPartitionID,

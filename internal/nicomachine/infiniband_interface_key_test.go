@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
@@ -88,9 +87,9 @@ func TestInfiniBandInterfaceKey_MachineInfiniBandInterfaceKey(t *testing.T) {
 		"set optional zero values": {
 			in: infrav1.NicoMachineInfiniBandInterface{
 				PartitionID:       testPartitionID,
-				DeviceInstance:    ptr.To(testDeviceIndex),
-				IsPhysical:        ptr.To(testPhysical),
-				VirtualFunctionID: ptr.To(testVirtualFunction),
+				DeviceInstance:    new(testDeviceIndex),
+				IsPhysical:        new(testPhysical),
+				VirtualFunctionID: new(testVirtualFunction),
 			},
 			want: nicomachine.InfiniBandInterfaceKey{
 				PartitionID:          testPartitionID,

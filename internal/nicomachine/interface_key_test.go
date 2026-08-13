@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
@@ -92,8 +91,8 @@ func TestInterfaceKey_MachineInterfaceKey(t *testing.T) {
 		"set optional zero values": {
 			in: infrav1.NicoMachineInterface{
 				VPCPrefixID:    testVPCPrefixID,
-				Physical:       ptr.To(testPhysical),
-				DeviceInstance: ptr.To(testDeviceIndex),
+				Physical:       new(testPhysical),
+				DeviceInstance: new(testDeviceIndex),
 			},
 			want: nicomachine.InterfaceKey{
 				VPCPrefixID:       testVPCPrefixID,
