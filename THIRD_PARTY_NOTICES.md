@@ -24,11 +24,11 @@ commands are not listed, because they are not distributed.
 |---|---|---|
 | [github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard](https://github.com/NVIDIA/ncx-infra-controller-rest/blob/v1.3.0/LICENSE) | Apache-2.0 | github.com/NVIDIA/ncx-infra-controller-rest@v1.3.0 |
 | [github.com/beorn7/perks/quantile](https://github.com/beorn7/perks/blob/v1.0.1/LICENSE) | MIT | github.com/beorn7/perks@v1.0.1 |
-| [github.com/blang/semver/v4](https://github.com/blang/semver/blob/v4.0.0/v4/LICENSE) | MIT | github.com/blang/semver/v4@v4.0.0 |
+| [github.com/blang/semver/v4](https://github.com/blang/semver/blob/v4.0.0/LICENSE) | MIT | github.com/blang/semver/v4@v4.0.0 |
 | [github.com/cespare/xxhash/v2](https://github.com/cespare/xxhash/blob/v2.3.0/LICENSE.txt) | MIT | github.com/cespare/xxhash/v2@v2.3.0 |
 | [github.com/davecgh/go-spew/spew](https://github.com/davecgh/go-spew/blob/d8f796af33cc/LICENSE) | ISC | github.com/davecgh/go-spew@v1.1.2-0.20180830191138-d8f796af33cc |
 | [github.com/emicklei/go-restful/v3](https://github.com/emicklei/go-restful/blob/v3.13.0/LICENSE) | MIT | github.com/emicklei/go-restful/v3@v3.13.0 |
-| [github.com/evanphx/json-patch/v5](https://github.com/evanphx/json-patch/blob/v5.9.11/v5/LICENSE) | BSD-3-Clause | github.com/evanphx/json-patch/v5@v5.9.11 |
+| [github.com/evanphx/json-patch/v5](https://github.com/evanphx/json-patch/blob/v5.9.11/LICENSE) | BSD-3-Clause | github.com/evanphx/json-patch/v5@v5.9.11 |
 | [github.com/fsnotify/fsnotify](https://github.com/fsnotify/fsnotify/blob/v1.9.0/LICENSE) | BSD-3-Clause | github.com/fsnotify/fsnotify@v1.9.0 |
 | [github.com/fxamacker/cbor/v2](https://github.com/fxamacker/cbor/blob/v2.9.0/LICENSE) | MIT | github.com/fxamacker/cbor/v2@v2.9.0 |
 | [github.com/go-logr/logr](https://github.com/go-logr/logr/blob/v1.4.3/LICENSE) | Apache-2.0 | github.com/go-logr/logr@v1.4.3 |
@@ -69,7 +69,7 @@ commands are not listed, because they are not distributed.
 | [golang.org/x/term](https://cs.opensource.google/go/x/term/+/v0.44.0:LICENSE) | BSD-3-Clause | golang.org/x/term@v0.44.0 |
 | [golang.org/x/text](https://cs.opensource.google/go/x/text/+/v0.38.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/time/rate](https://cs.opensource.google/go/x/time/+/v0.14.0:LICENSE) | BSD-3-Clause | golang.org/x/time@v0.14.0 |
-| [gomodules.xyz/jsonpatch/v2](https://github.com/gomodules/jsonpatch/blob/v2.5.0/v2/LICENSE) | Apache-2.0 | gomodules.xyz/jsonpatch/v2@v2.5.0 |
+| [gomodules.xyz/jsonpatch/v2](https://github.com/gomodules/jsonpatch/blob/v2.5.0/LICENSE) | Apache-2.0 | gomodules.xyz/jsonpatch/v2@v2.5.0 |
 | [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go/blob/f2248ac996af/LICENSE) | BSD-3-Clause | — |
 | [gopkg.in/evanphx/json-patch.v4](https://github.com/evanphx/json-patch/blob/v4.13.0/LICENSE) | BSD-3-Clause | gopkg.in/evanphx/json-patch.v4@v4.13.0 |
 | [gopkg.in/inf.v0](https://github.com/go-inf/inf/blob/v0.9.1/LICENSE) | BSD-3-Clause | gopkg.in/inf.v0@v0.9.1 |

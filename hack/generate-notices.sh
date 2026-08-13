@@ -129,6 +129,55 @@ done
 
 [[ -s "${CSV}" ]] || die "go-licenses produced no rows for ${PACKAGES[*]}."
 
+# Repair the licence URL of a major-version module.
+#
+# For a module whose path ends in /vN, go-licenses treats that suffix as a
+# directory inside the repository and writes it into the URL:
+#
+#   https://github.com/blang/semver/blob/v4.0.0/v4/LICENSE      404
+#   https://github.com/blang/semver/blob/v4.0.0/LICENSE         200
+#
+# The reference decides which is right, and it does so without guessing. Go
+# requires a module in a subdirectory to be tagged <subdir>/vX.Y.Z, so a plain
+# vX.Y.Z tag means the module sits at the repository root -- and a root module
+# cannot have a directory prefix on its licence path. When the tag carries no
+# slash and the next segment is exactly the major-version suffix, that segment
+# is spurious.
+#
+# A module genuinely in a vN/ subdirectory is tagged vN/vX.Y.Z, does not match,
+# and is left alone. Pseudo-versions and commit refs do not match either.
+#
+# This mattered beyond the dead links: go-licenses picks the two forms
+# inconsistently between runs on identical input, so notices-check would pass on
+# one run and fail on the next. notices-check cannot detect the wrong form on
+# its own -- it compares the file against a regeneration of itself, so a wrong
+# URL matches a wrong URL.
+REPAIRED="${WORK}/licenses.repaired.csv"
+awk -F, 'BEGIN { OFS = "," }
+    {
+        url = $2
+        # https://<host>/<owner>/<repo>/blob/<ref>/<path>
+        if (match(url, /\/blob\/[^\/]+\//)) {
+            ref  = substr(url, RSTART + 6, RLENGTH - 7)
+            rest = substr(url, RSTART + RLENGTH)
+            # A plain semantic-version tag: the module is at the repository root.
+            if (ref ~ /^v[0-9]+\.[0-9]+\.[0-9]+/ && rest ~ /^v[0-9]+\//) {
+                major = substr(rest, 1, index(rest, "/") - 1)
+                # Only when it matches this module major, e.g. .../json-patch/v5.
+                if ($1 ~ ("/" major "$") || $1 ~ ("/" major "/")) {
+                    $2 = substr(url, 1, RSTART + RLENGTH - 1) substr(rest, length(major) + 2)
+                }
+            }
+        }
+        print
+    }' "${CSV}" >"${REPAIRED}"
+
+REPAIRS=$(diff <(cut -d, -f2 "${CSV}") <(cut -d, -f2 "${REPAIRED}") | grep -c '^>' || true)
+if [[ "${REPAIRS}" -gt 0 ]]; then
+    log "repaired ${REPAIRS} major-version licence URL(s)"
+fi
+mv "${REPAIRED}" "${CSV}"
+
 # -mod=mod is allowed to rewrite go.mod. Generating a documentation file must
 # not quietly change the dependency set. Checked before the URL scan below, so
 # that a run which both rewrote go.mod and self-attributed reports the rewrite
