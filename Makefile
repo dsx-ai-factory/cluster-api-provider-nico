@@ -170,6 +170,18 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager ./cmd
 
+.PHONY: binary
+binary: ## Compile every package and the manager binary. This is what CI runs.
+	@# Deliberately no `manifests generate fmt vet` prerequisites. Those rewrite
+	@# generated files and need controller-gen, which makes them a poor fit for a
+	@# check that should answer one question: does this compile? Use `make build`
+	@# when you want the generated files refreshed as well.
+	@#
+	@# Both lines earn their place. `./...` catches a package that no binary
+	@# imports; the second catches a link failure in the thing that ships.
+	go build ./...
+	go build -o bin/manager ./cmd
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd

@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Compiles every package in the module.
+#
+# Nothing here did that on its own before. The code was compiled only as a side
+# effect of other jobs -- golangci-lint type-checks, and the container image
+# build compiles the binary inside Docker -- so a compile break was reported by
+# a linter or an image build rather than by a build.
+#
+# It runs `make binary`, not raw go commands, so the failure is reproducible
+# locally with the identical command. That target compiles every package and
+# links the manager binary, and deliberately skips the `manifests generate fmt
+# vet` prerequisites `make build` carries: those rewrite generated files and
+# need controller-gen, which does not belong in a compile check.
+
+name: Build
+
+# Self-hosted runners do not pick up jobs from pull_request events, so pull
+# requests are tested through the pull-request/<number> branch instead.
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      # Dependabot pushes to a branch in this repository, which matches neither
+      # of the two above. Without this a dependency bump was never compiled.
+      - "dependabot/**"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: go build
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: make binary
+
+      - name: Vet
+        run: go vet ./...
