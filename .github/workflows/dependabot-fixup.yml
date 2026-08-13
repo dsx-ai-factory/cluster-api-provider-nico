@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Regenerates THIRD_PARTY_NOTICES.md on a Dependabot Go module pull request and
+# commits it onto the bot branch, so the bump arrives complete.
+#
+# Dependabot maintains go.mod and go.sum. It knows nothing about the attribution
+# file derived from them, so `Check THIRD_PARTY_NOTICES.md is up to date` fails
+# on any bot pull request that moves the dependency set. This repository has no
+# open bot pull requests today, which is the reason to add the guard now rather
+# than after the next one arrives -- syscmp's main went red exactly this way on
+# 2026-08-12.
+#
+# There is no Dependabot setting for this. It has no post-update hook.
+#
+# The shape is copied from NVIDIA/NVSentinel's dependabot-gomod-fixup.yml, the
+# only implementation of this pattern in the organisation. This is the small
+# variant: NVIDIA/nke#93 also regenerates go.work, go.work.sum and vendor/,
+# because that repository is a workspace with a vendor tree. This one has
+# neither, so `make notices` is the whole job.
+#
+# WHY pull_request_target, WHICH IS NORMALLY AN ANTI-PATTERN
+#
+# A workflow triggered by a Dependabot pull request gets a READ-ONLY token and
+# cannot push. pull_request_target runs in the base repository's context with a
+# writable one. The danger of that event is that it is usually paired with
+# checking out untrusted pull-request code, which then runs with secrets in
+# scope.
+#
+# That is excluded by the third condition in `if:` below:
+#
+#     github.event.pull_request.head.repo.full_name == github.repository
+#
+# Dependabot branches live INSIDE this repository, so a fork can never satisfy
+# it and the code checked out is always already ours. Do not remove that line.
+#
+# Dependabot force-pushes when it rebases, discarding this commit. That is
+# handled rather than prevented: `synchronize` is in the trigger list, so the
+# force-push re-runs this workflow and the fixup is reapplied.
+#
+# A NOTE ON THE SECOND MODULE
+#
+# This repository has two go.mod files, and .github/dependabot.yml has an
+# ecosystem entry for each. hack/generate-notices.sh takes its module from
+# `go list -m` at the repository root, so it covers the root module only. A bump
+# to hack/kubebuilder/plugins/capnico-layout/v1 therefore regenerates nothing,
+# and this workflow correctly commits nothing and exits. That is the intended
+# behaviour, not a gap: the plugin is a build-time kubebuilder plugin and is not
+# part of any released artefact's dependency set.
+
+name: Dependabot Fixup
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  fixup:
+    name: Regenerate THIRD_PARTY_NOTICES.md
+    if: >
+      github.repository == 'NVIDIA/cluster-api-provider-nico' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'dependabot/go_modules/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      # GUARD 1 of 2, before running anything.
+      #
+      # Dependabot writes only go.mod and go.sum for a gomod update. Anything
+      # else means the branch is not what it claims to be, and no generator
+      # should run over it. Deliberately NARROWER than the guard after the run:
+      # this describes what Dependabot may have written, not what we may write.
+      - name: Guard — the branch must contain only Go module changes
+        id: dependency-only
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+
+            const disallowed = files
+              .map((file) => file.filename)
+              .filter((name) => !/(^|\/)go\.(mod|sum)$/.test(name));
+
+            if (disallowed.length > 0) {
+              core.notice(`Skipping fixup: this pull request changes non-module files: ${disallowed.join(', ')}`);
+              core.setOutput('skip', 'true');
+              return;
+            }
+
+            core.setOutput('skip', 'false');
+
+      - name: Checkout the Dependabot branch
+        if: steps.dependency-only.outputs.skip != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # Then an explicit token on the push below. Leaving checkout
+          # credentials in .git/config would let every later step push,
+          # including anything a generator runs.
+          persist-credentials: false
+
+      - name: Set up Go
+        if: steps.dependency-only.outputs.skip != 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The same source notices-check.yml reads. This job WRITES the file
+          # that job VERIFIES, so a different Go version here could produce a
+          # file the check then rejects.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Regenerate the notices
+        if: steps.dependency-only.outputs.skip != 'true'
+        env:
+          # setup-go pins GOTOOLCHAIN=local. A bump can raise this module's `go`
+          # directive above the installed toolchain, which would fail the
+          # generator outright rather than letting it do its job.
+          GOTOOLCHAIN: auto
+        run: |
+          set -euo pipefail
+          # Regenerates THIRD_PARTY_NOTICES.md and copies it, LICENSE and NOTICE
+          # into the Helm chart. Both halves are in this one target on purpose:
+          # the chart copy runs after the generator, so it cannot go stale the
+          # moment the root file changes.
+          make notices
+
+      # GUARD 2 of 2, after the generator and before committing.
+      #
+      # Every entry is a file `make notices` writes on purpose. A generator that
+      # writes anything else -- source, a workflow, a chart template -- fails the
+      # job rather than committing.
+      - name: Guard — refuse to commit anything but the derived files
+        if: steps.dependency-only.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Nothing to regenerate; the bump was already complete."
+            exit 0
+          fi
+          # Untracked files are checked alongside the diff because `git diff`
+          # says nothing about a path git is not tracking, and the chart copy
+          # can add one on a fresh checkout.
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
+          bad="$(printf '%s\n' "$changed" | grep -Ev \
+            -e '(^|/)go\.(mod|sum)$' \
+            -e '^THIRD_PARTY_NOTICES\.md$' \
+            -e '^charts/capi-provider-nico/(LICENSE|NOTICE|THIRD_PARTY_NOTICES\.md)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::Refusing to commit files outside the derived set:"
+            printf '%s\n' "$bad" | sed 's/^/    /'
+            exit 1
+          fi
+          printf '%s\n' "$changed" | sed 's/^/  regenerated: /'
+
+      - name: Commit onto the Dependabot branch
+        if: steps.dependency-only.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Pathspecs rather than `git add -A`: the guard above already refused
+          # anything outside this set, but this means a future loosening of the
+          # guard still cannot commit an arbitrary file by accident.
+          git add -- \
+            go.mod go.sum \
+            THIRD_PARTY_NOTICES.md \
+            charts/capi-provider-nico/LICENSE \
+            charts/capi-provider-nico/NOTICE \
+            charts/capi-provider-nico/THIRD_PARTY_NOTICES.md
+
+          git commit -m "chore: regenerate THIRD_PARTY_NOTICES.md for this bump"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
