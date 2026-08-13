@@ -33,7 +33,9 @@ the same image whenever they name the same commit.
 The NKE org is the promotion source; the DSX org is where internal consumers and
 the Helm chart point. GHCR receives only the multi-arch index for a tag, so the
 per-arch tags a build produces stay internal, and untagged commits never become
-public at all.
+public at all. Its path is derived from the repository rather than written into
+the workflow, so renaming or moving the repository moves the published image with
+it.
 
 The one constraint this imposes is that **a tag must point at a commit that was
 built on `main`.** Tagging anything else fails with an error naming the missing
@@ -101,13 +103,13 @@ the central promoter to act on, which has no equivalent here.
      and `infrastructure-components.yaml`. It runs last so the release never
      advertises an image that has not landed yet.
 
-   The whole workflow no-ops outside `NVIDIA/cluster-api-provider-nico`,
-   including the GitHub Release, which depends on the promotion that a fork
-   cannot run. Destinations and credentials come from the
-   `nvcr` environment: the variables `NVCR_NKE_IMAGE`, `NVCR_DSX_IMAGE`,
-   `DSX_NGC_ORG` and `DSX_NGC_TEAM`, and the secrets `NVCR_NKE_AUTH_TOKEN` and
-   `NGC_REGISTRY_TOKEN_DSX`. A missing variable fails the job with a named error
-   rather than pushing somewhere unintended.
+   The jobs that reach NVCR are restricted to `NVIDIA/cluster-api-provider-nico`,
+   and the GHCR promotion reads from NVCR, so the workflow no-ops in a fork —
+   including the GitHub Release, which depends on that promotion. Destinations
+   and credentials come from the `nvcr` environment: the variables
+   `NVCR_NKE_IMAGE`, `NVCR_DSX_IMAGE`, `DSX_NGC_ORG` and `DSX_NGC_TEAM`, and the
+   secrets `NVCR_NKE_AUTH_TOKEN` and `NGC_REGISTRY_TOKEN_DSX`. A missing variable
+   fails the job with a named error rather than pushing somewhere unintended.
 
 6. **Verify**
    - GitHub Release: `https://github.com/NVIDIA/cluster-api-provider-nico/releases`

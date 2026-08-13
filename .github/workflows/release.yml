@@ -25,9 +25,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  GHCR_IMAGE: ghcr.io/nvidia/cluster-api-provider-nico
-
 jobs:
   # Both NVCR orgs are on nvcr.io but take different NGC keys, and a Docker
   # config holds one credential per host, so they cannot share a job.
@@ -106,6 +103,7 @@ jobs:
       contents: read
       packages: write
     outputs:
+      image: ${{ steps.promote.outputs.image }}
       digest: ${{ steps.promote.outputs.digest }}
       digest_amd64: ${{ steps.promote.outputs.digest_amd64 }}
       digest_arm64: ${{ steps.promote.outputs.digest_arm64 }}
@@ -152,18 +150,22 @@ jobs:
             exit 1
           fi
 
+          # Lowercased because GHCR rejects uppercase paths and the owner is NVIDIA.
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
           src="${SOURCE}:sha-${GITHUB_SHA}"
           if ! digest="$(bin/crane digest "${src}")"; then
             echo "::error::${src} does not exist. A release tag has to point at a commit that was built and published from main."
             exit 1
           fi
 
-          bin/crane copy "${src}" "${GHCR_IMAGE}:${GITHUB_REF_NAME}"
-          bin/crane tag "${GHCR_IMAGE}:${GITHUB_REF_NAME}" "sha-${GITHUB_SHA}"
+          bin/crane copy "${src}" "${image}:${GITHUB_REF_NAME}"
+          bin/crane tag "${image}:${GITHUB_REF_NAME}" "sha-${GITHUB_SHA}"
 
           # Read the children off the source: the copy preserves digests, so
           # these are the same manifests, without a read-after-write on GHCR.
           {
+            echo "image=${image}"
             echo "digest=${digest}"
             for arch in amd64 arm64; do
               echo "digest_${arch}=$(bin/crane digest --platform "linux/${arch}" "${src}")"
@@ -171,12 +173,11 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
           {
-            echo "- \`${GHCR_IMAGE}:${GITHUB_REF_NAME}\` is \`${digest}\`"
+            echo "- \`${image}:${GITHUB_REF_NAME}\` is \`${digest}\`"
             echo "- promoted from \`${src}\`, not rebuilt"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   sbom:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     name: SBOM (${{ matrix.arch }})
     runs-on: linux-amd64-cpu8
     needs: [promote-ghcr]
@@ -200,7 +201,7 @@ jobs:
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: ${{ env.GHCR_IMAGE }}@${{ needs.promote-ghcr.outputs[format('digest_{0}', matrix.arch)] }}
+          image: ${{ needs.promote-ghcr.outputs.image }}@${{ needs.promote-ghcr.outputs[format('digest_{0}', matrix.arch)] }}
           format: spdx-json
           artifact-name: cluster-api-provider-nico-sbom-linux-${{ matrix.arch }}.spdx.json
           upload-artifact: true
@@ -319,16 +320,19 @@ jobs:
       # metadata.yaml and infrastructure-components.yaml have to be attached to
       # the release itself, not just generated.
       - name: Generate clusterctl provider artifacts
+        env:
+          IMAGE: ${{ needs.promote-ghcr.outputs.image }}
         run: |
           set -euo pipefail
           make kustomize
           KUSTOMIZE="$(pwd)/bin/kustomize" \
-          CONTROLLER_IMG="${GHCR_IMAGE}:${GITHUB_REF_NAME}" \
+          CONTROLLER_IMG="${IMAGE}:${GITHUB_REF_NAME}" \
             make release-manifests
 
       - name: Extract changelog for this version
         id: changelog
         env:
+          IMAGE: ${{ needs.promote-ghcr.outputs.image }}
           DIGEST: ${{ needs.promote-ghcr.outputs.digest }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -343,8 +347,8 @@ jobs:
             echo "### Image"
             echo
             echo '```'
-            echo "${GHCR_IMAGE}:${GITHUB_REF_NAME}"
-            echo "${GHCR_IMAGE}@${DIGEST}"
+            echo "${IMAGE}:${GITHUB_REF_NAME}"
+            echo "${IMAGE}@${DIGEST}"
             echo '```'
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
