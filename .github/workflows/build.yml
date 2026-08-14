@@ -59,3 +59,18 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      # go.mod and go.sum must already be tidy. Runs last so a tidy failure
+      # cannot mask a compile failure.
+      #
+      # Nothing else asserts this. test-chart.yml runs `go mod tidy` before it
+      # builds, which rewrites go.mod at runtime and reports nothing, so an
+      # untidy file reaches main looking green.
+      - name: Check go.mod and go.sum are tidy
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum || {
+            echo "::error::go.mod or go.sum is not tidy. Run 'go mod tidy' and commit the result."
+            exit 1
+          }
