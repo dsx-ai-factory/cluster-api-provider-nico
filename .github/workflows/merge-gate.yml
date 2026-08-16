@@ -78,7 +78,10 @@ jobs:
     permissions:
       contents: read
 
-  secrets:
+  # NOT `secrets:`. That is a reserved key on a job that calls a reusable
+  # workflow (jobs.<id>.secrets), and using it as a job ID makes the whole
+  # workflow fail to start -- a startup_failure with no log and no annotation.
+  secret-scan:
     uses: ./.github/workflows/secrets.yml
     permissions:
       contents: read
@@ -108,7 +111,7 @@ jobs:
       - build
       - test
       - actionlint
-      - secrets
+      - secret-scan
       - lint
       - govulncheck
       - license
