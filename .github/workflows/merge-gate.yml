@@ -94,7 +94,9 @@ jobs:
   govulncheck:
     uses: ./.github/workflows/govulncheck.yml
     permissions:
+      actions: read
       contents: read
+      security-events: write
 
   license:
     uses: ./.github/workflows/license.yml
