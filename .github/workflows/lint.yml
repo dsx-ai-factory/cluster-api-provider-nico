@@ -31,12 +31,19 @@ on:
 permissions: {}
 
 concurrency:
-  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
-  # expression is the CALLER's name, so every workflow the gate calls would
-  # compute the same group and cancel each other. NVIDIA/nke#160 lost 8 of 9
-  # calls to exactly that, reported as failures with no jobs and no error.
-  group: Lint-${{ github.ref }}
-  cancel-in-progress: true
+  # Per-commit on main, so every commit keeps its own runs. GitHub allows one
+  # running and one pending run per group and cancels the PENDING one when a
+  # third arrives -- whatever cancel-in-progress says, because that setting only
+  # protects a run that has already started. Without the sha, a burst of merges
+  # silently loses CI results for the commits in the middle.
+  #
+  # A literal name, not ${{ github.workflow }}: inside a workflow called by
+  # merge-gate.yml that expression is the CALLER's name, so siblings collide.
+  #
+  # Pull-request branches keep sharing a group and still cancel, which is what
+  # you want there.
+  group: Lint-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   lint:
