@@ -1,0 +1,135 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# One check to require: `gate`.
+#
+# Every merge requirement lives here so the branch ruleset can require a single
+# check rather than naming each one. Adding or renaming a check then needs no
+# ruleset change -- and cannot silently stop being required, which is what
+# happens when a ruleset names a context that no longer exists.
+#
+# WHY AN AGGREGATE RATHER THAN A LIST OF JOB NAMES
+#
+# Two ways a required check blocks a pull request forever:
+#
+#   1. A check that never runs. Before this, no workflow here triggered on
+#      pull_request at all -- CI arrived only when copy-pr-bot mirrored the head
+#      to pull-request/N, which it does for vetted authors. Requiring any of
+#      those would block every unvetted contributor permanently.
+#
+#   2. A check that is skipped, because a matrix shrank or a path filter did not
+#      match. GitHub treats a required-but-absent check as pending, not passed.
+#
+# `gate` runs on the real pull_request event, so every author gets it, and it
+# reports one result no matter which underlying checks ran.
+#
+# The jobs it calls run on ubuntu-latest, which is not incidental: self-hosted
+# runners do not receive fork pull_request events, so a gate built on them would
+# queue forever instead of reporting.
+#
+# NOT IN THE GATE, ON PURPOSE
+#
+# codeql, image-build, image-nvcr, notices-check, security-scan and release.
+# They need NVIDIA runners or are slow enough to hurt pull-request latency.
+# They keep reporting on push exactly as they do today; they are advisory.
+#
+# DCO is a GitHub App rather than a workflow. It already reports on every pull
+# request regardless of author, and should be required directly alongside this.
+
+name: Merge gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # The sha is part of the group on main, so every commit gets its own. GitHub
+  # allows one running and one pending run per group and cancels the pending one
+  # when a third arrives, whatever cancel-in-progress says.
+  #
+  # It matters more here than in any other workflow: once `gate` is required, a
+  # cancelled run is indistinguishable from one still running, so the pull
+  # request never becomes mergeable.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
+  test:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  actionlint:
+    uses: ./.github/workflows/actionlint.yml
+    permissions:
+      contents: read
+
+  secrets:
+    uses: ./.github/workflows/secrets.yml
+    permissions:
+      contents: read
+
+  lint:
+    uses: ./.github/workflows/lint.yml
+    permissions:
+      contents: read
+
+  govulncheck:
+    uses: ./.github/workflows/govulncheck.yml
+    permissions:
+      contents: read
+
+  license:
+    uses: ./.github/workflows/license.yml
+    permissions:
+      contents: read
+
+  gate:
+    name: gate
+    # always(), so the gate still reports when something upstream failed.
+    # Without it the gate is itself skipped, which reads to branch protection as
+    # "never ran" -- the exact failure this workflow exists to avoid.
+    if: always()
+    needs:
+      - build
+      - test
+      - actionlint
+      - secrets
+      - lint
+      - govulncheck
+      - license
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every check to have passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "  results: ${results}"
+
+          # `skipped` is tolerated on purpose: a called workflow can skip for
+          # reasons that are not failures, and treating that as a failure would
+          # block merges for nothing. `failure` and `cancelled` are not -- a
+          # cancelled run has proven nothing.
+          for r in ${results}; do
+            case "${r}" in
+              failure|cancelled)
+                echo "::error::a required check did not pass: ${results}"
+                exit 1
+                ;;
+            esac
+          done
+          echo "  all required checks passed"
+          echo "### Merge gate passed" >> "${GITHUB_STEP_SUMMARY}"
