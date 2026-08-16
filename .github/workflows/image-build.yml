@@ -49,7 +49,11 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so every workflow the gate calls would
+  # compute the same group and cancel each other. NVIDIA/nke#160 lost 8 of 9
+  # calls to exactly that, reported as failures with no jobs and no error.
+  group: Image Build-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
