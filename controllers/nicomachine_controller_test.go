@@ -81,6 +81,56 @@ func TestObservedTopologyLabels(t *testing.T) {
 	assert.Equal(t, "mock-vpc", labels[labelKeyVPCName])
 }
 
+func TestNeedsLabelUpdate(t *testing.T) {
+	observed := map[string]string{
+		labelKeyMachineID: "machine-1",
+		labelKeySiteID:    "site-1",
+		labelKeySiteName:  "forge-vms-site",
+		labelKeyVPCID:     "vpc-1",
+		labelKeyVPCName:   "mock-vpc",
+	}
+
+	type parameters struct {
+		existing map[string]string
+		desired  map[string]string
+		want     bool
+	}
+
+	tests := map[string]parameters{
+		"true when the instance has no labels": {
+			desired: observed,
+			want:    true,
+		},
+		"true when a value drifted": {
+			existing: mergeLabels(observed, map[string]string{labelKeySiteName: "stale-site"}),
+			desired:  observed,
+			want:     true,
+		},
+		"true when a key is missing": {
+			existing: map[string]string{labelKeyMachineID: "machine-1"},
+			desired:  observed,
+			want:     true,
+		},
+		"true when unrelated labels are present and topology labels are missing": {
+			existing: map[string]string{"other": "keep"},
+			desired:  mergeLabels(observed, map[string]string{"other": "keep"}),
+			want:     true,
+		},
+		"false when labels already match": {
+			existing: mergeLabels(observed, map[string]string{"other": "keep"}),
+			desired:  mergeLabels(observed, map[string]string{"other": "keep"}),
+			want:     false,
+		},
+		"false when both are empty": {},
+	}
+
+	for name, params := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, params.want, needsLabelUpdate(params.existing, params.desired))
+		})
+	}
+}
+
 func TestNicoMachineReconciler_ProviderIDClaimedBy(t *testing.T) {
 	type parameters struct {
 		existing []infrav1.NicoMachine

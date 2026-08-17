@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -372,14 +373,22 @@ func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Ins
 
 // applyObservedTopologyLabels merges the observed machine/topology labels into
 // the existing instance labels and sends them back to NICo as a label update.
+// The update is skipped when needsLabelUpdate is false, so a
+// steady-state reconcile does not write to NICo on every pass.
 func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
-	labels := mergeLabels(instance.GetLabels(), observedTopologyLabels(nicoMachine))
-	if len(labels) == 0 {
+	existing := instance.GetLabels()
+	desired := mergeLabels(existing, observedTopologyLabels(nicoMachine))
+	if !needsLabelUpdate(existing, desired) {
 		return nil
 	}
 
-	_, err := nicoClient.ApplyInstanceLabels(ctx, instanceID, labels)
+	_, err := nicoClient.ApplyInstanceLabels(ctx, instanceID, desired)
 	return err
+}
+
+// needsLabelUpdate reports whether desired differs from existing labels.
+func needsLabelUpdate(existing, desired map[string]string) bool {
+	return !maps.Equal(desired, existing)
 }
 
 // observedTopologyLabels converts the latest observed NICo instance topology
