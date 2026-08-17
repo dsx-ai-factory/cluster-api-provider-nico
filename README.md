@@ -17,6 +17,38 @@ each requested machine into a NICo instance on real hardware.
 * `NicoMachine` represents one NICo instance managed by Cluster API, and carries the VPC.
 * `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
 
+## Features
+
+- **Bare-metal machines through the Cluster API contract.** A `MachineDeployment`
+  or `KubeadmControlPlane` provisions real hardware with no separate workflow.
+- **Two credential styles.** A static bearer token, or OAuth2 client
+  credentials, supplied through a Secret.
+- **Per-cluster credentials.** `NicoCluster` may reference its own Secret, so one
+  management cluster can drive several sites.
+- **Credential rotation without a restart.** Clients are cached per Secret
+  `resourceVersion`, so an external rotation is picked up on the next reconcile.
+- **Idempotent instance creation.** A create conflict resolves by looking up the
+  existing instance by name rather than failing or duplicating.
+- **External control-plane endpoints**, including a kube-vip template and a
+  developer flow for a single requested IP.
+- **Machine repair and reboot**, both driven by annotations.
+- **An ordered deletion lifecycle**, guarded by a finalizer.
+
+## How this fits with other tools
+
+This provider does one job and leaves the rest to the standard Cluster API
+components:
+
+| Component | What it does | Relationship |
+|---|---|---|
+| Cluster API core | Decides which machines should exist | Asks this provider for them |
+| Kubeadm bootstrap and control-plane providers | Install Kubernetes and join nodes | **This provider does neither** |
+| [NVIDIA Infra Controller (NICo)](https://github.com/NVIDIA/infra-controller) | Provisions the physical instances | This provider drives its API |
+| Other infrastructure providers (CAPD, CAPA, and so on) | The same role on a different substrate | Interchangeable — swap the provider, keep the workflow |
+
+If you already run Cluster API, your workflow does not change. You declare the
+same objects, and this provider satisfies them with NICo hardware.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit: the CRDs and
@@ -48,6 +80,36 @@ each requested machine into a NICo instance on real hardware.
 - **Support level** — Experimental.
 
 ## How It Works
+
+### Architecture
+
+One controller, three CRDs, and one outbound API. Everything runs in the
+management cluster; nothing is installed on the provisioned nodes.
+
+```
+   Cluster API core                    management cluster
+   ├── Cluster          ──────────►  NicoCluster      (target site, credentials)
+   ├── MachineDeployment ─────────►  NicoMachineTemplate
+   └── Machine          ──────────►  NicoMachine      (one instance, one VPC)
+                                          │
+                                          │  CAPNICo controller
+                                          ▼
+                                     NICo REST API
+                                          │
+                                          ▼
+                                     bare-metal instance
+                                     (iPXE boot, kubeadm cloud-init)
+```
+
+Cluster API owns the desired state. This controller reconciles each
+`NicoMachine` into one NICo instance and reports the provider ID back, which is
+how the node is matched. The kubeadm providers take over from there.
+
+[docs/architecture.md](docs/architecture.md) has the detail: field ownership,
+credential resolution and client caching, what the finalizer guards, teardown
+order, and the repair and reboot contracts.
+
+### Credentials and reconciliation
 
 The provider uses a Secret for NICo connection details and authentication. The
 Secret supports either a static bearer token or OAuth2 client-credentials.
