@@ -62,12 +62,12 @@ commands are not listed, because they are not distributed.
 | [go.yaml.in/yaml/v2](https://github.com/yaml/go-yaml/blob/v2.4.3/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v2@v2.4.3 |
 | [go.yaml.in/yaml/v3](https://github.com/yaml/go-yaml/blob/v3.0.4/LICENSE) | MIT | go.yaml.in/yaml/v3@v3.0.4 |
 | [go.yaml.in/yaml/v4](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.4/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v4@v4.0.0-rc.4 |
-| [golang.org/x/net](https://cs.opensource.google/go/x/net/+/v0.56.0:LICENSE) | BSD-3-Clause | — |
+| [golang.org/x/net](https://cs.opensource.google/go/x/net/+/v0.58.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/oauth2](https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE) | BSD-3-Clause | golang.org/x/oauth2@v0.36.0 |
-| [golang.org/x/sync/errgroup](https://cs.opensource.google/go/x/sync/+/v0.21.0:LICENSE) | BSD-3-Clause | golang.org/x/sync@v0.21.0 |
-| [golang.org/x/sys/unix](https://cs.opensource.google/go/x/sys/+/v0.46.0:LICENSE) | BSD-3-Clause | golang.org/x/sys@v0.46.0 |
-| [golang.org/x/term](https://cs.opensource.google/go/x/term/+/v0.44.0:LICENSE) | BSD-3-Clause | golang.org/x/term@v0.44.0 |
-| [golang.org/x/text](https://cs.opensource.google/go/x/text/+/v0.39.0:LICENSE) | BSD-3-Clause | — |
+| [golang.org/x/sync/errgroup](https://cs.opensource.google/go/x/sync/+/v0.22.0:LICENSE) | BSD-3-Clause | golang.org/x/sync@v0.22.0 |
+| [golang.org/x/sys/unix](https://cs.opensource.google/go/x/sys/+/v0.47.0:LICENSE) | BSD-3-Clause | golang.org/x/sys@v0.47.0 |
+| [golang.org/x/term](https://cs.opensource.google/go/x/term/+/v0.45.0:LICENSE) | BSD-3-Clause | golang.org/x/term@v0.45.0 |
+| [golang.org/x/text](https://cs.opensource.google/go/x/text/+/v0.41.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/time/rate](https://cs.opensource.google/go/x/time/+/v0.14.0:LICENSE) | BSD-3-Clause | golang.org/x/time@v0.14.0 |
 | [gomodules.xyz/jsonpatch/v2](https://github.com/gomodules/jsonpatch/blob/v2.5.0/LICENSE) | Apache-2.0 | gomodules.xyz/jsonpatch/v2@v2.5.0 |
 | [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go/blob/f2248ac996af/LICENSE) | BSD-3-Clause | — |
