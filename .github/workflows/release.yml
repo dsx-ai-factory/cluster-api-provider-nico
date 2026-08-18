@@ -364,13 +364,84 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
+      # The release is created as a draft so the assets upload before it is
+      # published. If a repository has release immutability turned on, GitHub
+      # seals the release when it is published and rejects any asset uploaded
+      # after that.
+      #
+      # draft: true tells the action to leave the release unpublished, for a
+      # full release as well as a prerelease. The action would otherwise
+      # publish it itself, so the step below is what publishes it now. Do not
+      # remove either one without the other.
+      #
+      # fail_on_unmatched_files makes this step fail if an artifact is missing,
+      # before the release is created.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        id: release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           name: ${{ github.ref_name }}
           body: ${{ steps.changelog.outputs.notes }}
-          draft: false
+          draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
           files: |
             out/metadata.yaml
             out/infrastructure-components.yaml
+
+      # The assets are checked before the release is published, because
+      # publishing it is what seals it.
+      #
+      # This step uses github-script rather than the gh command line tool,
+      # because the job runs on a self-hosted runner where gh may not be
+      # installed.
+      - name: Publish the release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        with:
+          # Retries cover a server error or a dropped connection. The action
+          # this step replaced retried three times, so without them a flake
+          # would leave the release unpublished.
+          retries: 3
+          script: |
+            const release_id = Number(process.env.RELEASE_ID);
+            const expected = ['infrastructure-components.yaml', 'metadata.yaml'].sort();
+
+            // The asset list can lag behind an upload that has already
+            // succeeded, so a short list is read again before it is treated as
+            // a failure. Retries above do not cover this, because a stale list
+            // is a successful response.
+            let got = [];
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (attempt > 0) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+              const { data: rel } = await github.rest.repos.getRelease({
+                ...context.repo, release_id,
+              });
+              // An asset counts only once it is fully uploaded, because
+              // publishing seals it and a truncated file would be sealed too.
+              got = rel.assets
+                .filter(a => a.state === 'uploaded' && a.size > 0)
+                .map(a => a.name)
+                .sort();
+              if (got.join(',') === expected.join(',')) {
+                break;
+              }
+            }
+
+            if (got.join(',') !== expected.join(',')) {
+              core.setFailed(
+                `Release ${release_id} carries [${got.join(', ') || 'nothing'}], ` +
+                `and it should carry [${expected.join(', ')}]. It is left as an ` +
+                `unpublished draft. Re-run this job to try again. Deleting the ` +
+                `draft is not enough on its own, because the tag already exists ` +
+                `and pushing it again starts nothing.`);
+              return;
+            }
+
+            await github.rest.repos.updateRelease({
+              ...context.repo, release_id, draft: false,
+            });
+            core.info(`Published ${context.ref.replace('refs/tags/', '')} with ${got.length} assets.`);

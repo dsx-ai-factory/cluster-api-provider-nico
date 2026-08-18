@@ -98,10 +98,24 @@ the central promoter to act on, which has no equivalent here.
    - **Helm chart (dsx)** packages `capi-provider-nico` and pushes it to the NGC
      chart registry under `DSX_NGC_ORG`/`DSX_NGC_TEAM`, with the chart's manifest
      pointing at the DSX image.
-   - **Create GitHub Release** publishes notes extracted from `CHANGELOG.md`,
-     the promoted digest, and the clusterctl provider artifacts `metadata.yaml`
-     and `infrastructure-components.yaml`. It runs last so the release never
+   - **Create GitHub Release** creates the release as a **draft** and attaches
+     notes extracted from `CHANGELOG.md`, the promoted digest, and the
+     clusterctl provider artifacts `metadata.yaml` and
+     `infrastructure-components.yaml`. **Publish the release** then checks both
+     assets are present and publishes it. They run last so the release never
      advertises an image that has not landed yet.
+
+     It is published in two steps because GitHub's **release immutability**
+     seals a release the moment it publishes — so a release published before
+     its assets upload can never receive them. Immutability is off here today,
+     but it is on in `cluster-api-addon-provider-syscmp`, where a release
+     shipped with no assets at all. Draft-first also fails safe: a broken run
+     leaves an **unpublished draft**, not a broken public release.
+
+     > ⚠️ **If a release run fails, check for a leftover draft** under
+     > [Releases](../../releases) and delete it before re-pushing the tag.
+     > Re-running the failed job also works — it finds the draft, re-uploads,
+     > and publishes.
 
    The jobs that reach NVCR are restricted to `NVIDIA/cluster-api-provider-nico`,
    and the GHCR promotion reads from NVCR, so the workflow no-ops in a fork —
