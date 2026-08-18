@@ -28,10 +28,16 @@ the same image whenever they name the same commit.
 | Registry | Audience | Receives |
 | --- | --- | --- |
 | NVCR, at `NVCR_NKE_IMAGE` and `NVCR_DSX_IMAGE` | NVIDIA-internal | every `main` commit as `sha-<commit>`, `edge` and `latest`, plus every tag |
-| `ghcr.io/nvidia/cluster-api-provider-nico` | public | tagged versions only, release candidates included |
+| `ghcr.io/nvidia/cluster-api-provider-nico/controller` | public | tagged versions only, release candidates included |
+| `ghcr.io/nvidia/cluster-api-provider-nico/charts` | public | the Helm chart, as `capi-provider-nico` |
 
-The NKE org is the promotion source; the DSX org is where internal consumers and
-the Helm chart point. GHCR receives only the multi-arch index for a tag, so the
+The chart is published twice, once per registry, because a chart has to name an
+image its reader can reach: the NGC copy names the DSX image, the GHCR copy names
+the GHCR image. `charts/` is a reserved path segment, so the chart and the
+controller image never share an OCI repository.
+
+The NKE org is the promotion source; the DSX org is where internal consumers
+point. GHCR receives only the multi-arch index for a tag, so the
 per-arch tags a build produces stay internal, and untagged commits never become
 public at all. Its path is derived from the repository rather than written into
 the workflow, so renaming or moving the repository moves the published image with
@@ -91,13 +97,19 @@ the central promoter to act on, which has no equivalent here.
    - **Tag NVCR** repoints `<tag>` at the `sha-<commit>` digest in both NGC
      orgs. Nothing is uploaded.
    - **Promote to GHCR** copies that digest to
-     `ghcr.io/nvidia/cluster-api-provider-nico:<tag>`, plus the matching
-     `sha-<commit>` tag, and records the digest in the job summary.
+     `ghcr.io/nvidia/cluster-api-provider-nico/controller:<tag>`, plus the
+     matching `sha-<commit>` tag, and records the digest in the job summary.
    - **SBOM** generates an SPDX SBOM per architecture, addressing each one by
      digest, and uploads them as workflow artifacts.
-   - **Helm chart (dsx)** packages `capi-provider-nico` and pushes it to the NGC
+   - **Chart (NGC)** packages `capi-provider-nico` and pushes it to the NGC
      chart registry under `DSX_NGC_ORG`/`DSX_NGC_TEAM`, with the chart's manifest
      pointing at the DSX image.
+   - **Chart (GHCR)** packages the same chart with its manifest pointing at the
+     GHCR image and pushes it to
+     `oci://ghcr.io/nvidia/cluster-api-provider-nico/charts`. It fails if the
+     rendered manifests still mention `nvcr.io`, because a chart that names an
+     image needing an NGC login is not installable from outside NVIDIA and the
+     failure would otherwise surface only at install time.
    - **Create GitHub Release** creates the release as a **draft** and attaches
      notes extracted from `CHANGELOG.md`, the promoted digest, and the
      clusterctl provider artifacts `metadata.yaml` and
@@ -127,14 +139,15 @@ the central promoter to act on, which has no equivalent here.
 
 6. **Verify**
    - GitHub Release: `https://github.com/NVIDIA/cluster-api-provider-nico/releases`
-   - GHCR image: `ghcr.io/nvidia/cluster-api-provider-nico:v<VERSION>`
+   - GHCR image: `ghcr.io/nvidia/cluster-api-provider-nico/controller:v<VERSION>`
+   - GHCR chart: `helm pull oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico --version <VERSION>`
    - NVCR images: `<NVCR_NKE_IMAGE>:v<VERSION>` and `<NVCR_DSX_IMAGE>:v<VERSION>`
    - NGC chart: `ngc registry chart info <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico`
    - The digests agree, which is the point of promoting rather than rebuilding:
 
      ```bash
      make crane
-     bin/crane digest ghcr.io/nvidia/cluster-api-provider-nico:v<VERSION>
+     bin/crane digest ghcr.io/nvidia/cluster-api-provider-nico/controller:v<VERSION>
      bin/crane digest <NVCR_NKE_IMAGE>:v<VERSION>
      ```
 

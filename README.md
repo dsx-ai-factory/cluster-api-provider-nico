@@ -157,7 +157,7 @@ CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
 Generate the local artifacts with the controller image you want to publish:
 
 ```bash
-CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico:v0.0.8 \
+CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.8 \
 make release-manifests
 ```
 

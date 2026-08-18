@@ -162,7 +162,12 @@ jobs:
           fi
 
           # Lowercased because GHCR rejects uppercase paths and the owner is NVIDIA.
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          #
+          # `/controller`, not the bare repository name, so the chart can
+          # publish under <repo>/charts/ without the two sharing one OCI
+          # repository. On the other two CAPI repos they did share one, told
+          # apart only by whether the tag carried a "v".
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/controller"
 
           src="${SOURCE}:sha-${GITHUB_SHA}"
           if ! digest="$(bin/crane digest "${src}")"; then
@@ -218,9 +223,12 @@ jobs:
           upload-artifact: true
           upload-release-assets: false
 
-  chart:
+  # Two chart jobs, because the chart has to name an image its consumers can
+  # reach. chart-ngc packages the NVCR image for NGC consumers; chart-ghcr
+  # packages the GHCR image for everyone else. Same chart, one registry each.
+  chart-ngc:
     if: github.repository == 'NVIDIA/cluster-api-provider-nico'
-    name: Helm chart (dsx)
+    name: Chart (NGC)
     runs-on: linux-amd64-cpu8
     needs: [promote-nvcr]
     environment: nvcr
@@ -305,6 +313,82 @@ jobs:
             printf '%s\n' "${out}"
             printf '%s\n' "${out}" | grep -qi "already exists"
           fi
+
+  # The GHCR half. Until this existed the chart was published to NGC alone, so
+  # the only copy of it needed an NGC login to fetch and named an image that
+  # also needed one -- nothing about this provider was installable from outside
+  # NVIDIA. This job needs neither the nvcr environment nor promote-nvcr; it
+  # takes the already-promoted GHCR image from promote-ghcr.
+  chart-ghcr:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Chart (GHCR)
+    runs-on: linux-amd64-cpu8
+    needs: [promote-ghcr]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      # CONTROLLER_IMG is the GHCR image, so the packaged manifest names the
+      # copy a consumer outside NVIDIA can actually pull.
+      - name: Render chart manifests
+        shell: bash
+        env:
+          IMAGE: ${{ needs.promote-ghcr.outputs.image }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${IMAGE}" ]]; then
+            echo "::error::promote-ghcr did not report an image"
+            exit 1
+          fi
+
+          make kustomize
+          KUSTOMIZE="$(pwd)/bin/kustomize" \
+          CONTROLLER_IMG="${IMAGE}:${GITHUB_REF_NAME}" \
+            make helm-chart-manifests
+
+          # A packaged chart that still names nvcr.io would defeat the point of
+          # this job, and the failure is invisible until someone tries to
+          # install it without an NGC login.
+          if grep -rq "nvcr\.io" charts/capi-provider-nico/templates/; then
+            echo "::error::rendered manifests still reference nvcr.io"
+            grep -rn "nvcr\.io" charts/capi-provider-nico/templates/ >&2
+            exit 1
+          fi
+
+      - name: Package and push chart
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          helm lint charts/capi-provider-nico
+          helm package charts/capi-provider-nico \
+            --version "${version}" \
+            --app-version "${GITHUB_REF_NAME}" \
+            --destination .chart-dist
+
+          echo "${GH_TOKEN}" \
+            | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          # <repo>/charts/, so the chart never lands in the same OCI repository
+          # as the controller image.
+          helm push ".chart-dist/capi-provider-nico-${version}.tgz" \
+            "oci://ghcr.io/${GITHUB_REPOSITORY,,}/charts"
 
   # Last, so the release never advertises an image that is not there yet: the
   # attached infrastructure-components.yaml references the GHCR tag by name.

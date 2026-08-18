@@ -19,5 +19,18 @@ credentials at install time.
 
 This Helm chart is a temporary stop-gap for DSX deployments while CAPNICo lives
 in a private repository. After this repository is open sourced, `dsx-sbom` should
-reference the provider's Kustomize manifests directly instead of relying on an
-NVCR-published Helm chart artifact.
+reference the provider's Kustomize manifests directly instead of relying on a
+published Helm chart artifact.
+
+The chart goes to two registries, and which one you want depends on which image
+you can pull. The two copies are the same chart with a different image named in
+the manifest.
+
+```bash
+# GHCR -- names the GHCR controller image, no NGC login needed
+helm pull oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico \
+  --version <VERSION>
+
+# NGC -- names the DSX image, for internal consumers
+ngc registry chart pull <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico:<VERSION>
+```
