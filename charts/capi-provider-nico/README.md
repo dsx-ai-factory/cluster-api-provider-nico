@@ -39,8 +39,27 @@ ngc registry chart pull <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico:<VERSION
 `internal`, and a GHCR package inherits that visibility when it is created —
 repository visibility does not change it. Until each package is made public in
 its own settings, both the chart and the image need a GitHub token with
-`read:packages`:
+`read:packages`.
+
+**Two separate credentials, because two different clients do the pulling.**
+`helm registry login` authorises *your workstation* to fetch the chart. It does
+nothing for the cluster: kubelet pulls the controller image itself and cannot
+see your Helm config, so it needs a Kubernetes pull secret as well. Doing only
+the first gets you a successful `helm install` followed by `ImagePullBackOff`.
 
 ```bash
+# 1. your workstation, to pull the chart
 echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u <your-user> --password-stdin
+
+# 2. the cluster, to pull the image
+kubectl create secret docker-registry ghcr-imagepull \
+  --namespace <namespace> \
+  --docker-server=ghcr.io \
+  --docker-username=<your-user> \
+  --docker-password="$GITHUB_TOKEN"
+
+helm install capi-provider-nico \
+  oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico \
+  --version <VERSION> \
+  --set imagePullSecrets[0].name=ghcr-imagepull
 ```
