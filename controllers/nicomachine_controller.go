@@ -208,14 +208,21 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// Query instance type availability before creating the instance when creating instances by instance type.
 			// When instances are completely consumed, the instance creation API call will always fail. This preflight
 			// check avoids spamming the NICo API logs with errors, and changes the re-queue interval.
-			instanceType, available, reason, message, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
+			availability, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
 			if err != nil {
 				setMachineProvisionedFalse(&nicoMachine, infrav1.AvailabilityCheckFailedReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
 			}
-			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(instanceType)
-			if !available {
-				setMachineProvisionedFalse(&nicoMachine, reason, message)
+			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(availability.instanceType)
+			if !availability.available {
+				setMachineProvisionedFalse(&nicoMachine, availability.reason, availability.message)
+				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
+			}
+
+			// Control-plane priority: defer this worker if needed.
+			if shouldDefer, err := r.deferForControlPlanePriority(ctx, &nicoMachine, availability.unusedUsable); err != nil {
+				return ctrl.Result{}, err
+			} else if shouldDefer {
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
 		}
@@ -641,6 +648,49 @@ func (r *NicoMachineReconciler) reconcileReboot(
 	return true, nil
 }
 
+// deferForControlPlanePriority checks if this worker instance create should be
+// deferred to allow control-plane machines to claim capacity first.
+// Returns (true, nil) if deferral was applied, (false, nil) if proceed normally,
+// or (false, err) on lookup failure.
+func (r *NicoMachineReconciler) deferForControlPlanePriority(
+	ctx context.Context,
+	nicoMachine *infrav1.NicoMachine,
+	unusedUsable int32,
+) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Control-plane machines always proceed without deferral.
+	if isControlPlaneNicoMachine(nicoMachine) {
+		return false, nil
+	}
+
+	// Count waiting control-plane machines on this instance type.
+	cpWaiting, sample, err := countControlPlaneWaitingForInstanceType(
+		ctx, r.Client, nicoMachine.Spec.InstanceTypeID, nicoMachine)
+	if err != nil {
+		return false, fmt.Errorf("failed to count waiting control plane machines: %w", err)
+	}
+
+	// Any waiting control-plane machine defers this worker: unusedUsable is a
+	// stale-able reading, so headroom is not a safe thing to race on.
+	if !shouldDeferForControlPlane(cpWaiting) {
+		return false, nil
+	}
+
+	// Deferral applies: surface condition and return defer signal.
+	message := fmt.Sprintf(
+		"Deferring instance create: %d control-plane NicoMachine(s) (e.g. %s) are waiting on "+
+			"instance type %q with only %d unused usable allocation(s)",
+		cpWaiting, sample, nicoMachine.Spec.InstanceTypeID, unusedUsable)
+	log.Info("deferring worker instance create for control-plane priority",
+		"instanceTypeID", nicoMachine.Spec.InstanceTypeID,
+		"controlPlaneWaiting", cpWaiting,
+		"unusedUsable", unusedUsable)
+	setMachineProvisionedFalse(nicoMachine, infrav1.ControlPlanePriorityDeferredReason, message)
+	return true, nil
+}
+
+// setMachineProvisionedFalse marks the machine unprovisioned with a reason.
 func setMachineProvisionedFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {
 	conditions.Set(nicoMachine, metav1.Condition{
 		Type:    infrav1.MachineProvisionedCondition,
@@ -884,21 +934,38 @@ func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachin
 	return interfaces
 }
 
-func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (*nicosdk.InstanceType, bool, string, string, error) {
+// instanceTypeAvailability is the result of the pre-create allocation check. It
+// carries unusedUsable so callers can apply capacity policy (e.g. control-plane
+// priority) without a second NICo round trip, and the instance type itself so
+// callers can parse its device capabilities.
+type instanceTypeAvailability struct {
+	available    bool
+	unusedUsable int32
+	reason       string
+	message      string
+	instanceType *nicosdk.InstanceType
+}
+
+func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (instanceTypeAvailability, error) {
 	log := ctrl.LoggerFrom(ctx)
 	instanceType, err := nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
 	log.V(2).Info("instance type availability check result", "instanceType", instanceType, "err", err)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
-			return nil, false, infrav1.InstanceTypeNotFoundReason, fmt.Sprintf("Instance type %q was not found", instanceTypeID), nil
+			return instanceTypeAvailability{
+				reason:  infrav1.InstanceTypeNotFoundReason,
+				message: fmt.Sprintf("Instance type %q was not found", instanceTypeID),
+			}, nil
 		}
-		return nil, false, "", "", err
+		return instanceTypeAvailability{}, err
 	}
 	if instanceType == nil || instanceType.AllocationStats == nil || instanceType.AllocationStats.UnusedUsable == nil {
-		return nil, false, "", "", fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
+		return instanceTypeAvailability{}, fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
 	}
-	if *instanceType.AllocationStats.UnusedUsable > 0 {
-		return instanceType, true, "", "", nil
+
+	unusedUsable := instanceType.AllocationStats.GetUnusedUsable()
+	if unusedUsable > 0 {
+		return instanceTypeAvailability{available: true, unusedUsable: unusedUsable, instanceType: instanceType}, nil
 	}
 
 	message := fmt.Sprintf("Instance type %q has no unused usable allocations (total=%d used=%d unused=%d unusedUsable=%d)",
@@ -906,8 +973,40 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 		instanceType.AllocationStats.GetTotal(),
 		instanceType.AllocationStats.GetUsed(),
 		instanceType.AllocationStats.GetUnused(),
-		instanceType.AllocationStats.GetUnusedUsable(),
+		unusedUsable,
 	)
 
-	return instanceType, false, infrav1.InstanceTypeUnavailableReason, message, nil
+	return instanceTypeAvailability{
+		unusedUsable: unusedUsable,
+		reason:       infrav1.InstanceTypeUnavailableReason,
+		message:      message,
+		instanceType: instanceType,
+	}, nil
+}
+
+// shouldDeferForControlPlane reports whether a worker instance create must wait
+// so control-plane NicoMachines waiting on the same instance type can claim
+// capacity first. Any waiting control-plane machine defers every worker of that
+// type, regardless of how much headroom NICo reports.
+//
+// The gate used to be headroom-aware -- defer only while unusedUsable was at or
+// below the number of waiting control-plane machines -- and that does not hold.
+// unusedUsable is a NICo reading that does not drop until a create actually
+// lands, so two worker reconciles can both observe the same free allocation and
+// both decide they have headroom. With one control-plane machine waiting and two
+// free allocations, both workers pass the check, both create, and the
+// control-plane machine gets nothing. Unlike the Forge scheduler, which runs a
+// whole site in one tick and can carry a shared capacity budget across it, each
+// reconcile here is independent and has nowhere to record what a sibling just
+// spent. Being unconditional is what closes that race.
+//
+// The cost is that a control-plane machine which can never progress would stall
+// every worker of its instance type. That is bounded on the counting side
+// instead: countControlPlaneWaitingForInstanceType tallies only machines whose
+// MachineProvisioned condition names one of capacityWaitReasons, so a machine
+// stuck for any
+// other reason -- including one added to the API after this was written -- does
+// not hold capacity.
+func shouldDeferForControlPlane(controlPlaneWaiting int) bool {
+	return controlPlaneWaiting > 0
 }
