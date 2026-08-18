@@ -19,6 +19,17 @@ spec:
     spec:
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
+      # Required by Pod Security Admission at the `restricted` level, which CAPI
+      # management clusters commonly enforce. Without these the ReplicaSet is
+      # rejected and no pod is ever created -- the Deployment sits at 0/1 and
+      # carries no error of its own, so the failure is quiet.
+      #
+      # The image is already non-root (distroless nonroot, USER 65532:65532);
+      # this only declares it so the admission controller can see it.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: manager
           image: controller:latest
