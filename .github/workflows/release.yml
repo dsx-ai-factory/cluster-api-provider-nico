@@ -343,7 +343,10 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       # CONTROLLER_IMG is the GHCR image, so the packaged manifest names the
-      # copy a consumer outside NVIDIA can actually pull.
+      # copy that needs no NGC login. ⚠️ Not the same as anonymously pullable:
+      # this repository is internal and a GHCR package inherits that visibility,
+      # so pulling still needs a token with read:packages until the package is
+      # made public in its own settings. See RELEASE.md.
       - name: Render chart manifests
         shell: bash
         env:
