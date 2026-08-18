@@ -27,10 +27,20 @@ you can pull. The two copies are the same chart with a different image named in
 the manifest.
 
 ```bash
-# GHCR -- names the GHCR controller image, no NGC login needed
+# GHCR -- names the GHCR controller image, so no NGC login is needed
 helm pull oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico \
   --version <VERSION>
 
 # NGC -- names the DSX image, for internal consumers
 ngc registry chart pull <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico:<VERSION>
+```
+
+⚠️ **The GHCR packages are not anonymously pullable yet.** This repository is
+`internal`, and a GHCR package inherits that visibility when it is created —
+repository visibility does not change it. Until each package is made public in
+its own settings, both the chart and the image need a GitHub token with
+`read:packages`:
+
+```bash
+echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u <your-user> --password-stdin
 ```

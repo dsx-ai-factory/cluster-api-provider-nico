@@ -366,9 +366,20 @@ jobs:
           # A packaged chart that still names nvcr.io would defeat the point of
           # this job, and the failure is invisible until someone tries to
           # install it without an NGC login.
-          if grep -rq "nvcr\.io" charts/capi-provider-nico/templates/; then
+          # Grep the whole chart, not templates/. `make helm-chart-manifests`
+          # writes the rendered manifest to files/, and templates/ holds only a
+          # .tpl wrapper that reads it -- so a guard pointed at templates/ has
+          # nothing to find and passes on every input, including a chart that
+          # names nvcr.io. Assert the file exists first, because `grep -rq` on a
+          # missing directory also exits non-zero and reads as "clean".
+          rendered="charts/capi-provider-nico/files/infrastructure-components.yaml"
+          if [[ ! -s "${rendered}" ]]; then
+            echo "::error::${rendered} is missing or empty; helm-chart-manifests did not run"
+            exit 1
+          fi
+          if grep -rq "nvcr\.io" charts/capi-provider-nico/; then
             echo "::error::rendered manifests still reference nvcr.io"
-            grep -rn "nvcr\.io" charts/capi-provider-nico/templates/ >&2
+            grep -rn "nvcr\.io" charts/capi-provider-nico/ >&2
             exit 1
           fi
 
@@ -394,16 +405,22 @@ jobs:
             "oci://ghcr.io/${GITHUB_REPOSITORY,,}/charts"
 
   # Last, so the release never advertises an artifact that is not there yet: the
-  # attached infrastructure-components.yaml references the GHCR tag by name, and
-  # the notes point at charts in both registries.
+  # attached infrastructure-components.yaml references the GHCR tag by name.
   #
-  # Both chart jobs are in `needs` for that reason. With only promote-ghcr here
-  # they ran alongside this one, so a release could be published while a chart
-  # push was still running, or had already failed.
+  # chart-ghcr is in `needs` because it publishes to the same public registry
+  # this release points people at; with only promote-ghcr here it ran alongside
+  # this job, so a release could appear while its chart push was still running
+  # or had already failed.
+  #
+  # chart-ngc is deliberately NOT here. It pushes to an internal registry that
+  # no consumer of this release can reach, and gating on it would let an NGC
+  # outage -- an expired token, a 503 from the NGC CLI download -- skip the
+  # public GitHub Release and with it the clusterctl assets, for people who
+  # never touch NGC.
   release:
     name: Create GitHub Release
     runs-on: linux-amd64-cpu4
-    needs: [promote-ghcr, chart-ngc, chart-ghcr]
+    needs: [promote-ghcr, chart-ghcr]
     timeout-minutes: 15
     permissions:
       contents: write

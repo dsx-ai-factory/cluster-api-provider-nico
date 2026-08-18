@@ -40,8 +40,10 @@ existing image package.
 
 The chart is published twice, once per registry, because a chart has to name an
 image its reader can reach: the NGC copy names the DSX image, the GHCR copy names
-the GHCR image. `charts/` is a reserved path segment, so the chart and the
-controller image never share an OCI repository.
+the GHCR image. `charts/` is a convention this repository follows, not something
+the registry enforces — the separation holds because the workflow pushes the
+image to `<repo>/controller` and the chart to `<repo>/charts`, and it would stop
+holding if either changed.
 
 The NKE org is the promotion source; the DSX org is where internal consumers
 point. GHCR receives only the multi-arch index for a tag, so the
