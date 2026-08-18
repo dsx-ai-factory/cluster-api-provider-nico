@@ -424,6 +424,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      security-events: write  # the malware scan uploads SARIF
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -448,6 +449,17 @@ jobs:
           KUSTOMIZE="$(pwd)/bin/kustomize" \
           CONTROLLER_IMG="${IMAGE}:${GITHUB_REF_NAME}" \
             make release-manifests
+
+      # Scans what is about to be attached, before the release exists. Scanning
+      # after the upload would mean withdrawing a release rather than never
+      # cutting one -- and this repository cannot withdraw assets from a
+      # published release at all.
+      - name: Malware scan the release artifacts
+        uses: ./.github/actions/malware-scan
+        with:
+          scan_path: 'out'
+          category: 'clamav-release'
+          output_file: 'clamav-release.sarif'
 
       - name: Extract changelog for this version
         id: changelog
