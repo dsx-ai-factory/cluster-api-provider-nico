@@ -390,12 +390,17 @@ jobs:
           helm push ".chart-dist/capi-provider-nico-${version}.tgz" \
             "oci://ghcr.io/${GITHUB_REPOSITORY,,}/charts"
 
-  # Last, so the release never advertises an image that is not there yet: the
-  # attached infrastructure-components.yaml references the GHCR tag by name.
+  # Last, so the release never advertises an artifact that is not there yet: the
+  # attached infrastructure-components.yaml references the GHCR tag by name, and
+  # the notes point at charts in both registries.
+  #
+  # Both chart jobs are in `needs` for that reason. With only promote-ghcr here
+  # they ran alongside this one, so a release could be published while a chart
+  # push was still running, or had already failed.
   release:
     name: Create GitHub Release
     runs-on: linux-amd64-cpu4
-    needs: [promote-ghcr]
+    needs: [promote-ghcr, chart-ngc, chart-ghcr]
     timeout-minutes: 15
     permissions:
       contents: write

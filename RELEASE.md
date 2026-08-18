@@ -28,8 +28,15 @@ the same image whenever they name the same commit.
 | Registry | Audience | Receives |
 | --- | --- | --- |
 | NVCR, at `NVCR_NKE_IMAGE` and `NVCR_DSX_IMAGE` | NVIDIA-internal | every `main` commit as `sha-<commit>`, `edge` and `latest`, plus every tag |
-| `ghcr.io/nvidia/cluster-api-provider-nico/controller` | public | tagged versions only, release candidates included |
-| `ghcr.io/nvidia/cluster-api-provider-nico/charts` | public | the Helm chart, as `capi-provider-nico` |
+| `ghcr.io/nvidia/cluster-api-provider-nico/controller` | ⚠️ see below | tagged versions only, release candidates included |
+| `ghcr.io/nvidia/cluster-api-provider-nico/charts` | ⚠️ see below | the Helm chart, as `capi-provider-nico` |
+
+⚠️ **GHCR packages are not public yet.** This repository is `internal`, and a new
+GHCR package inherits that visibility rather than taking it from the registry.
+Repository visibility does not change it either — each package has to be made
+public in its own settings. **Until that is done, "GHCR" here means "reachable
+without an NGC login", not "reachable anonymously."** The same applies to the
+existing image package.
 
 The chart is published twice, once per registry, because a chart has to name an
 image its reader can reach: the NGC copy names the DSX image, the GHCR copy names
