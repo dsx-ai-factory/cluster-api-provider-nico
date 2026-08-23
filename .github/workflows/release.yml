@@ -497,6 +497,21 @@ jobs:
       #
       # fail_on_unmatched_files makes this step fail if an artifact is missing,
       # before the release is created.
+      # A consumer applies the components file straight into a cluster, so it
+      # ships with a checksum to verify the download against. Names are relative
+      # because `sha256sum -c` resolves them against the working directory, and
+      # a consumer runs it from wherever they downloaded the assets.
+      #
+      # This runs before the release is created, so a failure here means no
+      # release rather than a release missing an asset it can never receive:
+      # publishing seals it.
+      - name: Checksum the release assets
+        run: |
+          set -euo pipefail
+          ( cd out && sha256sum -- *.yaml > checksums.txt )
+          echo "checksums.txt:"
+          sed 's/^/    /' out/checksums.txt
+
       - name: Create GitHub Release
         id: release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -509,6 +524,7 @@ jobs:
           files: |
             out/metadata.yaml
             out/infrastructure-components.yaml
+            out/checksums.txt
 
       # The assets are checked before the release is published, because
       # publishing it is what seals it.
@@ -527,7 +543,7 @@ jobs:
           retries: 3
           script: |
             const release_id = Number(process.env.RELEASE_ID);
-            const expected = ['infrastructure-components.yaml', 'metadata.yaml'].sort();
+            const expected = ['infrastructure-components.yaml', 'metadata.yaml', 'checksums.txt'].sort();
 
             // The asset list can lag behind an upload that has already
             // succeeded, so a short list is read again before it is treated as
