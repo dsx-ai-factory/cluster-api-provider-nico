@@ -348,3 +348,73 @@ publish-dsx-helm-chart:
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
     - when: never
+
+# version/appVersion are BUILD_VERSION (git describe), matching the image
+# publish-image-nvcr already published to nvcr.io/j7sbcjl3qgta/cluster-api-provider-nico.
+# Push target is the org root (oci://nvcr.io/j7sbcjl3qgta); `helm push` appends
+# the chart name, yielding oci://nvcr.io/j7sbcjl3qgta/capi-provider-nico:<version>.
+publish-chart-nvcr:
+  stage: publish
+  image: ubuntu:${UBUNTU_VERSION}
+  needs:
+    - job: gen-version
+    - job: release-manifests
+      artifacts: true
+    - job: publish-image-nvcr
+  before_script:
+    - apt-get update -qq > /dev/null
+    - DEBIAN_FRONTEND=noninteractive apt-get install -qq -y curl python3-yaml > /dev/null
+    - curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | gpg --dearmor | tee /usr/share/keyrings/helm.gpg > /dev/null
+    - echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | tee /etc/apt/sources.list.d/helm-stable-debian.list > /dev/null
+    - apt-get update -qq > /dev/null
+    - DEBIAN_FRONTEND=noninteractive apt-get install -qq -y helm > /dev/null
+  script:
+    - |
+      set -euo pipefail
+
+      if [ -z "${NVCR_NKE_AUTH_TOKEN:-}" ]; then
+        echo "NVCR_NKE_AUTH_TOKEN is required to publish charts to the NKE NVCR org"
+        exit 1
+      fi
+
+      chart_dir="charts/capi-provider-nico"
+      chart_dist="dist/nke"
+      nke_image="nvcr.io/j7sbcjl3qgta/cluster-api-provider-nico:${BUILD_VERSION}"
+
+      mkdir -p "$chart_dir/files"
+      cp out/infrastructure-components.yaml "$chart_dir/files/infrastructure-components.yaml"
+      python3 - "$chart_dir/files/infrastructure-components.yaml" "${CI_REGISTRY_IMAGE}:${BUILD_VERSION}" "${nke_image}" <<'PY'
+      import sys
+
+      manifest_path, source_image, target_image = sys.argv[1:]
+      with open(manifest_path) as manifest_file:
+          manifest = manifest_file.read()
+
+      if source_image in manifest:
+          manifest = manifest.replace(source_image, target_image)
+      elif target_image not in manifest:
+          raise SystemExit(f"expected image {source_image} or {target_image} not found in {manifest_path}")
+
+      with open(manifest_path, "w") as manifest_file:
+          manifest_file.write(manifest)
+      PY
+
+      rm -rf "$chart_dist"
+      mkdir -p "$chart_dist"
+
+      helm package "$chart_dir" \
+        --version "${BUILD_VERSION#v}" \
+        --app-version "$BUILD_VERSION" \
+        --destination "$chart_dist"
+
+      printf '%s' "${NVCR_NKE_AUTH_TOKEN}" | helm registry login nvcr.io -u '$oauthtoken' --password-stdin
+
+      chart_pkg="$(ls "$chart_dist"/capi-provider-nico-*.tgz)"
+      echo "Pushing ${chart_pkg} to oci://nvcr.io/j7sbcjl3qgta"
+      helm push "$chart_pkg" "oci://nvcr.io/j7sbcjl3qgta"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - when: never
+    - when: never
