@@ -363,7 +363,7 @@ jobs:
           helm package charts/capi-provider-nico \
             --version "${GITHUB_REF_NAME#v}" \
             --app-version "${GITHUB_REF_NAME}" \
-            --destination dist/capi-provider-nico-nke
+            --destination dist/capi-provider-nico
 
       # Re-running a release must not fail once the version is published.
       - name: Push chart to NKE NVCR
@@ -375,7 +375,7 @@ jobs:
           echo "${NVCR_NKE_AUTH_TOKEN}" \
             | helm registry login nvcr.io -u '$oauthtoken' --password-stdin
 
-          chart_pkg="dist/capi-provider-nico-nke/capi-provider-nico-${GITHUB_REF_NAME#v}.tgz"
+          chart_pkg="dist/capi-provider-nico/capi-provider-nico-${GITHUB_REF_NAME#v}.tgz"
           if ! out="$(helm push "${chart_pkg}" "oci://nvcr.io/j7sbcjl3qgta" 2>&1)"; then
             printf '%s\n' "${out}"
             printf '%s\n' "${out}" | grep -qi "already exists"
