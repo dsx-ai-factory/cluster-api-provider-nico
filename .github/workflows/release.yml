@@ -314,11 +314,6 @@ jobs:
             printf '%s\n' "${out}" | grep -qi "already exists"
           fi
 
-  # The NKE half, mirroring chart-ngc but pointed at the NKE org instead of
-  # DSX. nke-site-deploy consumes this chart directly (repoURL/chart/
-  # targetRevision against nvcr.io/j7sbcjl3qgta), the same shape it already
-  # uses for cloud-workflow-engine and forge-console, rather than vendoring a
-  # locally re-derived copy of this repo's manifests.
   chart-nke:
     if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     name: Chart (NKE)
@@ -370,10 +365,7 @@ jobs:
             --app-version "${GITHUB_REF_NAME}" \
             --destination dist/capi-provider-nico-nke
 
-      # Re-running a release must not fail once the version is published: a
-      # push of an existing OCI tag is rejected, not silently accepted, so
-      # that failure is the "already published" case and is swallowed the
-      # same way chart-ngc's ngc registry chart push handles it.
+      # Re-running a release must not fail once the version is published.
       - name: Push chart to NKE NVCR
         shell: bash
         env:
