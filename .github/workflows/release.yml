@@ -355,6 +355,20 @@ jobs:
           CONTROLLER_IMG="${NKE_IMAGE}:${GITHUB_REF_NAME}" \
             make helm-chart-manifests
 
+      # values.yaml defaults to imagePullSecrets: [], which is fine for a
+      # public registry but leaves a consumer who doesn't override it stuck in
+      # ImagePullBackOff against nvcr.io/j7sbcjl3qgta. cloud-workflow-engine's
+      # NKE chart job (chart-publish-nvcr.yml) sets the same default for the
+      # same reason.
+      - name: Set a default NKE image pull secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i -e "s#^imagePullSecrets: \[\]\$#imagePullSecrets:\n  - name: svc-nke-ngc-imagepull#" \
+            charts/capi-provider-nico/values.yaml
+          grep -q "^  - name: svc-nke-ngc-imagepull\$" charts/capi-provider-nico/values.yaml \
+            || { echo "::error::pull-secret rewrite did not apply"; exit 1; }
+
       - name: Package chart
         shell: bash
         run: |
