@@ -36,26 +36,29 @@ type Client struct {
 	// CreateStatus is applied to newly created instances. Empty means Ready.
 	CreateStatus nicosdk.InstanceStatus
 
-	createErr error
-	deleteErr error
+	createErr      error
+	deleteErr      error
+	getInstanceErr error
 
-	instances     map[string]*nicosdk.Instance
-	sites         map[string]*nicosdk.Site
-	vpcs          map[string]*nicosdk.VPC
-	instanceTypes map[string]*nicosdk.InstanceType
-	nextID        int
+	instances        map[string]*nicosdk.Instance
+	terminationPolls map[string]int
+	sites            map[string]*nicosdk.Site
+	vpcs             map[string]*nicosdk.VPC
+	instanceTypes    map[string]*nicosdk.InstanceType
+	nextID           int
 }
 
 // New returns a Client seeded with a default site.
 func New() *Client {
 	c := &Client{
-		TenantID:      "tenant-1",
-		DefaultSiteID: "site-1",
-		DefaultIP:     "10.0.0.10",
-		instances:     map[string]*nicosdk.Instance{},
-		sites:         map[string]*nicosdk.Site{},
-		vpcs:          map[string]*nicosdk.VPC{},
-		instanceTypes: map[string]*nicosdk.InstanceType{},
+		TenantID:         "tenant-1",
+		DefaultSiteID:    "site-1",
+		DefaultIP:        "10.0.0.10",
+		instances:        map[string]*nicosdk.Instance{},
+		terminationPolls: map[string]int{},
+		sites:            map[string]*nicosdk.Site{},
+		vpcs:             map[string]*nicosdk.VPC{},
+		instanceTypes:    map[string]*nicosdk.InstanceType{},
 	}
 	site := nicosdk.NewSite()
 	site.SetId(c.DefaultSiteID)
@@ -135,6 +138,11 @@ func (c *Client) SetInstanceStatus(instanceID string, status nicosdk.InstanceSta
 		return fmt.Errorf("%w: instance %q", nico.ErrNotFound, instanceID)
 	}
 	inst.SetStatus(status)
+	if nico.IsTerminating(inst) {
+		c.terminationPolls[instanceID] = 0
+	} else {
+		delete(c.terminationPolls, instanceID)
+	}
 	return nil
 }
 
@@ -143,6 +151,7 @@ func (c *Client) RemoveInstance(instanceID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.instances, instanceID)
+	delete(c.terminationPolls, instanceID)
 }
 
 // SetCreateErr sets the error returned from CreateInstance after recording the request.
@@ -157,6 +166,13 @@ func (c *Client) SetDeleteErr(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.deleteErr = err
+}
+
+// SetGetInstanceErr sets the error returned from GetInstance.
+func (c *Client) SetGetInstanceErr(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.getInstanceErr = err
 }
 
 // LastDeleteInstanceID returns the instance ID from the most recent DeleteInstance call.
@@ -253,10 +269,12 @@ func (c *Client) DeleteInstance(_ context.Context, instanceID string, _ *nicosdk
 	if c.deleteErr != nil {
 		return c.deleteErr
 	}
-	if _, ok := c.instances[instanceID]; !ok {
+	inst, ok := c.instances[instanceID]
+	if !ok {
 		return fmt.Errorf("%w: instance %q", nico.ErrNotFound, instanceID)
 	}
-	delete(c.instances, instanceID)
+	inst.SetStatus(nicosdk.InstanceStatus(nico.InstanceStatusTerminating))
+	c.terminationPolls[instanceID] = 0
 	return nil
 }
 
@@ -291,9 +309,19 @@ func (c *Client) ApplyInstanceLabels(_ context.Context, instanceID string, label
 func (c *Client) GetInstance(_ context.Context, instanceID string) (*nicosdk.Instance, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.getInstanceErr != nil {
+		return nil, c.getInstanceErr
+	}
 	inst, ok := c.instances[instanceID]
 	if !ok {
 		return nil, fmt.Errorf("%w: instance %q", nico.ErrNotFound, instanceID)
+	}
+	if nico.IsTerminating(inst) {
+		c.terminationPolls[instanceID]++
+		if c.terminationPolls[instanceID] >= 2 {
+			inst.SetStatus(nicosdk.InstanceStatus(nico.InstanceStatusTerminated))
+			delete(c.terminationPolls, instanceID)
+		}
 	}
 	return cloneInstance(inst), nil
 }

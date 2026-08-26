@@ -5,8 +5,10 @@ package nico
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -220,9 +222,49 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 	}
 	instance, resp, err := c.api.InstanceAPI.GetInstance(authCtx, c.orgID, instanceID).Execute()
 	if err != nil {
+		// NICo retains released instance records with status Terminated, but the
+		// v1.3.0 generated SDK omits that server status from its enum. Normalize
+		// the successful response at this boundary so callers see the same state
+		// model exposed by the API.
+		if resp != nil && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			if terminated, ok := decodeTerminatedInstance(err); ok {
+				return terminated, nil
+			}
+		}
 		return nil, normalizeError(resp, err)
 	}
 	return instance, nil
+}
+
+func decodeTerminatedInstance(err error) (*nicosdk.Instance, bool) {
+	var apiErr openAPIError
+	if !errors.As(err, &apiErr) {
+		return nil, false
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(apiErr.Body(), &raw); err != nil {
+		return nil, false
+	}
+	var status string
+	if err := json.Unmarshal(raw["status"], &status); err != nil || !strings.EqualFold(status, InstanceStatusTerminated) {
+		return nil, false
+	}
+
+	// Decode the complete response with an SDK-supported placeholder, then put
+	// the server's terminal value back. This preserves every other Instance
+	// field while containing the SDK/OpenAPI mismatch to the client boundary.
+	raw["status"] = json.RawMessage(`"Terminating"`)
+	normalized, err := json.Marshal(raw)
+	if err != nil {
+		return nil, false
+	}
+	var instance nicosdk.Instance
+	if err := json.Unmarshal(normalized, &instance); err != nil {
+		return nil, false
+	}
+	instance.SetStatus(nicosdk.InstanceStatus(InstanceStatusTerminated))
+	return &instance, true
 }
 
 // GetSite fetches a NICo site by ID.
@@ -294,10 +336,6 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 		return nil, ErrNotFound
 	}
 	return &instances[0], nil
-}
-
-func IsReady(instance *nicosdk.Instance) bool {
-	return instance != nil && instance.Status != nil && *instance.Status == nicosdk.INSTANCESTATUS_READY
 }
 
 func ProviderID(instanceID string) string {

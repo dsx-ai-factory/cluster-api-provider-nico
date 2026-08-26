@@ -5,7 +5,6 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -204,14 +203,22 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 			gomega.Expect(tc.Client.Delete(ctx, &current)).To(gomega.Succeed())
 		})
 
-		ginkgo.It("removes the NicoMachine and NICo instance", func(ctx ginkgo.SpecContext) {
+		ginkgo.It("waits for NICo termination before removing the NicoMachine", func(ctx ginkgo.SpecContext) {
+			fakeAPI := loadCaseFake(tc.Name)
+			gomega.Eventually(fakeAPI.DeleteAttempts).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Equal(1))
+
+			// Ensure teardown keeps progressing if the controller has not already
+			// observed the fake's terminal state through its own patch events.
+			kickMachine(ctx, tc.Client)
 			gomega.Eventually(func(g gomega.Gomega) {
 				err := tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &infrav1.NicoMachine{})
 				g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue())
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 
-			_, err := loadCaseFake(tc.Name).GetInstance(ctx, instanceID)
-			gomega.Expect(errors.Is(err, nico.ErrNotFound)).To(gomega.BeTrue())
+			terminated, err := fakeAPI.GetInstance(ctx, instanceID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(nico.IsTerminated(terminated)).To(gomega.BeTrue())
+			gomega.Expect(fakeAPI.DeleteAttempts()).To(gomega.Equal(1))
 		})
 	},
 ))
@@ -363,10 +370,10 @@ func assertConditionsObservedAtGeneration(g gomega.Gomega, generation int64, con
 	}
 }
 
-func kickMachine(ctx context.Context, c client.Client, name string) {
+func kickMachine(ctx context.Context, c client.Client) {
 	ginkgo.GinkgoHelper()
 	var machine clusterv1.Machine
-	gomega.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &machine)).To(gomega.Succeed())
+	gomega.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "machine-1"}, &machine)).To(gomega.Succeed())
 	if machine.Annotations == nil {
 		machine.Annotations = map[string]string{}
 	}
