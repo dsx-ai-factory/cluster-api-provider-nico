@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
+CURL_RETRY := --retry 3 --retry-delay 5 --retry-connrefused
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -249,17 +250,61 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 
 RELEASE_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
 RELEASE_DIR ?= out
-HELM_CHART_DIR ?= charts/capi-provider-nico
 CONTROLLER_IMG ?= $(IMG)
 
 .PHONY: release-manifests
-release-manifests: ## Generate release manifests.
-	RELEASE_DIR=$(RELEASE_DIR) CONTROLLER_IMG=$(CONTROLLER_IMG) bash hack/release-manifests.sh
+release-manifests: manifests kustomize ## Generate release manifests.
+	RELEASE_DIR=$(RELEASE_DIR) CONTROLLER_IMG=$(CONTROLLER_IMG) KUSTOMIZE="$(KUSTOMIZE)" bash hack/release-manifests.sh
 
 .PHONY: helm-chart-manifests
 helm-chart-manifests: release-manifests ## Copy release manifests into the Helm chart.
 	mkdir -p $(HELM_CHART_DIR)/files
 	cp $(RELEASE_DIR)/infrastructure-components.yaml $(HELM_CHART_DIR)/files/infrastructure-components.yaml
+
+##@ Helm Deployment
+
+## Helm binary to use for deploying the chart
+HELM ?= helm
+## Namespace to deploy the Helm release
+HELM_NAMESPACE ?= capnico-system
+## Name of the Helm release
+HELM_RELEASE ?= capi-provider-nico
+## Path to the Helm chart directory
+HELM_CHART_DIR ?= charts/capi-provider-nico
+## Additional arguments to pass to helm commands
+HELM_EXTRA_ARGS ?=
+
+.PHONY: install-helm
+install-helm: ## Install the latest version of Helm.
+	@command -v $(HELM) >/dev/null 2>&1 || { \
+		echo "Installing Helm..." && \
+		curl $(CURL_RETRY) -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash; \
+	}
+
+.PHONY: helm-deploy
+helm-deploy: helm-chart-manifests install-helm ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_DIR) \
+		--namespace $(HELM_NAMESPACE) \
+		--create-namespace \
+		--wait \
+		--timeout 5m \
+		$(HELM_EXTRA_ARGS)
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall the Helm release from the K8s cluster.
+	$(HELM) uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-status
+helm-status: ## Show Helm release status.
+	$(HELM) status $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-history
+helm-history: ## Show Helm release history.
+	$(HELM) history $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-rollback
+helm-rollback: ## Rollback to previous Helm release.
+	$(HELM) rollback $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
 
 ##@ Dependencies
 

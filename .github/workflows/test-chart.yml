@@ -1,0 +1,92 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Test Chart
+
+# Self-hosted runners do not pick up jobs from pull_request events, so pull
+# requests are tested through the pull-request/<number> branch instead.
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      # Dependabot pushes to a branch in this repository, which matches
+      # neither of the two above, so none of this CI ran on a dependency
+      # bump. The bump merged on the strength of Dependabot's own testing.
+      - "dependabot/**"
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - "Dockerfile"
+      - "charts/**"
+      - "config/**"
+      - "hack/release-manifests.sh"
+      - ".github/workflows/test-chart.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test-e2e:
+    permissions:
+      contents: read
+    name: e2e
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    env:
+      IMG: controller:latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install the latest version of kind
+        run: |
+          # -f matters as much as the retries here: without it curl writes the
+          # error page to ./kind and the failure only surfaces when the binary
+          # is executed.
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fLo ./kind \
+            "https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Verify kind installation
+        run: kind version
+
+      - name: Create kind cluster
+        run: kind create cluster
+
+      # No `go mod tidy` here. It rewrites go.mod at runtime and reports
+      # nothing; the Build workflow checks tidiness and fails when it is wrong.
+      - name: Prepare cluster-api-provider-nico
+        run: |
+          make docker-build
+          kind load docker-image "$IMG"
+          # CAPNICO's chart embeds the generated infrastructure manifest, so
+          # populate it before running the same lint/deploy checks as CAPLL.
+          make kustomize
+          KUSTOMIZE="$(pwd)/bin/kustomize" CONTROLLER_IMG="$IMG" \
+            make helm-chart-manifests
+
+      - name: Install Helm
+        run: make install-helm
+
+      - name: Lint Helm Chart
+        run: |
+          helm lint ./charts/capi-provider-nico
+
+      - name: Deploy manager via Helm
+        run: |
+          make helm-deploy
+
+      - name: Check Helm release status
+        run: |
+          make helm-status

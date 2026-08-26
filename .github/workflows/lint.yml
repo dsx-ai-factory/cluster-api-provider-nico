@@ -25,8 +25,21 @@ on:
       # neither of the two above, so none of this CI ran on a dependency
       # bump. The bump merged on the strength of Dependabot's own testing.
       - "dependabot/**"
+    paths:
+      - "**.go"
+      - go.mod
+      - go.sum
+      - Makefile
+      - .golangci.yml
+      - .custom-gcl.yml
+      - api/**
+      - cmd/**
+      - internal/**
+      - controllers/**
+      - config/**
+      - .github/workflows/lint.yml
   workflow_call:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions: {}
 
@@ -51,8 +64,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     timeout-minutes: 15
-    # Advisory until the existing findings are fixed.
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -67,8 +78,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Verify golangci-lint config
-        run: make lint-config
+      - name: Cache golangci-lint analysis
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/golangci-lint
+          key: ${{ runner.os }}-capnico-golangci-${{ hashFiles('go.sum', '.golangci.yml', '.custom-gcl.yml') }}
+          restore-keys: ${{ runner.os }}-capnico-golangci-
 
-      - name: Run golangci-lint
-        run: make lint
+      - name: Verify config and run golangci-lint
+        run: make lint-config lint
