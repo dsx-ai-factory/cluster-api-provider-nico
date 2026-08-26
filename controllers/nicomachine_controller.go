@@ -65,6 +65,14 @@ var nicoMachineOwnedConditions = []string{
 // NicoMachineReconciler reconciles a NicoMachine object.
 type NicoMachineReconciler struct {
 	client.Client
+
+	// APIReader reads straight from the API server, bypassing the manager's
+	// cache. Reconciliation branches on identifiers this controller wrote a
+	// moment earlier, and its own write wakes it again through the watch.
+	// Reading the cache there can return the version from before that write,
+	// which reads as "nothing created yet" and creates a second instance. The
+	// cost is one uncached read per pass, against one object.
+	APIReader      client.Reader
 	Scheme         *runtime.Scheme
 	ProviderConfig nico.ProviderConfig
 	// nicoClientFactory optionally overrides client construction after Secret load (tests).
@@ -83,7 +91,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := ctrl.LoggerFrom(ctx)
 
 	var nicoMachine infrav1.NicoMachine
-	if err := r.Get(ctx, req.NamespacedName, &nicoMachine); err != nil {
+	if err := r.reader().Get(ctx, req.NamespacedName, &nicoMachine); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -200,14 +208,16 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	if controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer) {
+		// Persist the finalizer before creating anything external, so a crash
+		// between create and patch can never orphan an instance.
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
 	if err != nil {
 		setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForClusterInfrastructureReason, err.Error())
 		return ctrl.Result{}, err
-	}
-
-	if !controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) {
-		controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer)
 	}
 
 	nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
@@ -298,6 +308,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		nicoMachine.Status.InstanceID = instance.GetId()
 		nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
+
+		// Written before the first poll, so a restart resumes this instance rather
+		// than creating a second one for the same Machine.
+		return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 	}
 
 	instanceID, err := nico.InstanceID(nicoMachine.Spec.ProviderID)
@@ -481,13 +495,25 @@ func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster 
 
 	nicoCluster := &infrav1.NicoCluster{}
 	key := client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.InfrastructureRef.Name}
-	if err := r.Get(ctx, key, nicoCluster); err != nil {
+	if err := r.reader().Get(ctx, key, nicoCluster); err != nil {
 		return nil, fmt.Errorf("read NicoCluster %s: %w", key, err)
 	}
 	return nicoCluster, nil
 }
 
+// reader returns the uncached reader, falling back to the cached client when
+// none was wired so the reconciler stays usable outside a manager.
+func (r *NicoMachineReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
 	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
