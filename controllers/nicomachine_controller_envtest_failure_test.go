@@ -44,7 +44,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 		ginkgo.It("becomes Ready after the instance is Ready", func(ctx ginkgo.SpecContext) {
 			gomega.Expect(loadCaseFake(tc.Name).SetInstanceStatus(instanceID, nicosdk.INSTANCESTATUS_READY)).To(gomega.Succeed())
 			// production requeues after machineRequeueSlow; kick to avoid waiting.
-			kickMachine(ctx, tc.Client, "machine-1")
+			kickMachine(ctx, tc.Client)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				assertNicoMachineReady(g, ctx, tc.Client, "nicomachine-1")
@@ -70,7 +70,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 		ginkgo.It("creates after capacity is available", func(ctx ginkgo.SpecContext) {
 			loadCaseFake(tc.Name).SeedInstanceType("type-1", 1)
 			// production requeues after instanceTypeUnavailableWait (2m); kick to avoid waiting.
-			kickMachine(ctx, tc.Client, "machine-1")
+			kickMachine(ctx, tc.Client)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				assertNicoMachineReady(g, ctx, tc.Client, "nicomachine-1")
@@ -125,8 +125,8 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 				err := tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &infrav1.NicoMachine{})
 				g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue())
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
-			gomega.Expect(fakeAPI.DeleteAttempts()).To(gomega.BeNumerically(">=", 1))
-			gomega.Expect(fakeAPI.LastDeleteInstanceID()).To(gomega.Equal(instanceID))
+			gomega.Expect(fakeAPI.DeleteAttempts()).To(gomega.Equal(0))
+			gomega.Expect(fakeAPI.LastDeleteInstanceID()).To(gomega.BeEmpty())
 		})
 	},
 ))
@@ -147,13 +147,28 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("keeps the finalizer when delete fails", func(ctx ginkgo.SpecContext) {
+		ginkgo.It("keeps the finalizer when observing the instance fails", func(ctx ginkgo.SpecContext) {
 			fakeAPI := loadCaseFake(tc.Name)
-			fakeAPI.SetDeleteErr(fmt.Errorf("inject delete failure"))
+			fakeAPI.SetGetInstanceErr(fmt.Errorf("inject get failure"))
 
 			var current infrav1.NicoMachine
 			gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &current)).To(gomega.Succeed())
 			gomega.Expect(tc.Client.Delete(ctx, &current)).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(fakeAPI.DeleteAttempts()).To(gomega.Equal(0))
+				var still infrav1.NicoMachine
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &still)).To(gomega.Succeed())
+				g.Expect(still.DeletionTimestamp).NotTo(gomega.BeNil())
+				g.Expect(still.Finalizers).To(gomega.ContainElement("infrastructure.cluster.x-k8s.io/nicomachine"))
+			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("keeps the finalizer when delete fails", func(ctx ginkgo.SpecContext) {
+			fakeAPI := loadCaseFake(tc.Name)
+			fakeAPI.SetDeleteErr(fmt.Errorf("inject delete failure"))
+			fakeAPI.SetGetInstanceErr(nil)
+			kickMachine(ctx, tc.Client)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(fakeAPI.DeleteAttempts()).To(gomega.BeNumerically(">=", 1))
@@ -169,13 +184,16 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 			fakeAPI := loadCaseFake(tc.Name)
 			attemptsBefore := fakeAPI.DeleteAttempts()
 			fakeAPI.SetDeleteErr(nil)
-			kickMachine(ctx, tc.Client, "machine-1")
+			kickMachine(ctx, tc.Client)
 
+			gomega.Eventually(fakeAPI.DeleteAttempts).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.BeNumerically(">", attemptsBefore))
+			_, err := fakeAPI.GetInstance(ctx, instanceID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			kickMachine(ctx, tc.Client)
 			gomega.Eventually(func(g gomega.Gomega) {
 				err := tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &infrav1.NicoMachine{})
 				g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue())
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
-			gomega.Expect(fakeAPI.DeleteAttempts()).To(gomega.BeNumerically(">", attemptsBefore))
 		})
 	},
 ))
@@ -242,7 +260,14 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 		ginkgo.It("clears the NicoCluster finalizer after machines are gone", func(ctx ginkgo.SpecContext) {
 			var nicoMachine infrav1.NicoMachine
 			gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &nicoMachine)).To(gomega.Succeed())
+			instanceID := nicoMachine.Status.InstanceID
 			gomega.Expect(tc.Client.Delete(ctx, &nicoMachine)).To(gomega.Succeed())
+
+			fakeAPI := loadCaseFake(tc.Name)
+			gomega.Eventually(fakeAPI.DeleteAttempts).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.BeNumerically(">=", 1))
+			_, err := fakeAPI.GetInstance(ctx, instanceID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			kickMachine(ctx, tc.Client)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				err := tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &infrav1.NicoMachine{})

@@ -142,70 +142,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	})
 
 	if !nicoMachine.DeletionTimestamp.IsZero() {
-		conditions.Set(&nicoMachine, metav1.Condition{
-			Type:   clusterv1.DeletingCondition,
-			Status: metav1.ConditionTrue,
-			Reason: clusterv1.DeletingReason,
-		})
-		if controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) && nicoMachine.Status.InstanceID != "" {
-			nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
-			if err != nil {
-				conditions.Set(&nicoMachine, metav1.Condition{
-					Type:    clusterv1.DeletingCondition,
-					Status:  metav1.ConditionTrue,
-					Reason:  infrav1.WaitingForClusterInfrastructureReason,
-					Message: err.Error(),
-				})
-				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: %w", err)
-			}
-			nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
-			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
-			}
-
-			var healthIssue *nicosdk.MachineHealthIssue
-			if r.ProviderConfig.RepairAnnotation != "" {
-				if annotationValue, ok := ownerMachine.Annotations[r.ProviderConfig.RepairAnnotation]; ok && annotationValue != "" {
-					log.Info("repair annotation present, flagging instance for repair", "instanceID", nicoMachine.Status.InstanceID, "annotation", r.ProviderConfig.RepairAnnotation)
-					healthIssue = nicosdk.NewMachineHealthIssue()
-					var parsed struct {
-						Category string  `json:"category"`
-						Summary  string  `json:"summary"`
-						Details  *string `json:"details,omitempty"`
-					}
-					if err := json.Unmarshal([]byte(annotationValue), &parsed); err != nil {
-						// Annotation is a plain string (legacy format); treat as summary with a generic category.
-						healthIssue.SetCategory("Other")
-						healthIssue.SetSummary(annotationValue)
-					} else {
-						healthIssue.SetCategory(parsed.Category)
-						healthIssue.SetSummary(parsed.Summary)
-						if parsed.Details != nil {
-							healthIssue.SetDetails(*parsed.Details)
-						}
-					}
-				}
-			}
-
-			if healthIssue != nil {
-				log.Info("deleting NICo instance with health issue", "instanceID", nicoMachine.Status.InstanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
-			} else {
-				log.Info("deleting NICo instance", "instanceID", nicoMachine.Status.InstanceID)
-			}
-			if err := nico.IgnoreNotFound(nicoClient.DeleteInstance(ctx, nicoMachine.Status.InstanceID, healthIssue)); err != nil {
-				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
-			}
-		}
-
-		log.Info("removing finalizer")
-		conditions.Set(&nicoMachine, metav1.Condition{
-			Type:    clusterv1.DeletingCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  clusterv1.DeletionCompletedReason,
-			Message: "Machine infrastructure deletion completed",
-		})
-		controllerutil.RemoveFinalizer(&nicoMachine, nicoMachineFinalizer)
-		return ctrl.Result{}, nil
+		return r.reconcileDelete(ctx, ownerMachine, cluster, &nicoMachine)
 	}
 
 	if controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer) {
@@ -398,14 +335,140 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	nicoMachine.Status.Initialization.Provisioned = &provisioned
 
 	if !nico.IsReady(instance) {
-		log.V(1).Info("NICo instance not ready", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", instanceStatusString(instance))
-		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotReadyReason, fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
+		log.V(1).Info("NICo instance not ready", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", nico.InstanceStatus(instance))
+		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotReadyReason, fmt.Sprintf("Instance status is %s", nico.InstanceStatus(instance)))
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
 	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
 	setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
+}
+
+// reconcileDelete releases the backing NICo instance and holds the finalizer
+// until the API reports that the instance is released.
+func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachine *clusterv1.Machine, cluster *clusterv1.Cluster, nicoMachine *infrav1.NicoMachine) (ctrl.Result, error) {
+	conditions.Set(nicoMachine, metav1.Condition{
+		Type:   clusterv1.DeletingCondition,
+		Status: metav1.ConditionTrue,
+		Reason: clusterv1.DeletingReason,
+	})
+
+	if !controllerutil.ContainsFinalizer(nicoMachine, nicoMachineFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	if nicoMachine.Status.InstanceID == "" {
+		completeMachineDeletion(ctx, nicoMachine)
+		return ctrl.Result{}, nil
+	}
+
+	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
+	if err != nil {
+		conditions.Set(nicoMachine, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  infrav1.WaitingForClusterInfrastructureReason,
+			Message: err.Error(),
+		})
+		return ctrl.Result{}, fmt.Errorf("delete NicoMachine: %w", err)
+	}
+
+	nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
+	}
+
+	done, err := r.releaseInstance(ctx, nicoClient, ownerMachine, nicoMachine)
+	if err != nil || !done {
+		return ctrl.Result{RequeueAfter: machineRequeueSlow}, err
+	}
+
+	completeMachineDeletion(ctx, nicoMachine)
+	return ctrl.Result{}, nil
+}
+
+func completeMachineDeletion(ctx context.Context, nicoMachine *infrav1.NicoMachine) {
+	ctrl.LoggerFrom(ctx).Info("removing finalizer")
+	conditions.Set(nicoMachine, metav1.Condition{
+		Type:    clusterv1.DeletingCondition,
+		Status:  metav1.ConditionTrue,
+		Reason:  clusterv1.DeletionCompletedReason,
+		Message: "Machine infrastructure deletion completed",
+	})
+	controllerutil.RemoveFinalizer(nicoMachine, nicoMachineFinalizer)
+}
+
+// releaseInstance reports whether the instance is released. It reads before
+// deleting so an instance already released or mid-teardown is not deleted
+// again. NICo retains terminated instance records, so both Terminated and
+// NotFound are complete.
+func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient nico.API, ownerMachine *clusterv1.Machine, nicoMachine *infrav1.NicoMachine) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+	instanceID := nicoMachine.Status.InstanceID
+
+	instance, err := nicoClient.GetInstance(ctx, instanceID)
+	if errors.Is(err, nico.ErrNotFound) {
+		log.Info("NICo instance is released", "instanceID", instanceID)
+		nicoMachine.Status.InstanceID = ""
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("delete NicoMachine: failed to get NICo instance: %w", err)
+	}
+
+	switch {
+	case nico.IsTerminated(instance):
+		log.Info("NICo instance is released", "instanceID", instanceID, "status", nico.InstanceStatus(instance))
+		nicoMachine.Status.InstanceID = ""
+		return true, nil
+	case nico.IsTerminating(instance):
+		log.V(1).Info("waiting for NICo instance teardown", "instanceID", instanceID, "status", nico.InstanceStatus(instance))
+		return false, nil
+	}
+
+	healthIssue := r.machineHealthIssue(ctx, ownerMachine, instanceID)
+	if healthIssue != nil {
+		log.Info("deleting NICo instance with health issue", "instanceID", instanceID, "category", healthIssue.GetCategory(), "summary", healthIssue.GetSummary())
+	} else {
+		log.Info("deleting NICo instance", "instanceID", instanceID)
+	}
+	if err := nicoClient.DeleteInstance(ctx, instanceID, healthIssue); err != nil && !errors.Is(err, nico.ErrNotFound) {
+		return false, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
+	}
+	log.Info("requested NICo instance deletion", "instanceID", instanceID)
+
+	return false, nil
+}
+
+func (r *NicoMachineReconciler) machineHealthIssue(ctx context.Context, ownerMachine *clusterv1.Machine, instanceID string) *nicosdk.MachineHealthIssue {
+	if r.ProviderConfig.RepairAnnotation == "" {
+		return nil
+	}
+	annotationValue, ok := ownerMachine.Annotations[r.ProviderConfig.RepairAnnotation]
+	if !ok || annotationValue == "" {
+		return nil
+	}
+
+	ctrl.LoggerFrom(ctx).Info("repair annotation present, flagging instance for repair", "instanceID", instanceID, "annotation", r.ProviderConfig.RepairAnnotation)
+	healthIssue := nicosdk.NewMachineHealthIssue()
+	var parsed struct {
+		Category string  `json:"category"`
+		Summary  string  `json:"summary"`
+		Details  *string `json:"details,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(annotationValue), &parsed); err != nil {
+		// Annotation is a plain string (legacy format); treat as summary with a generic category.
+		healthIssue.SetCategory("Other")
+		healthIssue.SetSummary(annotationValue)
+		return healthIssue
+	}
+
+	healthIssue.SetCategory(parsed.Category)
+	healthIssue.SetSummary(parsed.Summary)
+	if parsed.Details != nil {
+		healthIssue.SetDetails(*parsed.Details)
+	}
+	return healthIssue
 }
 
 func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Instance, site *nicosdk.Site, vpc *nicosdk.VPC) {
@@ -800,11 +863,4 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 	)
 
 	return false, infrav1.InstanceTypeUnavailableReason, message, nil
-}
-
-func instanceStatusString(instance *nicosdk.Instance) string {
-	if instance == nil || instance.Status == nil {
-		return "Unknown"
-	}
-	return string(*instance.Status)
 }

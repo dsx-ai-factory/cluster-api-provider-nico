@@ -314,6 +314,91 @@ jobs:
             printf '%s\n' "${out}" | grep -qi "already exists"
           fi
 
+  chart-nke:
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    name: Chart (NKE)
+    runs-on: linux-amd64-cpu8
+    needs: [promote-nvcr]
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      # CONTROLLER_IMG is the NKE image so the packaged manifest points at the
+      # registry ArgoCD's repo-oci-ngc-j7sbcjl3qgta credential can pull from.
+      - name: Render chart manifests
+        shell: bash
+        env:
+          NKE_IMAGE: ${{ vars.NVCR_NKE_IMAGE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NKE_IMAGE}" ]]; then
+            echo "::error::NVCR_NKE_IMAGE is not set in the nvcr environment"
+            exit 1
+          fi
+
+          make kustomize
+          KUSTOMIZE="$(pwd)/bin/kustomize" \
+          CONTROLLER_IMG="${NKE_IMAGE}:${GITHUB_REF_NAME}" \
+            make helm-chart-manifests
+
+      # values.yaml defaults to imagePullSecrets: [], which is fine for a
+      # public registry but leaves a consumer who doesn't override it stuck in
+      # ImagePullBackOff against nvcr.io/j7sbcjl3qgta. cloud-workflow-engine's
+      # NKE chart job (chart-publish-nvcr.yml) sets the same default for the
+      # same reason.
+      - name: Set a default NKE image pull secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i -e "s#^imagePullSecrets: \[\]\$#imagePullSecrets:\n  - name: svc-nke-ngc-imagepull#" \
+            charts/capi-provider-nico/values.yaml
+          grep -q "^  - name: svc-nke-ngc-imagepull\$" charts/capi-provider-nico/values.yaml \
+            || { echo "::error::pull-secret rewrite did not apply"; exit 1; }
+
+      - name: Package chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm lint charts/capi-provider-nico
+          helm package charts/capi-provider-nico \
+            --version "${GITHUB_REF_NAME#v}" \
+            --app-version "${GITHUB_REF_NAME}" \
+            --destination dist/capi-provider-nico
+
+      # Re-running a release must not fail once the version is published.
+      - name: Push chart to NKE NVCR
+        shell: bash
+        env:
+          NVCR_NKE_AUTH_TOKEN: ${{ secrets.NVCR_NKE_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          # $oauthtoken is NGC's literal username, not a variable reference.
+          # shellcheck disable=SC2016
+          echo "${NVCR_NKE_AUTH_TOKEN}" \
+            | helm registry login nvcr.io -u '$oauthtoken' --password-stdin
+
+          chart_pkg="dist/capi-provider-nico/capi-provider-nico-${GITHUB_REF_NAME#v}.tgz"
+          if ! out="$(helm push "${chart_pkg}" "oci://nvcr.io/j7sbcjl3qgta" 2>&1)"; then
+            printf '%s\n' "${out}"
+            printf '%s\n' "${out}" | grep -qi "already exists"
+          else
+            printf '%s\n' "${out}"
+          fi
+
   # The GHCR half. Until this existed the chart was published to NGC alone, so
   # the only copy of it needed an NGC login to fetch and named an image that
   # also needed one -- nothing about this provider was installable from outside
