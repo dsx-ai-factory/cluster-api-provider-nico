@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **This file is generated — do not edit it by hand.** See `cliff.toml`.
 
-## [0.0.42] - 2026-08-26
+## [0.0.43] - 2026-08-26
 
 ### Added
 
