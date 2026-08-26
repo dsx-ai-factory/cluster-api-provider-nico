@@ -386,6 +386,8 @@ jobs:
           NVCR_NKE_AUTH_TOKEN: ${{ secrets.NVCR_NKE_AUTH_TOKEN }}
         run: |
           set -euo pipefail
+          # $oauthtoken is NGC's literal username, not a variable reference.
+          # shellcheck disable=SC2016
           echo "${NVCR_NKE_AUTH_TOKEN}" \
             | helm registry login nvcr.io -u '$oauthtoken' --password-stdin
 
