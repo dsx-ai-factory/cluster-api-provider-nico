@@ -18,7 +18,27 @@ spec:
     singular: nicomachine
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Current machine infrastructure availability
+      jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Available
+      type: string
+    - description: Machine infrastructure reconciled
+      jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: Synced
+      type: string
+    - description: Initial machine infrastructure provisioning completed
+      jsonPath: .status.initialization.provisioned
+      name: Provisioned
+      type: string
+    - description: NICo instance
+      jsonPath: .status.instanceID
+      name: Instance
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NicoMachine is the Schema for the nicomachines API.
@@ -286,7 +306,11 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 32
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               initialization:
                 description: Initialization provides provisioning observations for
                   the backing instance.

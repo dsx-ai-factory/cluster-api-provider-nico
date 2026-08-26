@@ -26,17 +26,43 @@ items:
   status:
     conditions:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: '* MachineProvisioned: inject create failure'
+      observedGeneration: 1
+      reason: NotAvailable
+      status: "False"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: inject create failure
+      observedGeneration: 1
+      reason: InstanceCreateFailed
+      status: "False"
+      type: MachineProvisioned
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
       reason: NotPaused
       status: "False"
       type: Paused
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: inject create failure
+      message: |-
+        * Available:
+          * MachineProvisioned: inject create failure
       observedGeneration: 1
-      reason: InstanceCreateFailed
+      reason: NotReady
       status: "False"
       type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: '* MachineProvisioned: inject create failure'
+      observedGeneration: 1
+      reason: NotSynced
+      status: "False"
+      type: Synced
 metadata: {}
 ---
 items:
@@ -65,15 +91,39 @@ items:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
+      reason: Available
+      status: "True"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: InfrastructureReady
+      status: "True"
+      type: NicoReady
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
       reason: NotPaused
       status: "False"
       type: Paused
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
-      reason: InfrastructureReady
+      reason: Ready
       status: "True"
       type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Synced
+      status: "True"
+      type: Synced
     initialization:
       provisioned: true
     ready: true

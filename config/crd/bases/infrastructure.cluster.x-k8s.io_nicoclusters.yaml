@@ -18,7 +18,27 @@ spec:
     singular: nicocluster
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Current cluster infrastructure availability
+      jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Available
+      type: string
+    - description: Cluster infrastructure reconciled
+      jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: Synced
+      type: string
+    - description: Initial cluster infrastructure provisioning completed
+      jsonPath: .status.initialization.provisioned
+      name: Provisioned
+      type: string
+    - description: NICo site
+      jsonPath: .spec.siteID
+      name: Site
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NicoCluster is the Schema for the nicoclusters API.
@@ -126,7 +146,11 @@ spec:
                   - status
                   - type
                   type: object
+                maxItems: 32
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               initialization:
                 description: Initialization provides provisioning observations for
                   this NICo-backed cluster.

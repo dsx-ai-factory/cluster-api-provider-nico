@@ -32,15 +32,39 @@ items:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
+      reason: Available
+      status: "True"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: InstanceReady
+      status: "True"
+      type: MachineProvisioned
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
       reason: NotPaused
       status: "False"
       type: Paused
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
-      reason: InstanceReady
+      reason: Ready
       status: "True"
       type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Synced
+      status: "True"
+      type: Synced
     initialization:
       provisioned: true
     instanceID: imported-1
@@ -78,15 +102,39 @@ items:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
+      reason: Available
+      status: "True"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: InfrastructureReady
+      status: "True"
+      type: NicoReady
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
       reason: NotPaused
       status: "False"
       type: Paused
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 1
-      reason: InfrastructureReady
+      reason: Ready
       status: "True"
       type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Synced
+      status: "True"
+      type: Synced
     initialization:
       provisioned: true
     ready: true

@@ -33,7 +33,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 		ginkgo.It("reports InstanceNotReady while pending", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
-				assertNicoMachineReadyReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceNotReadyReason)
+				assertNicoMachineProvisionedReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceNotReadyReason)
 				var current infrav1.NicoMachine
 				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nicomachine-1"}, &current)).To(gomega.Succeed())
 				g.Expect(current.Status.InstanceID).NotTo(gomega.BeEmpty())
@@ -62,7 +62,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		ginkgo.It("reports InstanceTypeUnavailable", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
-				assertNicoMachineReadyReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceTypeUnavailableReason)
+				assertNicoMachineProvisionedReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceTypeUnavailableReason)
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 			gomega.Expect(loadCaseFake(tc.Name).LastCreateRequest()).To(gomega.BeNil())
 		})
@@ -89,7 +89,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		ginkgo.It("reports InstanceCreateFailed", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
-				assertNicoMachineReadyReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceCreateFailedReason)
+				assertNicoMachineProvisionedReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceCreateFailedReason)
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 			gomega.Expect(loadCaseFake(tc.Name).LastCreateRequest()).NotTo(gomega.BeNil())
 			gomega.Expect(loadCaseFake(tc.Name).InstanceCount()).To(gomega.Equal(0))
@@ -222,7 +222,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 		ginkgo.It("reconciles Ready", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				assertNicoMachineReady(g, ctx, tc.Client, "nicomachine-1")
-				assertNicoClusterReadyReason(g, ctx, tc.Client, "nico-1", metav1.ConditionTrue, infrav1.InfrastructureReadyReason)
+				assertNicoClusterConditionReason(g, ctx, tc.Client, "nico-1", infrav1.NicoReadyCondition, metav1.ConditionTrue, infrav1.InfrastructureReadyReason)
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 		})
 
@@ -232,7 +232,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 			gomega.Expect(tc.Client.Delete(ctx, &nicoCluster)).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				assertNicoClusterReadyReason(g, ctx, tc.Client, "nico-1", metav1.ConditionFalse, infrav1.WaitingForNicoMachinesDeletionReason)
+				assertNicoClusterConditionReason(g, ctx, tc.Client, "nico-1", clusterv1.DeletingCondition, metav1.ConditionTrue, infrav1.WaitingForNicoMachinesDeletionReason)
 				var current infrav1.NicoCluster
 				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: "nico-1"}, &current)).To(gomega.Succeed())
 				g.Expect(current.Finalizers).To(gomega.ContainElement("infrastructure.cluster.x-k8s.io/nicocluster"))

@@ -60,18 +60,18 @@ func TestNicoClusterReconciler_InvalidIdentitySecret(t *testing.T) {
 	r := &NicoClusterReconciler{Client: c, Scheme: scheme}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "nico-1"}}
 
-	// EnsurePausedCondition may patch and requeue before identity handling.
 	_, err := r.Reconcile(context.Background(), req)
-	require.NoError(t, err)
-
-	_, err = r.Reconcile(context.Background(), req)
 	require.Error(t, err)
 
 	var updated infrav1.NicoCluster
 	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "ns", Name: "nico-1"}, &updated))
-	cond := conditions.Get(&updated, clusterv1.ReadyCondition)
+	cond := conditions.Get(&updated, infrav1.NicoReadyCondition)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, infrav1.IdentityConfigurationFailedReason, cond.Reason)
+	ready := conditions.Get(&updated, clusterv1.ReadyCondition)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionFalse, ready.Status)
+	assert.Equal(t, clusterv1.NotReadyReason, ready.Reason)
 	assert.False(t, updated.Status.Ready)
 }

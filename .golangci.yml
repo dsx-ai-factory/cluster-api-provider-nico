@@ -45,6 +45,7 @@ linters:
           - lll
         path: api/*
       - linters:
+          - dupl
           - lll
         path: controllers/*
       - linters:

@@ -106,7 +106,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		ginkgo.It("waits for bootstrap data", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
-				assertNicoMachineReadyReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.WaitingForBootstrapDataReason)
+				assertNicoMachineProvisionedReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.WaitingForBootstrapDataReason)
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 			gomega.Expect(loadCaseFake(tc.Name).LastCreateRequest()).To(gomega.BeNil())
 		})
@@ -174,7 +174,7 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 		ginkgo.It("marks the second import as InstanceAlreadyClaimed", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
-				assertNicoMachineReadyReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceAlreadyClaimedReason)
+				assertNicoMachineProvisionedReason(g, ctx, tc.Client, "nicomachine-1", metav1.ConditionFalse, infrav1.InstanceAlreadyClaimedReason)
 			}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
 			gomega.Expect(loadCaseFake(tc.Name).LastCreateRequest()).To(gomega.BeNil())
 		})
@@ -316,7 +316,11 @@ func assertNicoMachineReady(g gomega.Gomega, ctx context.Context, c client.Clien
 	cond := conditions.Get(&current, clusterv1.ReadyCondition)
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
-	g.Expect(cond.Reason).To(gomega.Equal(infrav1.InstanceReadyReason))
+	g.Expect(cond.Reason).To(gomega.Equal(clusterv1.ReadyReason))
+	provisioned := conditions.Get(&current, infrav1.MachineProvisionedCondition)
+	g.Expect(provisioned).NotTo(gomega.BeNil())
+	g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionTrue))
+	g.Expect(provisioned.Reason).To(gomega.Equal(infrav1.InstanceReadyReason))
 	assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
 	g.Expect(current.Status.Ready).To(gomega.BeTrue())
 	g.Expect(current.Status.InstanceID).NotTo(gomega.BeEmpty())
@@ -324,26 +328,30 @@ func assertNicoMachineReady(g gomega.Gomega, ctx context.Context, c client.Clien
 	g.Expect(current.Status.Addresses).NotTo(gomega.BeEmpty())
 }
 
-func assertNicoMachineReadyReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) { //nolint:unparam
+func assertNicoMachineProvisionedReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) { //nolint:unparam
 	ginkgo.GinkgoHelper()
 	var current infrav1.NicoMachine
 	g.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &current)).To(gomega.Succeed())
-	cond := conditions.Get(&current, clusterv1.ReadyCondition)
+	cond := conditions.Get(&current, infrav1.MachineProvisionedCondition)
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(status))
 	g.Expect(cond.Reason).To(gomega.Equal(reason))
+	ready := conditions.Get(&current, clusterv1.ReadyCondition)
+	g.Expect(ready).NotTo(gomega.BeNil())
+	g.Expect(ready.Status).To(gomega.Equal(metav1.ConditionFalse))
+	g.Expect(ready.Reason).To(gomega.Equal(clusterv1.NotReadyReason))
 	assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
 }
 
-func assertNicoClusterReadyReason(g gomega.Gomega, ctx context.Context, c client.Client, name string, status metav1.ConditionStatus, reason string) {
+func assertNicoClusterConditionReason(g gomega.Gomega, ctx context.Context, c client.Client, name, conditionType string, status metav1.ConditionStatus, reason string) {
 	ginkgo.GinkgoHelper()
 	var current infrav1.NicoCluster
 	g.Expect(c.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: name}, &current)).To(gomega.Succeed())
-	cond := conditions.Get(&current, clusterv1.ReadyCondition)
+	cond := conditions.Get(&current, conditionType)
 	g.Expect(cond).NotTo(gomega.BeNil())
 	g.Expect(cond.Status).To(gomega.Equal(status))
 	g.Expect(cond.Reason).To(gomega.Equal(reason))
-	assertConditionsObservedAtGeneration(g, current.GetGeneration(), current.Status.Conditions)
+	g.Expect(cond.ObservedGeneration).To(gomega.Equal(current.GetGeneration()))
 }
 
 // assertConditionsObservedAtGeneration requires every condition to reflect metadata.generation.

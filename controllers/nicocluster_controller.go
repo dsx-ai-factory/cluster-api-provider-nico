@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/paused"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -35,6 +36,15 @@ const (
 	clusterReadyJitterWindow = 1 * time.Minute
 	clusterDeleteRequeue     = 15 * time.Second
 )
+
+var nicoClusterOwnedConditions = []string{
+	clusterv1.AvailableCondition,
+	clusterv1.ReadyCondition,
+	infrav1.SyncedCondition,
+	clusterv1.PausedCondition,
+	clusterv1.DeletingCondition,
+	infrav1.NicoReadyCondition,
+}
 
 // NicoClusterReconciler reconciles a NicoCluster object.
 type NicoClusterReconciler struct {
@@ -75,16 +85,36 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	defer func() {
-		if err := patchHelper.Patch(ctx, &nicoCluster, patch.WithOwnedConditions{Conditions: []string{clusterv1.ReadyCondition}}); err != nil && retErr == nil {
-			retErr = fmt.Errorf("failed to patch NicoCluster: %w", err)
+		if conditionErr := setNicoClusterConditions(&nicoCluster); conditionErr != nil {
+			retErr = errors.Join(retErr, conditionErr)
+		}
+		if patchErr := patchHelper.Patch(ctx, &nicoCluster, patch.WithOwnedConditions{Conditions: nicoClusterOwnedConditions}); patchErr != nil {
+			retErr = errors.Join(retErr, patchErr)
 		}
 	}()
 
-	if isPaused, requeue, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, &nicoCluster); err != nil || isPaused || requeue {
-		return reconcile.Result{}, err
+	if annotations.IsPaused(cluster, &nicoCluster) {
+		conditions.Set(&nicoCluster, metav1.Condition{
+			Type:   clusterv1.PausedCondition,
+			Status: metav1.ConditionTrue,
+			Reason: clusterv1.PausedReason,
+		})
+		log.V(1).Info("Reconciliation is paused")
+		return reconcile.Result{}, nil
 	}
+	conditions.Set(&nicoCluster, metav1.Condition{
+		Type:   clusterv1.PausedCondition,
+		Status: metav1.ConditionFalse,
+		Reason: clusterv1.NotPausedReason,
+	})
 
 	if !nicoCluster.DeletionTimestamp.IsZero() {
+		conditions.Set(&nicoCluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  infrav1.DeletingReason,
+			Message: "Deleting cluster infrastructure",
+		})
 		if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
 			return ctrl.Result{}, nil
 		}
@@ -96,13 +126,23 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		if len(nicoMachines) > 0 {
 			log.Info("waiting for NicoMachines to be deleted", "count", len(nicoMachines))
-			setNicoClusterReadyFalse(&nicoCluster, infrav1.WaitingForNicoMachinesDeletionReason, fmt.Sprintf("Waiting for %d NicoMachines to be deleted", len(nicoMachines)))
+			conditions.Set(&nicoCluster, metav1.Condition{
+				Type:    clusterv1.DeletingCondition,
+				Status:  metav1.ConditionTrue,
+				Reason:  infrav1.WaitingForNicoMachinesDeletionReason,
+				Message: fmt.Sprintf("Waiting for %d NicoMachines to be deleted", len(nicoMachines)),
+			})
 			return ctrl.Result{RequeueAfter: clusterDeleteRequeue}, nil
 		}
 
 		log.Info("removing finalizer")
+		conditions.Set(&nicoCluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  clusterv1.DeletionCompletedReason,
+			Message: "Cluster infrastructure deletion completed",
+		})
 		controllerutil.RemoveFinalizer(&nicoCluster, nicoClusterFinalizer)
-		setNicoClusterReadyFalse(&nicoCluster, infrav1.DeletingReason, "")
 		return ctrl.Result{}, nil
 	}
 
@@ -113,23 +153,23 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			setNicoClusterReadyFalse(&nicoCluster, infrav1.WaitingForIdentitySecretReason, err.Error())
+			setNicoReadyFalse(&nicoCluster, infrav1.WaitingForIdentitySecretReason, err.Error())
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
-		setNicoClusterReadyFalse(&nicoCluster, infrav1.IdentityConfigurationFailedReason, err.Error())
+		setNicoReadyFalse(&nicoCluster, infrav1.IdentityConfigurationFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
 	// NicoCluster has no cluster-scoped NICo resources to reconcile, so readiness here is a validation check:
 	// can this identity reach NICo and resolve the tenant context needed for machine operations?
 	if err := nicoClient.ValidateReadiness(ctx); err != nil {
-		setNicoClusterReadyFalse(&nicoCluster, infrav1.TenantResolutionFailedReason, err.Error())
+		setNicoReadyFalse(&nicoCluster, infrav1.TenantResolutionFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to validate nico client readiness: %w", err)
 	}
 
 	provisioned := true
 	nicoCluster.Status.Initialization.Provisioned = &provisioned
-	setNicoClusterReadyTrue(&nicoCluster, infrav1.InfrastructureReadyReason)
+	setNicoReadyTrue(&nicoCluster, infrav1.InfrastructureReadyReason)
 
 	log.V(1).Info("reconciled NicoCluster")
 	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
@@ -162,23 +202,92 @@ func (r *NicoClusterReconciler) listNicoMachinesForCluster(ctx context.Context, 
 	return nicoMachines.Items, nil
 }
 
-func setNicoClusterReadyFalse(nicoCluster *infrav1.NicoCluster, reason, message string) {
-	nicoCluster.Status.Ready = false
+func setNicoReadyFalse(nicoCluster *infrav1.NicoCluster, reason, message string) {
 	conditions.Set(nicoCluster, metav1.Condition{
-		Type:    clusterv1.ReadyCondition,
+		Type:    infrav1.NicoReadyCondition,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
 	})
 }
 
-func setNicoClusterReadyTrue(nicoCluster *infrav1.NicoCluster, reason string) {
-	nicoCluster.Status.Ready = true
+func setNicoReadyTrue(nicoCluster *infrav1.NicoCluster, reason string) {
 	conditions.Set(nicoCluster, metav1.Condition{
-		Type:   clusterv1.ReadyCondition,
+		Type:   infrav1.NicoReadyCondition,
 		Status: metav1.ConditionTrue,
 		Reason: reason,
 	})
+}
+
+func setNicoClusterConditions(nicoCluster *infrav1.NicoCluster) error {
+	if nicoCluster.DeletionTimestamp.IsZero() {
+		conditions.Set(nicoCluster, metav1.Condition{
+			Type:   clusterv1.DeletingCondition,
+			Status: metav1.ConditionFalse,
+			Reason: clusterv1.NotDeletingReason,
+		})
+	}
+
+	if err := conditions.SetSummaryCondition(
+		nicoCluster,
+		nicoCluster,
+		infrav1.SyncedCondition,
+		conditions.ForConditionTypes{infrav1.NicoReadyCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					infrav1.NotSyncedReason,
+					infrav1.SyncUnknownReason,
+					infrav1.SyncedReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NicoCluster Synced condition: %w", err)
+	}
+
+	if err := conditions.SetSummaryCondition(
+		nicoCluster,
+		nicoCluster,
+		clusterv1.AvailableCondition,
+		conditions.ForConditionTypes{infrav1.NicoReadyCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotAvailableReason,
+					clusterv1.AvailableUnknownReason,
+					clusterv1.AvailableReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NicoCluster Available condition: %w", err)
+	}
+
+	if err := conditions.SetSummaryCondition(
+		nicoCluster,
+		nicoCluster,
+		clusterv1.ReadyCondition,
+		conditions.ForConditionTypes{
+			clusterv1.AvailableCondition,
+			clusterv1.DeletingCondition,
+		},
+		conditions.NegativePolarityConditionTypes{clusterv1.DeletingCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.GetPriorityFunc(conditions.GetDefaultMergePriorityFunc(clusterv1.DeletingCondition)),
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotReadyReason,
+					clusterv1.ReadyUnknownReason,
+					clusterv1.ReadyReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NicoCluster Ready condition: %w", err)
+	}
+	nicoCluster.Status.Ready = conditions.IsTrue(nicoCluster, clusterv1.ReadyCondition)
+	return nil
 }
 
 // clusterReadyRequeueAfter returns a stable jittered interval for steady-state cluster polling.

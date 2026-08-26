@@ -15,7 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/cluster-api/util/paused"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -52,6 +52,15 @@ const (
 	labelKeyVPCID     = "nke.nvidia.com/vpc-id"
 	labelKeyVPCName   = "nke.nvidia.com/vpc-name"
 )
+
+var nicoMachineOwnedConditions = []string{
+	clusterv1.AvailableCondition,
+	clusterv1.ReadyCondition,
+	infrav1.SyncedCondition,
+	clusterv1.PausedCondition,
+	clusterv1.DeletingCondition,
+	infrav1.MachineProvisionedCondition,
+}
 
 // NicoMachineReconciler reconciles a NicoMachine object.
 type NicoMachineReconciler struct {
@@ -95,36 +104,53 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Waiting for Machine to have Cluster set")
 		return ctrl.Result{}, nil
 	}
-	if cluster.Spec.InfrastructureRef.Name == "" {
-		log.Info("Waiting for Cluster to have InfrastructureRef set")
-		return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
-	}
-
-	var nicoCluster infrav1.NicoCluster
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: cluster.Namespace,
-		Name:      cluster.Spec.InfrastructureRef.Name,
-	}, &nicoCluster); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get nico cluster: %w", err)
-	}
 
 	patchHelper, err := patch.NewHelper(&nicoMachine, r.Client)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
 	}
 	defer func() {
-		if err := patchHelper.Patch(ctx, &nicoMachine, patch.WithOwnedConditions{Conditions: []string{clusterv1.ReadyCondition}}); err != nil && retErr == nil {
-			retErr = fmt.Errorf("failed to patch NicoMachine: %w", err)
+		if conditionErr := setNicoMachineConditions(&nicoMachine); conditionErr != nil {
+			retErr = errors.Join(retErr, conditionErr)
+		}
+		if patchErr := patchHelper.Patch(ctx, &nicoMachine, patch.WithOwnedConditions{Conditions: nicoMachineOwnedConditions}); patchErr != nil {
+			retErr = errors.Join(retErr, patchErr)
 		}
 	}()
 
-	if isPaused, requeue, err := paused.EnsurePausedCondition(ctx, r.Client, cluster, &nicoMachine); err != nil || isPaused || requeue {
-		return ctrl.Result{}, err
+	if annotations.IsPaused(cluster, &nicoMachine) {
+		conditions.Set(&nicoMachine, metav1.Condition{
+			Type:   clusterv1.PausedCondition,
+			Status: metav1.ConditionTrue,
+			Reason: clusterv1.PausedReason,
+		})
+		log.V(1).Info("Reconciliation is paused")
+		return ctrl.Result{}, nil
 	}
+	conditions.Set(&nicoMachine, metav1.Condition{
+		Type:   clusterv1.PausedCondition,
+		Status: metav1.ConditionFalse,
+		Reason: clusterv1.NotPausedReason,
+	})
 
 	if !nicoMachine.DeletionTimestamp.IsZero() {
+		conditions.Set(&nicoMachine, metav1.Condition{
+			Type:   clusterv1.DeletingCondition,
+			Status: metav1.ConditionTrue,
+			Reason: clusterv1.DeletingReason,
+		})
 		if controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) && nicoMachine.Status.InstanceID != "" {
-			nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
+			nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
+			if err != nil {
+				conditions.Set(&nicoMachine, metav1.Condition{
+					Type:    clusterv1.DeletingCondition,
+					Status:  metav1.ConditionTrue,
+					Reason:  infrav1.WaitingForClusterInfrastructureReason,
+					Message: err.Error(),
+				})
+				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: %w", err)
+			}
+			nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
 			}
@@ -164,28 +190,40 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		log.Info("removing finalizer")
+		conditions.Set(&nicoMachine, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  clusterv1.DeletionCompletedReason,
+			Message: "Machine infrastructure deletion completed",
+		})
 		controllerutil.RemoveFinalizer(&nicoMachine, nicoMachineFinalizer)
-		setReadyFalse(&nicoMachine, infrav1.DeletingReason, "")
 		return ctrl.Result{}, nil
+	}
+
+	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
+	if err != nil {
+		setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForClusterInfrastructureReason, err.Error())
+		return ctrl.Result{}, err
 	}
 
 	if !controllerutil.ContainsFinalizer(&nicoMachine, nicoMachineFinalizer) {
 		controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer)
 	}
 
-	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
+	nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			setReadyFalse(&nicoMachine, infrav1.WaitingForIdentitySecretReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForIdentitySecretReason, err.Error())
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
+		setMachineProvisionedFalse(&nicoMachine, infrav1.IdentityConfigurationFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
 	// if we have not yet created a NICo instance for this nicoMachine CR and this is not an NICo instance import
 	if nicoMachine.Status.InstanceID == "" && nicoMachine.Spec.ProviderID == "" {
 		if ownerMachine.Spec.Bootstrap.DataSecretName == nil || *ownerMachine.Spec.Bootstrap.DataSecretName == "" {
-			setReadyFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, "")
+			setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, "")
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
 
@@ -195,7 +233,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Name:      *ownerMachine.Spec.Bootstrap.DataSecretName,
 		}, &bootstrapSecret); err != nil {
 			if apierrors.IsNotFound(err) {
-				setReadyFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, err.Error())
+				setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, err.Error())
 				return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 			}
 			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap secret: %w", err)
@@ -203,26 +241,26 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		bootstrapCloudConfig, err := bootstrapCloudConfigFromSecret(&bootstrapSecret)
 		if err != nil {
-			setReadyFalse(&nicoMachine, infrav1.BootstrapDataInvalidReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, infrav1.BootstrapDataInvalidReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap cloud config: %w", err)
 		}
 		if nicoMachine.Spec.CloudInitInjectHostname {
 			bootstrapCloudConfig, err = nico.InjectHostnameCloudConfig(bootstrapCloudConfig, ownerMachine.Name)
 			if err != nil {
-				setReadyFalse(&nicoMachine, infrav1.BootstrapDataInvalidReason, err.Error())
+				setMachineProvisionedFalse(&nicoMachine, infrav1.BootstrapDataInvalidReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to inject hostname cloud config: %w", err)
 			}
 		}
 
 		tenantID, err := nicoClient.ResolveTenantID(ctx)
 		if err != nil {
-			setReadyFalse(&nicoMachine, infrav1.TenantResolutionFailedReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, infrav1.TenantResolutionFailedReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
 		}
 
 		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoMachine, cluster.Name, bootstrapCloudConfig)
 		if err != nil {
-			setReadyFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
 		}
 
@@ -232,11 +270,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// check avoids spamming the NICo API logs with errors, and changes the re-queue interval.
 			available, reason, message, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
 			if err != nil {
-				setReadyFalse(&nicoMachine, infrav1.AvailabilityCheckFailedReason, err.Error())
+				setMachineProvisionedFalse(&nicoMachine, infrav1.AvailabilityCheckFailedReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
 			}
 			if !available {
-				setReadyFalse(&nicoMachine, reason, message)
+				setMachineProvisionedFalse(&nicoMachine, reason, message)
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
 		}
@@ -253,7 +291,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				})
 			}
 			if err != nil {
-				setReadyFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
+				setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
 		}
@@ -264,14 +302,14 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	instanceID, err := nico.InstanceID(nicoMachine.Spec.ProviderID)
 	if err != nil {
-		setReadyFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
+		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
 		return ctrl.Result{}, nil
 	}
 
 	instance, err := nicoClient.GetInstance(ctx, instanceID)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
-			setReadyFalse(&nicoMachine, infrav1.InstanceMissingReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceMissingReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("backing NICo instance %q was not found: %w", instanceID, err)
 		}
 		return ctrl.Result{}, fmt.Errorf("failed to get instance: %w", err)
@@ -284,11 +322,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("failed to check if NICo instance %q is already claimed: %w", instanceID, err)
 		}
 		if claimedBy != "" {
-			setReadyFalse(&nicoMachine, infrav1.InstanceAlreadyClaimedReason, fmt.Sprintf("failed to import instance: NICo instance %q is already referenced by NicoMachine %s", instanceID, claimedBy))
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceAlreadyClaimedReason, fmt.Sprintf("failed to import instance: NICo instance %q is already referenced by NicoMachine %s", instanceID, claimedBy))
 			return ctrl.Result{}, nil
 		}
 		if err := nicomachine.ValidateInstance(instance, nicoMachine); err != nil {
-			setReadyFalse(&nicoMachine, clusterv1.InspectionFailedReason, fmt.Sprintf("failed to import instance: %s", err.Error()))
+			setMachineProvisionedFalse(&nicoMachine, clusterv1.InspectionFailedReason, fmt.Sprintf("failed to import instance: %s", err.Error()))
 			return ctrl.Result{}, nil
 		}
 		nicoMachine.Status.InstanceID = instance.GetId()
@@ -347,12 +385,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !nico.IsReady(instance) {
 		log.V(1).Info("NICo instance not ready", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", instanceStatusString(instance))
-		setReadyFalse(&nicoMachine, infrav1.InstanceNotReadyReason, fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
+		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotReadyReason, fmt.Sprintf("Instance status is %s", instanceStatusString(instance)))
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
 	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
-	setReadyTrue(&nicoMachine, infrav1.InstanceReadyReason)
+	setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
 }
 
@@ -436,6 +474,19 @@ func (r *NicoMachineReconciler) nicoClientForCluster(ctx context.Context, nicoCl
 	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials, r.nicoClientFactory)
 }
 
+func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster *clusterv1.Cluster) (*infrav1.NicoCluster, error) {
+	if cluster.Spec.InfrastructureRef.Name == "" {
+		return nil, fmt.Errorf("cluster %s/%s has no infrastructure reference", cluster.Namespace, cluster.Name)
+	}
+
+	nicoCluster := &infrav1.NicoCluster{}
+	key := client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.InfrastructureRef.Name}
+	if err := r.Get(ctx, key, nicoCluster); err != nil {
+		return nil, fmt.Errorf("read NicoCluster %s: %w", key, err)
+	}
+	return nicoCluster, nil
+}
+
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
@@ -493,23 +544,92 @@ func (r *NicoMachineReconciler) reconcileReboot(
 	return true, nil
 }
 
-func setReadyFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {
-	nicoMachine.Status.Ready = false
+func setMachineProvisionedFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {
 	conditions.Set(nicoMachine, metav1.Condition{
-		Type:    clusterv1.ReadyCondition,
+		Type:    infrav1.MachineProvisionedCondition,
 		Status:  metav1.ConditionFalse,
 		Reason:  reason,
 		Message: message,
 	})
 }
 
-func setReadyTrue(nicoMachine *infrav1.NicoMachine, reason string) {
-	nicoMachine.Status.Ready = true
+func setMachineProvisionedTrue(nicoMachine *infrav1.NicoMachine, reason string) {
 	conditions.Set(nicoMachine, metav1.Condition{
-		Type:   clusterv1.ReadyCondition,
+		Type:   infrav1.MachineProvisionedCondition,
 		Status: metav1.ConditionTrue,
 		Reason: reason,
 	})
+}
+
+func setNicoMachineConditions(nicoMachine *infrav1.NicoMachine) error {
+	if nicoMachine.DeletionTimestamp.IsZero() {
+		conditions.Set(nicoMachine, metav1.Condition{
+			Type:   clusterv1.DeletingCondition,
+			Status: metav1.ConditionFalse,
+			Reason: clusterv1.NotDeletingReason,
+		})
+	}
+
+	if err := conditions.SetSummaryCondition(
+		nicoMachine,
+		nicoMachine,
+		infrav1.SyncedCondition,
+		conditions.ForConditionTypes{infrav1.MachineProvisionedCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					infrav1.NotSyncedReason,
+					infrav1.SyncUnknownReason,
+					infrav1.SyncedReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NicoMachine Synced condition: %w", err)
+	}
+
+	if err := conditions.SetSummaryCondition(
+		nicoMachine,
+		nicoMachine,
+		clusterv1.AvailableCondition,
+		conditions.ForConditionTypes{infrav1.MachineProvisionedCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotAvailableReason,
+					clusterv1.AvailableUnknownReason,
+					clusterv1.AvailableReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NicoMachine Available condition: %w", err)
+	}
+
+	if err := conditions.SetSummaryCondition(
+		nicoMachine,
+		nicoMachine,
+		clusterv1.ReadyCondition,
+		conditions.ForConditionTypes{
+			clusterv1.AvailableCondition,
+			clusterv1.DeletingCondition,
+		},
+		conditions.NegativePolarityConditionTypes{clusterv1.DeletingCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.GetPriorityFunc(conditions.GetDefaultMergePriorityFunc(clusterv1.DeletingCondition)),
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotReadyReason,
+					clusterv1.ReadyUnknownReason,
+					clusterv1.ReadyReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NicoMachine Ready condition: %w", err)
+	}
+	nicoMachine.Status.Ready = conditions.IsTrue(nicoMachine, clusterv1.ReadyCondition)
+	return nil
 }
 
 // machineReadyRequeueAfter returns a stable jittered interval for steady-state machine polling.
