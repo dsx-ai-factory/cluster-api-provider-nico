@@ -33,8 +33,9 @@ func TestNicoClusterReconciler_InvalidIdentitySecret(t *testing.T) {
 	}
 	nicoCluster := &infrav1.NicoCluster{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "ns",
-			Name:      "nico-1",
+			Namespace:  "ns",
+			Name:       "nico-1",
+			Finalizers: []string{nicoClusterFinalizer},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: clusterv1.GroupVersion.String(),
 				Kind:       "Cluster",

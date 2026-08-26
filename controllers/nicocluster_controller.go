@@ -80,6 +80,14 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, nil
 	}
 
+	if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
+		controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer)
+		if err := r.Update(ctx, &nicoCluster); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
+
 	patchHelper, err := patch.NewHelper(&nicoCluster, r.Client)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -145,10 +153,6 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 		controllerutil.RemoveFinalizer(&nicoCluster, nicoClusterFinalizer)
 		return ctrl.Result{}, nil
-	}
-
-	if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
-		controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer)
 	}
 
 	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
