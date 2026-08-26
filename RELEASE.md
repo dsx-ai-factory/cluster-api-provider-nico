@@ -98,9 +98,15 @@ the central promoter to act on, which has no equivalent here.
 
 4. **Tag the release** on the merge commit:
    ```bash
-   git tag -s v<VERSION> -m "Release v<VERSION>"
+   git fetch upstream
+   git tag -s v<VERSION> -m "Release v<VERSION>" upstream/main
    git push upstream v<VERSION>
    ```
+
+   Always fetch and tag `upstream/main` explicitly. GitHub creates a merge
+   commit when it merges the PR, so your local branch tip has a different SHA
+   than the commit the NVCR build tagged. Tagging the local tip causes the
+   release workflow to fail because it cannot find `sha-<local-sha>` in NVCR.
 
 5. **The Release workflow runs**, in this order:
    - **Tag NVCR** repoints `<tag>` at the `sha-<commit>` digest in both NGC
