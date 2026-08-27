@@ -21,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -225,7 +224,7 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case) {
 		Scheme:  tc.Scheme,
 		Metrics: metricsserver.Options{BindAddress: "0"},
 		// Cases share a process, so the controller names repeat.
-		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
+		Controller: config.Controller{SkipNameValidation: new(true)},
 	})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

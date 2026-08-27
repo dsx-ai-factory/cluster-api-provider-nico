@@ -31,7 +31,7 @@ func TestStaticTokenAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request without token: %v", err)
 	}
-	response.Body.Close()
+	closeResponseBody(t, response)
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("request without token status = %d, want %d", response.StatusCode, http.StatusUnauthorized)
 	}
@@ -45,7 +45,7 @@ func TestStaticTokenAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request with wrong token: %v", err)
 	}
-	response.Body.Close()
+	closeResponseBody(t, response)
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("request with wrong token status = %d, want %d", response.StatusCode, http.StatusUnauthorized)
 	}
@@ -111,7 +111,7 @@ func TestOAuthAcceptsClientSecretPost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send token request: %v", err)
 	}
-	response.Body.Close()
+	closeResponseBody(t, response)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("token request status = %d, want %d", response.StatusCode, http.StatusOK)
 	}
@@ -166,7 +166,7 @@ func TestTokenEndpointRejectsUnsupportedOrUnauthenticatedGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send unsupported grant request: %v", err)
 	}
-	response.Body.Close()
+	closeResponseBody(t, response)
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unsupported grant status = %d, want %d", response.StatusCode, http.StatusBadRequest)
 	}
@@ -185,7 +185,7 @@ func TestTokenEndpointRejectsUnsupportedOrUnauthenticatedGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send unauthenticated grant request: %v", err)
 	}
-	response.Body.Close()
+	closeResponseBody(t, response)
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated grant status = %d, want %d", response.StatusCode, http.StatusUnauthorized)
 	}

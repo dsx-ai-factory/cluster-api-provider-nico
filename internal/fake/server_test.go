@@ -27,9 +27,17 @@ const (
 
 func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 	server, client := newSeededClient(t)
-	ctx := t.Context()
+	assertSeededResources(t, client)
+	instance := assertInstanceProvisioning(t, client)
+	assertInstanceUpdatesAndReads(t, client, instance)
+	assertInstanceDeletion(t, server, client, instance)
+	assertDeterministicDump(t, server)
+}
 
-	tenantID, err := client.ResolveTenantID(ctx)
+func assertSeededResources(t *testing.T, client *nico.Client) {
+	t.Helper()
+
+	tenantID, err := client.ResolveTenantID(t.Context())
 	if err != nil {
 		t.Fatalf("resolve tenant: %v", err)
 	}
@@ -37,7 +45,7 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 		t.Fatalf("tenant ID = %q, want %q", tenantID, testTenantID)
 	}
 
-	instanceType, err := client.GetInstanceTypeWithAllocationStats(ctx, testInstanceType)
+	instanceType, err := client.GetInstanceTypeWithAllocationStats(t.Context(), testInstanceType)
 	if err != nil {
 		t.Fatalf("get instance type: %v", err)
 	}
@@ -45,9 +53,13 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 	if allocationStats.GetUnusedUsable() != 1 {
 		t.Fatalf("unused usable capacity = %d, want 1", allocationStats.GetUnusedUsable())
 	}
+}
+
+func assertInstanceProvisioning(t *testing.T, client *nico.Client) *nicosdk.Instance {
+	t.Helper()
 
 	request := testCreateRequest()
-	instance, err := client.CreateInstance(ctx, request)
+	instance, err := client.CreateInstance(t.Context(), request)
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
 	}
@@ -58,7 +70,7 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 		t.Fatalf("create status = %q, want %q", instance.GetStatus(), nicosdk.INSTANCESTATUS_PENDING)
 	}
 
-	instance, err = client.GetInstance(ctx, instance.GetId())
+	instance, err = client.GetInstance(t.Context(), instance.GetId())
 	if err != nil {
 		t.Fatalf("first instance poll: %v", err)
 	}
@@ -66,7 +78,7 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 		t.Fatalf("first poll status = %q, want %q", instance.GetStatus(), nicosdk.INSTANCESTATUS_PENDING)
 	}
 
-	instance, err = client.GetInstance(ctx, instance.GetId())
+	instance, err = client.GetInstance(t.Context(), instance.GetId())
 	if err != nil {
 		t.Fatalf("second instance poll: %v", err)
 	}
@@ -76,9 +88,14 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 	if got := instance.GetInterfaces()[0].GetIpAddresses(); len(got) != 1 || got[0] != defaultIPAddress {
 		t.Fatalf("instance addresses = %v, want [%s]", got, defaultIPAddress)
 	}
+	return instance
+}
+
+func assertInstanceUpdatesAndReads(t *testing.T, client *nico.Client, instance *nicosdk.Instance) {
+	t.Helper()
 
 	labels := map[string]string{"cluster.x-k8s.io/cluster-name": "cluster-1", "topology.nvidia.com/site": testSiteID}
-	instance, err = client.ApplyInstanceLabels(ctx, instance.GetId(), labels)
+	instance, err := client.ApplyInstanceLabels(t.Context(), instance.GetId(), labels)
 	if err != nil {
 		t.Fatalf("apply labels: %v", err)
 	}
@@ -86,40 +103,44 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 		t.Fatalf("instance labels = %v, want %v", instance.GetLabels(), labels)
 	}
 
-	if _, err := client.TriggerInstanceReboot(ctx, instance.GetId()); err != nil {
+	if _, err := client.TriggerInstanceReboot(t.Context(), instance.GetId()); err != nil {
 		t.Fatalf("trigger reboot: %v", err)
 	}
 
-	site, err := client.GetSite(ctx, testSiteID)
+	site, err := client.GetSite(t.Context(), testSiteID)
 	if err != nil {
 		t.Fatalf("get site: %v", err)
 	}
 	if site.GetName() != "fake-site" {
 		t.Fatalf("site name = %q, want %q", site.GetName(), "fake-site")
 	}
-	vpc, err := client.GetVPC(ctx, testVPCID)
+	vpc, err := client.GetVPC(t.Context(), testVPCID)
 	if err != nil {
 		t.Fatalf("get VPC: %v", err)
 	}
 	if vpc.GetName() != "fake-vpc" {
 		t.Fatalf("VPC name = %q, want %q", vpc.GetName(), "fake-vpc")
 	}
+}
+
+func assertInstanceDeletion(t *testing.T, server *Server, client *nico.Client, instance *nicosdk.Instance) {
+	t.Helper()
 
 	healthIssue := nicosdk.NewMachineHealthIssue()
 	healthIssue.SetCategory("Hardware")
 	healthIssue.SetSummary("GPU health alert")
-	if err := client.DeleteInstance(ctx, instance.GetId(), healthIssue); err != nil {
+	if err := client.DeleteInstance(t.Context(), instance.GetId(), healthIssue); err != nil {
 		t.Fatalf("delete instance: %v", err)
 	}
 
-	instance, err = client.GetInstance(ctx, instance.GetId())
+	instance, err := client.GetInstance(t.Context(), instance.GetId())
 	if err != nil {
 		t.Fatalf("first deletion poll: %v", err)
 	}
 	if !nico.IsTerminating(instance) {
 		t.Fatalf("first deletion poll status = %q, want Terminating", instance.GetStatus())
 	}
-	instance, err = client.GetInstance(ctx, instance.GetId())
+	instance, err = client.GetInstance(t.Context(), instance.GetId())
 	if err != nil {
 		t.Fatalf("terminal deletion poll: %v", err)
 	}
@@ -129,6 +150,10 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 	if got := server.InstanceCount(); got != 0 {
 		t.Fatalf("live instance count = %d, want 0", got)
 	}
+}
+
+func assertDeterministicDump(t *testing.T, server *Server) {
+	t.Helper()
 
 	dump, err := server.Dump()
 	if err != nil {
@@ -250,7 +275,7 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send request: %v", err)
 	}
-	response.Body.Close()
+	closeResponseBody(t, response)
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("malformed create status = %d, want %d", response.StatusCode, http.StatusBadRequest)
 	}
@@ -273,6 +298,13 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 	unknownType.SetInstanceTypeId("missing-type")
 	if _, err := client.CreateInstance(t.Context(), unknownType); err == nil {
 		t.Fatal("create with an unknown instanceTypeId succeeded")
+	}
+}
+
+func closeResponseBody(t *testing.T, response *http.Response) {
+	t.Helper()
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
 	}
 }
 
