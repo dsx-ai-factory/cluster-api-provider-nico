@@ -122,6 +122,13 @@ spec:
                           - partitionID
                           type: object
                         type: array
+                      infinibandPartitionID:
+                        description: |-
+                          InfinibandPartitionID requests that the partition be attached to every active
+                          InfiniBand device exposed by InstanceTypeID.
+                          Set this instead of InfinibandInterfaces when every device should use the same partition.
+                        minLength: 1
+                        type: string
                       instanceTypeID:
                         description: |-
                           InstanceTypeID is the instance type ID to provision.
@@ -213,6 +220,13 @@ spec:
                           - nvLinkLogicalPartitionID
                           type: object
                         type: array
+                      nvLinkLogicalPartitionID:
+                        description: |-
+                          NVLinkLogicalPartitionID requests that the logical partition be attached to
+                          every active NVLink device exposed by InstanceTypeID.
+                          Set this instead of NVLinkInterfaces when every device should use the same logical partition.
+                        minLength: 1
+                        type: string
                       providerID:
                         description: ProviderID is set to `nico://<instance-id>` after
                           the NICo instance is created.
@@ -237,6 +251,16 @@ spec:
                     - message: exactly one of instanceTypeID or machineID must be
                         set
                       rule: has(self.instanceTypeID) != has(self.machineID)
+                    - message: infinibandPartitionID and infinibandInterfaces are
+                        mutually exclusive
+                      rule: '!(has(self.infinibandPartitionID) && has(self.infinibandInterfaces))'
+                    - message: infinibandPartitionID requires instanceTypeID
+                      rule: '!has(self.infinibandPartitionID) || has(self.instanceTypeID)'
+                    - message: nvLinkLogicalPartitionID and nvLinkInterfaces are mutually
+                        exclusive
+                      rule: '!(has(self.nvLinkLogicalPartitionID) && has(self.nvLinkInterfaces))'
+                    - message: nvLinkLogicalPartitionID requires instanceTypeID
+                      rule: '!has(self.nvLinkLogicalPartitionID) || has(self.instanceTypeID)'
                 required:
                 - spec
                 type: object

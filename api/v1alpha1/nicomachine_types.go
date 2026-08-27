@@ -83,6 +83,10 @@ type NicoMachineNVLinkInterface struct {
 
 // NicoMachineSpec defines the desired state of NicoMachine.
 // +kubebuilder:validation:XValidation:rule="has(self.instanceTypeID) != has(self.machineID)",message="exactly one of instanceTypeID or machineID must be set"
+// +kubebuilder:validation:XValidation:rule="!(has(self.infinibandPartitionID) && has(self.infinibandInterfaces))",message="infinibandPartitionID and infinibandInterfaces are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.infinibandPartitionID) || has(self.instanceTypeID)",message="infinibandPartitionID requires instanceTypeID"
+// +kubebuilder:validation:XValidation:rule="!(has(self.nvLinkLogicalPartitionID) && has(self.nvLinkInterfaces))",message="nvLinkLogicalPartitionID and nvLinkInterfaces are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.nvLinkLogicalPartitionID) || has(self.instanceTypeID)",message="nvLinkLogicalPartitionID requires instanceTypeID"
 type NicoMachineSpec struct {
 	// VPCID is the VPC where this provider should create the instance.
 	VPCID string `json:"vpcID"`
@@ -103,10 +107,24 @@ type NicoMachineSpec struct {
 	// +optional
 	InfinibandInterfaces []NicoMachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
 
+	// InfinibandPartitionID requests that the partition be attached to every active
+	// InfiniBand device exposed by InstanceTypeID.
+	// Set this instead of InfinibandInterfaces when every device should use the same partition.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	InfinibandPartitionID string `json:"infinibandPartitionID,omitempty"`
+
 	// NVLinkInterfaces requests that one or more NVLink Logical Partitions be attached
 	// to the instance.
 	// +optional
 	NVLinkInterfaces []NicoMachineNVLinkInterface `json:"nvLinkInterfaces,omitempty"`
+
+	// NVLinkLogicalPartitionID requests that the logical partition be attached to
+	// every active NVLink device exposed by InstanceTypeID.
+	// Set this instead of NVLinkInterfaces when every device should use the same logical partition.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionID,omitempty"`
 
 	// SSHKeyGroupIDs are the allowed SSH key group IDs for Serial over LAN access.
 	// +optional

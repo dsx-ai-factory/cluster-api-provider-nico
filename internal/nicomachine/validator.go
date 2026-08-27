@@ -13,7 +13,11 @@ import (
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
-func ValidateInstance(instance *nicosdk.Instance, machine infrav1.NicoMachine) error {
+func ValidateInstance(instance *nicosdk.Instance, machine infrav1.NicoMachine, instanceType *nicosdk.InstanceType) error {
+	capabilities := ParseInstanceTypeCapabilities(instanceType)
+	if err := capabilities.ValidatePartitionSupport(machine.Spec); err != nil {
+		return err
+	}
 	if machine.Spec.InstanceTypeID != "" && instance.GetInstanceTypeId() != machine.Spec.InstanceTypeID {
 		return fmt.Errorf("instanceTypeId does not match")
 	}
@@ -35,10 +39,10 @@ func ValidateInstance(instance *nicosdk.Instance, machine infrav1.NicoMachine) e
 	if err := validateInterfaces(instance.GetInterfaces(), machine.Spec.Interfaces); err != nil {
 		return err
 	}
-	if err := validateInfiniBandInterfaces(instance.GetInfinibandInterfaces(), machine.Spec.InfinibandInterfaces); err != nil {
+	if err := validateInfiniBandInterfaces(instance.GetInfinibandInterfaces(), machine.Spec.InfinibandInterfaces, machine.Spec.InfinibandPartitionID, capabilities); err != nil {
 		return err
 	}
-	if err := validateNVLinkInterfaces(instance.GetNvLinkInterfaces(), machine.Spec.NVLinkInterfaces); err != nil {
+	if err := validateNVLinkInterfaces(instance.GetNvLinkInterfaces(), machine.Spec.NVLinkInterfaces, machine.Spec.NVLinkLogicalPartitionID, capabilities); err != nil {
 		return err
 	}
 
@@ -64,14 +68,38 @@ func validateInterfaces(instanceInterfaces []nicosdk.Interface, machineInterface
 	return nil
 }
 
-func validateInfiniBandInterfaces(instanceInterfaces []nicosdk.InfiniBandInterface, machineInterfaces []infrav1.NicoMachineInfiniBandInterface) error {
+func validateInfiniBandInterfaces(instanceInterfaces []nicosdk.InfiniBandInterface, machineInterfaces []infrav1.NicoMachineInfiniBandInterface, partitionID string, capabilities InstanceTypeCapabilities) error {
+	if partitionID != "" {
+		expectedCount := len(capabilities.InfiniBandActiveDeviceIDs)
+		if len(instanceInterfaces) != expectedCount {
+			return fmt.Errorf("instance has %d InfiniBand interfaces, expected %d", len(instanceInterfaces), expectedCount)
+		}
+		for _, instanceInterface := range instanceInterfaces {
+			if instanceInterface.GetPartitionId() != partitionID {
+				return fmt.Errorf("instance InfiniBand interface partition does not match")
+			}
+		}
+		return nil
+	}
 	if !KeyedSlicesMatch(instanceInterfaces, machineInterfaces, InstanceInfiniBandInterfaceKey, MachineInfiniBandInterfaceKey) {
 		return fmt.Errorf("instance and machine InfiniBand interfaces do not match")
 	}
 	return nil
 }
 
-func validateNVLinkInterfaces(instanceInterfaces []nicosdk.NVLinkInterface, machineInterfaces []infrav1.NicoMachineNVLinkInterface) error {
+func validateNVLinkInterfaces(instanceInterfaces []nicosdk.NVLinkInterface, machineInterfaces []infrav1.NicoMachineNVLinkInterface, partitionID string, capabilities InstanceTypeCapabilities) error {
+	if partitionID != "" {
+		expectedCount := len(capabilities.NVLinkActiveDeviceIDs)
+		if len(instanceInterfaces) != expectedCount {
+			return fmt.Errorf("instance has %d NVLink interfaces, expected %d", len(instanceInterfaces), expectedCount)
+		}
+		for _, instanceInterface := range instanceInterfaces {
+			if instanceInterface.GetNvLinkLogicalPartitionId() != partitionID {
+				return fmt.Errorf("instance NVLink interface partition does not match")
+			}
+		}
+		return nil
+	}
 	if !KeyedSlicesMatch(instanceInterfaces, machineInterfaces, InstanceNVLinkInterfaceKey, MachineNVLinkInterfaceKey) {
 		return fmt.Errorf("instance and machine NVLink interfaces do not match")
 	}

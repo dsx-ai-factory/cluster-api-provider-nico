@@ -203,25 +203,27 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
 		}
 
-		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoMachine, cluster.Name, bootstrapCloudConfig)
-		if err != nil {
-			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
-			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
-		}
-
+		var instanceTypeCapabilities nicomachine.InstanceTypeCapabilities
 		if nicoMachine.Spec.InstanceTypeID != "" {
 			// Query instance type availability before creating the instance when creating instances by instance type.
 			// When instances are completely consumed, the instance creation API call will always fail. This preflight
 			// check avoids spamming the NICo API logs with errors, and changes the re-queue interval.
-			available, reason, message, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
+			instanceType, available, reason, message, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
 			if err != nil {
 				setMachineProvisionedFalse(&nicoMachine, infrav1.AvailabilityCheckFailedReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
 			}
+			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(instanceType)
 			if !available {
 				setMachineProvisionedFalse(&nicoMachine, reason, message)
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
+		}
+
+		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoMachine, cluster.Name, bootstrapCloudConfig, instanceTypeCapabilities)
+		if err != nil {
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
+			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
 		}
 
 		log.Info("creating NICo instance")
@@ -274,7 +276,15 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceAlreadyClaimedReason, fmt.Sprintf("failed to import instance: NICo instance %q is already referenced by NicoMachine %s", instanceID, claimedBy))
 			return ctrl.Result{}, nil
 		}
-		if err := nicomachine.ValidateInstance(instance, nicoMachine); err != nil {
+		var instanceType *nicosdk.InstanceType
+		if instanceTypeID := instance.GetInstanceTypeId(); instanceTypeID != "" {
+			instanceType, err = nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
+			if err != nil {
+				setMachineProvisionedFalse(&nicoMachine, clusterv1.InspectionFailedReason, fmt.Sprintf("failed to inspect instance type: %s", err.Error()))
+				return ctrl.Result{}, nil
+			}
+		}
+		if err := nicomachine.ValidateInstance(instance, nicoMachine, instanceType); err != nil {
 			setMachineProvisionedFalse(&nicoMachine, clusterv1.InspectionFailedReason, fmt.Sprintf("failed to import instance: %s", err.Error()))
 			return ctrl.Result{}, nil
 		}
@@ -731,9 +741,13 @@ func buildInstanceCreateRequest(
 	nicoMachine *infrav1.NicoMachine,
 	clusterName string,
 	bootstrapCloudConfig string,
+	instanceTypeCapabilities nicomachine.InstanceTypeCapabilities,
 ) (*nicosdk.InstanceCreateRequest, error) {
 	if len(nicoMachine.Spec.Interfaces) == 0 {
 		return nil, fmt.Errorf("spec.interfaces must contain at least one entry")
+	}
+	if err := instanceTypeCapabilities.ValidatePartitionSupport(nicoMachine.Spec); err != nil {
+		return nil, err
 	}
 
 	interfaces := make([]nicosdk.InterfaceCreateRequest, 0, len(nicoMachine.Spec.Interfaces))
@@ -783,43 +797,8 @@ func buildInstanceCreateRequest(
 		createReq.SetAllowUnhealthyMachine(true)
 	}
 
-	if len(nicoMachine.Spec.InfinibandInterfaces) > 0 {
-		ibInterfaces := make([]nicosdk.InfiniBandInterfaceCreateRequest, 0, len(nicoMachine.Spec.InfinibandInterfaces))
-		for _, ib := range nicoMachine.Spec.InfinibandInterfaces {
-			req := nicosdk.NewInfiniBandInterfaceCreateRequest()
-			req.SetPartitionId(ib.PartitionID)
-			if ib.Device != "" {
-				req.SetDevice(ib.Device)
-			}
-			if ib.DeviceInstance != nil {
-				req.SetDeviceInstance(*ib.DeviceInstance)
-			}
-			if ib.Vendor != "" {
-				req.SetVendor(ib.Vendor)
-			}
-			if ib.IsPhysical != nil {
-				req.SetIsPhysical(*ib.IsPhysical)
-			}
-			if ib.VirtualFunctionID != nil {
-				req.SetVirtualFunctionId(*ib.VirtualFunctionID)
-			}
-			ibInterfaces = append(ibInterfaces, *req)
-		}
-		createReq.InfinibandInterfaces = ibInterfaces
-	}
-
-	if len(nicoMachine.Spec.NVLinkInterfaces) > 0 {
-		nvLinkInterfaces := make([]nicosdk.NVLinkInterfaceCreateRequest, 0, len(nicoMachine.Spec.NVLinkInterfaces))
-		for _, nv := range nicoMachine.Spec.NVLinkInterfaces {
-			req := nicosdk.NewNVLinkInterfaceCreateRequest()
-			req.SetNvLinklogicalPartitionId(nv.NVLinkLogicalPartitionID)
-			if nv.DeviceInstance != nil {
-				req.SetDeviceInstance(*nv.DeviceInstance)
-			}
-			nvLinkInterfaces = append(nvLinkInterfaces, *req)
-		}
-		createReq.NvLinkInterfaces = nvLinkInterfaces
-	}
+	createReq.InfinibandInterfaces = buildInfiniBandInterfaces(nicoMachine.Spec, instanceTypeCapabilities)
+	createReq.NvLinkInterfaces = buildNVLinkInterfaces(nicoMachine.Spec, instanceTypeCapabilities)
 
 	labels := mergeLabels(
 		map[string]string{
@@ -835,21 +814,91 @@ func buildInstanceCreateRequest(
 	return createReq, nil
 }
 
-func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (bool, string, string, error) {
+func buildInfiniBandInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachine.InstanceTypeCapabilities) []nicosdk.InfiniBandInterfaceCreateRequest {
+	if spec.InfinibandPartitionID != "" {
+		interfaces := make([]nicosdk.InfiniBandInterfaceCreateRequest, 0, len(capabilities.InfiniBandActiveDeviceIDs))
+		for _, deviceID := range capabilities.InfiniBandActiveDeviceIDs {
+			req := nicosdk.NewInfiniBandInterfaceCreateRequest()
+			req.SetPartitionId(spec.InfinibandPartitionID)
+			req.SetDevice(capabilities.InfiniBandDeviceName)
+			req.SetDeviceInstance(deviceID)
+			req.SetIsPhysical(true)
+			interfaces = append(interfaces, *req)
+		}
+		return interfaces
+	}
+
+	if len(spec.InfinibandInterfaces) == 0 {
+		return nil
+	}
+
+	interfaces := make([]nicosdk.InfiniBandInterfaceCreateRequest, 0, len(spec.InfinibandInterfaces))
+	for _, ib := range spec.InfinibandInterfaces {
+		req := nicosdk.NewInfiniBandInterfaceCreateRequest()
+		req.SetPartitionId(ib.PartitionID)
+		if ib.Device != "" {
+			req.SetDevice(ib.Device)
+		}
+		if ib.DeviceInstance != nil {
+			req.SetDeviceInstance(*ib.DeviceInstance)
+		}
+		if ib.Vendor != "" {
+			req.SetVendor(ib.Vendor)
+		}
+		if ib.IsPhysical != nil {
+			req.SetIsPhysical(*ib.IsPhysical)
+		}
+		if ib.VirtualFunctionID != nil {
+			req.SetVirtualFunctionId(*ib.VirtualFunctionID)
+		}
+		interfaces = append(interfaces, *req)
+	}
+	return interfaces
+}
+
+func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachine.InstanceTypeCapabilities) []nicosdk.NVLinkInterfaceCreateRequest {
+	if spec.NVLinkLogicalPartitionID != "" {
+		interfaces := make([]nicosdk.NVLinkInterfaceCreateRequest, 0, len(capabilities.NVLinkActiveDeviceIDs))
+		for _, deviceID := range capabilities.NVLinkActiveDeviceIDs {
+			req := nicosdk.NewNVLinkInterfaceCreateRequest()
+			req.SetNvLinklogicalPartitionId(spec.NVLinkLogicalPartitionID)
+			req.SetDeviceInstance(deviceID)
+			interfaces = append(interfaces, *req)
+		}
+		return interfaces
+	}
+
+	if len(spec.NVLinkInterfaces) == 0 {
+		return nil
+	}
+
+	interfaces := make([]nicosdk.NVLinkInterfaceCreateRequest, 0, len(spec.NVLinkInterfaces))
+	for _, nv := range spec.NVLinkInterfaces {
+		req := nicosdk.NewNVLinkInterfaceCreateRequest()
+		req.SetNvLinklogicalPartitionId(nv.NVLinkLogicalPartitionID)
+		if nv.DeviceInstance != nil {
+			req.SetDeviceInstance(*nv.DeviceInstance)
+		}
+		interfaces = append(interfaces, *req)
+	}
+	return interfaces
+}
+
+func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (*nicosdk.InstanceType, bool, string, string, error) {
 	log := ctrl.LoggerFrom(ctx)
 	instanceType, err := nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
 	log.V(2).Info("instance type availability check result", "instanceType", instanceType, "err", err)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
-			return false, infrav1.InstanceTypeNotFoundReason, fmt.Sprintf("Instance type %q was not found", instanceTypeID), nil
+			return nil, false, infrav1.InstanceTypeNotFoundReason, fmt.Sprintf("Instance type %q was not found", instanceTypeID), nil
 		}
-		return false, "", "", err
+		return nil, false, "", "", err
 	}
 	if instanceType == nil || instanceType.AllocationStats == nil || instanceType.AllocationStats.UnusedUsable == nil {
-		return false, "", "", fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
+		return nil, false, "", "", fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
 	}
 	if *instanceType.AllocationStats.UnusedUsable > 0 {
-		return true, "", "", nil
+		return instanceType, true, "", "", nil
 	}
 
 	message := fmt.Sprintf("Instance type %q has no unused usable allocations (total=%d used=%d unused=%d unusedUsable=%d)",
@@ -860,5 +909,5 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 		instanceType.AllocationStats.GetUnusedUsable(),
 	)
 
-	return false, infrav1.InstanceTypeUnavailableReason, message, nil
+	return instanceType, false, infrav1.InstanceTypeUnavailableReason, message, nil
 }

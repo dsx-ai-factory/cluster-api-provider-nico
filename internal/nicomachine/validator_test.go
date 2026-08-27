@@ -27,9 +27,10 @@ const (
 
 func TestValidator_ValidateInstance(t *testing.T) {
 	type parameters struct {
-		instance *nicosdk.Instance
-		machine  infrav1.NicoMachine
-		wantErr  string
+		instance     *nicosdk.Instance
+		machine      infrav1.NicoMachine
+		capabilities nicomachine.InstanceTypeCapabilities
+		wantErr      string
 	}
 
 	tests := map[string]parameters{
@@ -119,11 +120,111 @@ func TestValidator_ValidateInstance(t *testing.T) {
 			machine: validMachine(),
 			wantErr: "instance and machine NVLink interfaces do not match",
 		},
+		"accepts InfiniBand partition ID expansion": {
+			instance: validInstanceWith(func(instance *nicosdk.Instance) {
+				instance.SetInfinibandInterfaces([]nicosdk.InfiniBandInterface{
+					instanceInfiniBandInterface(testPartitionID),
+					instanceInfiniBandInterface(testPartitionID),
+				})
+			}),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.InfinibandInterfaces = nil
+				machine.Spec.InfinibandPartitionID = testPartitionID
+			}),
+			capabilities: nicomachine.InstanceTypeCapabilities{
+				InfiniBandActiveDeviceIDs: []int32{0, 2},
+				InfiniBandSupported:       true,
+			},
+		},
+		"rejects InfiniBand partition ID count mismatch": {
+			instance: validInstance(),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.InfinibandInterfaces = nil
+				machine.Spec.InfinibandPartitionID = testPartitionID
+			}),
+			capabilities: nicomachine.InstanceTypeCapabilities{
+				InfiniBandActiveDeviceIDs: []int32{0, 2},
+				InfiniBandSupported:       true,
+			},
+			wantErr: "instance has 1 InfiniBand interfaces, expected 2",
+		},
+		"rejects InfiniBand partition ID without instance type support": {
+			instance: validInstance(),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.InfinibandInterfaces = nil
+				machine.Spec.InfinibandPartitionID = testPartitionID
+			}),
+			wantErr: `instance type "instance-type-1" does not support InfiniBand`,
+		},
+		"rejects InfiniBand partition ID mismatch": {
+			instance: validInstanceWith(func(instance *nicosdk.Instance) {
+				instance.SetInfinibandInterfaces([]nicosdk.InfiniBandInterface{instanceInfiniBandInterface("other-partition")})
+			}),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.InfinibandInterfaces = nil
+				machine.Spec.InfinibandPartitionID = testPartitionID
+			}),
+			capabilities: nicomachine.InstanceTypeCapabilities{
+				InfiniBandActiveDeviceIDs: []int32{0},
+				InfiniBandSupported:       true,
+			},
+			wantErr: "instance InfiniBand interface partition does not match",
+		},
+		"accepts NVLink partition ID expansion": {
+			instance: validInstanceWith(func(instance *nicosdk.Instance) {
+				instance.SetNvLinkInterfaces([]nicosdk.NVLinkInterface{
+					instanceNVLinkInterface(testNVLinkLogicalPartitionID),
+					instanceNVLinkInterface(testNVLinkLogicalPartitionID),
+				})
+			}),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.NVLinkInterfaces = nil
+				machine.Spec.NVLinkLogicalPartitionID = testNVLinkLogicalPartitionID
+			}),
+			capabilities: nicomachine.InstanceTypeCapabilities{
+				NVLinkActiveDeviceIDs: []int32{0, 2},
+				NVLinkSupported:       true,
+			},
+		},
+		"rejects NVLink partition ID count mismatch": {
+			instance: validInstance(),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.NVLinkInterfaces = nil
+				machine.Spec.NVLinkLogicalPartitionID = testNVLinkLogicalPartitionID
+			}),
+			capabilities: nicomachine.InstanceTypeCapabilities{
+				NVLinkActiveDeviceIDs: []int32{0, 2},
+				NVLinkSupported:       true,
+			},
+			wantErr: "instance has 1 NVLink interfaces, expected 2",
+		},
+		"rejects NVLink partition ID mismatch": {
+			instance: validInstanceWith(func(instance *nicosdk.Instance) {
+				instance.SetNvLinkInterfaces([]nicosdk.NVLinkInterface{instanceNVLinkInterface("other-partition")})
+			}),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.NVLinkInterfaces = nil
+				machine.Spec.NVLinkLogicalPartitionID = testNVLinkLogicalPartitionID
+			}),
+			capabilities: nicomachine.InstanceTypeCapabilities{
+				NVLinkActiveDeviceIDs: []int32{0},
+				NVLinkSupported:       true,
+			},
+			wantErr: "instance NVLink interface partition does not match",
+		},
+		"rejects NVLink partition ID without instance type support": {
+			instance: validInstance(),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.NVLinkInterfaces = nil
+				machine.Spec.NVLinkLogicalPartitionID = testNVLinkLogicalPartitionID
+			}),
+			wantErr: `instance type "instance-type-1" does not support NVLink`,
+		},
 	}
 
 	for name, params := range tests {
 		t.Run(name, func(t *testing.T) {
-			err := nicomachine.ValidateInstance(params.instance, params.machine)
+			err := nicomachine.ValidateInstance(params.instance, params.machine, instanceTypeForCapabilities(params.capabilities))
 			if params.wantErr == "" {
 				assert.NoError(t, err)
 				return
@@ -131,6 +232,31 @@ func TestValidator_ValidateInstance(t *testing.T) {
 			assert.ErrorContains(t, err, params.wantErr)
 		})
 	}
+}
+
+func instanceTypeForCapabilities(capabilities nicomachine.InstanceTypeCapabilities) *nicosdk.InstanceType {
+	if !capabilities.InfiniBandSupported && !capabilities.NVLinkSupported {
+		return nil
+	}
+
+	machineCapabilities := make([]nicosdk.MachineCapability, 0, 2)
+	if capabilities.InfiniBandSupported {
+		capability := nicosdk.NewMachineCapability()
+		capability.SetType("InfiniBand")
+		capability.SetName("mlx5")
+		capability.SetCount(int32(len(capabilities.InfiniBandActiveDeviceIDs)))
+		machineCapabilities = append(machineCapabilities, *capability)
+	}
+	if capabilities.NVLinkSupported {
+		capability := nicosdk.NewMachineCapability()
+		capability.SetType("NVLink")
+		capability.SetCount(int32(len(capabilities.NVLinkActiveDeviceIDs)))
+		machineCapabilities = append(machineCapabilities, *capability)
+	}
+
+	instanceType := nicosdk.NewInstanceType()
+	instanceType.SetMachineCapabilities(machineCapabilities)
+	return instanceType
 }
 
 func validInstanceWith(mutate func(*nicosdk.Instance)) *nicosdk.Instance {
