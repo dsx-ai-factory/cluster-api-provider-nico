@@ -9,16 +9,6 @@ stringData:
   orgID: org-1
   token: test-token
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: bootstrap-1
-  namespace: default
-type: Opaque
-stringData:
-  value: |
-    #cloud-config
----
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:

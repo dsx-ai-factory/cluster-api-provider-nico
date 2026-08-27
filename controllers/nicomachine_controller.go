@@ -75,8 +75,6 @@ type NicoMachineReconciler struct {
 	APIReader      client.Reader
 	Scheme         *runtime.Scheme
 	ProviderConfig nico.ProviderConfig
-	// nicoClientFactory optionally overrides client construction after Secret load (tests).
-	nicoClientFactory nicoClientFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -548,7 +546,7 @@ func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMac
 }
 
 func (r *NicoMachineReconciler) nicoClientForCluster(ctx context.Context, nicoCluster *infrav1.NicoCluster) (nico.API, error) {
-	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials, r.nicoClientFactory)
+	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials)
 }
 
 func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster *clusterv1.Cluster) (*infrav1.NicoCluster, error) {

@@ -29,6 +29,10 @@ make build
 make test
 ```
 
+Controller tests use file-backed Kubernetes and NICo state. See
+[docs/writing-tests.md](docs/writing-tests.md), and use `make test-update` when
+the expected state intentionally changes.
+
 **Run the full local CI gate** (mirrors what runs in GitHub Actions):
 
 ```bash

@@ -4,75 +4,153 @@
 package controllers
 
 import (
-	"context"
-	"testing"
+	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/test/fixtures"
 )
 
-func TestNicoClusterReconciler_InvalidIdentitySecret(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, clusterv1.AddToScheme(scheme))
-	require.NoError(t, infrav1.AddToScheme(scheme))
+const testCluster = "nico-1"
 
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "cluster-1", UID: "cluster-uid"},
-	}
-	nicoCluster := &infrav1.NicoCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:  "ns",
-			Name:       "nico-1",
-			Finalizers: []string{nicoClusterFinalizer},
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: clusterv1.GroupVersion.String(),
-				Kind:       "Cluster",
-				Name:       cluster.Name,
-				UID:        cluster.UID,
-			}},
+func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
+	return fixtures.CaseSet{
+		Description:          description,
+		DirPrefix:            dirPrefix,
+		MaskExpectedMetadata: true,
+		SchemeFn:             newScheme,
+		EnvironmentFn:        newEnvironment,
+		CompareObjects: func() []client.ObjectList {
+			return []client.ObjectList{
+				&infrav1.NicoClusterList{},
+				&infrav1.NicoMachineList{},
+			}
 		},
-		Spec: infrav1.NicoClusterSpec{
-			IdentityRef: corev1.LocalObjectReference{Name: "nico-creds"},
+		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
+			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
+			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
+			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
+
+			server := fake.New()
+			caseFakes.Store(tc.Name, server)
+			gomega.Expect(seedFakeResources(tc, server)).To(gomega.Succeed())
+
+			endpoint := startFake(server)
+			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
+			startReconcilers(ctx, tc)
 		},
+		DefineSteps: defineSteps,
 	}
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "nico-creds"},
-		Data:       map[string][]byte{nico.SecretKeyEndpoint: []byte("https://nico.example")},
-	}
-
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(cluster, nicoCluster, secret).
-		WithStatusSubresource(nicoCluster).
-		Build()
-
-	r := &NicoClusterReconciler{Client: c, Scheme: scheme}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "nico-1"}}
-
-	_, err := r.Reconcile(context.Background(), req)
-	require.Error(t, err)
-
-	var updated infrav1.NicoCluster
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: "ns", Name: "nico-1"}, &updated))
-	cond := conditions.Get(&updated, infrav1.NicoReadyCondition)
-	require.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, infrav1.IdentityConfigurationFailedReason, cond.Reason)
-	ready := conditions.Get(&updated, clusterv1.ReadyCondition)
-	require.NotNil(t, ready)
-	assert.Equal(t, metav1.ConditionFalse, ready.Status)
-	assert.Equal(t, clusterv1.NotReadyReason, ready.Reason)
-	assert.False(t, updated.Status.Ready)
 }
+
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+// Represents a CR at generation 1 because create reconciliation only writes status.
+var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
+	"NicoCluster create reconciliation",
+	"nicocluster-create-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoCluster := &infrav1.NicoCluster{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testCluster}, nicoCluster)).To(gomega.Succeed())
+				synced := conditions.Get(nicoCluster, infrav1.SyncedCondition)
+				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(nicoCluster.Generation).To(gomega.Equal(int64(1)))
+				g.Expect(synced.ObservedGeneration).To(gomega.Equal(nicoCluster.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+	},
+))
+
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+// Represents a provisioned CR at generation 2 after a spec update.
+var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
+	"NicoCluster update reconciliation ending provisioned",
+	"nicocluster-update-provisioned-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoCluster := &infrav1.NicoCluster{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testCluster}, nicoCluster)).To(gomega.Succeed())
+				synced := conditions.Get(nicoCluster, infrav1.SyncedCondition)
+				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(synced.ObservedGeneration).To(gomega.Equal(nicoCluster.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("applies the NicoCluster update", func(ctx ginkgo.SpecContext) {
+			gomega.Expect(tc.PatchObjects(ctx, "input_update.yaml")).To(gomega.Succeed())
+		})
+
+		ginkgo.It("reconciles the updated NicoCluster", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoCluster := &infrav1.NicoCluster{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testCluster}, nicoCluster)).To(gomega.Succeed())
+				synced := conditions.Get(nicoCluster, infrav1.SyncedCondition)
+				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(nicoCluster.Generation).To(gomega.BeNumerically(">", 1))
+				g.Expect(synced.ObservedGeneration).To(gomega.Equal(nicoCluster.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+	},
+))
+
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
+	"NicoCluster delete reconciliation",
+	"nicocluster-delete-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		var deletedObjects []client.Object
+
+		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoCluster := &infrav1.NicoCluster{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testCluster}, nicoCluster)).To(gomega.Succeed())
+				synced := conditions.Get(nicoCluster, infrav1.SyncedCondition)
+				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(synced.ObservedGeneration).To(gomega.Equal(nicoCluster.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				machines := &infrav1.NicoMachineList{}
+				g.Expect(tc.Client.List(ctx, machines)).To(gomega.Succeed())
+				g.Expect(machines.Items).NotTo(gomega.BeEmpty())
+				for i := range machines.Items {
+					g.Expect(ptr.Deref(machines.Items[i].Status.Initialization.Provisioned, false)).To(gomega.BeTrue())
+				}
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("deletes the selected objects", func(ctx ginkgo.SpecContext) {
+			var err error
+			deletedObjects, err = tc.DeleteObjects(ctx, "input_delete.yaml")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
+		ginkgo.It("reconciles the object deletion", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, object := range deletedObjects {
+					actual := object.DeepCopyObject().(client.Object)
+					err := tc.Client.Get(ctx, client.ObjectKeyFromObject(object), actual)
+					g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue())
+				}
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+	},
+))

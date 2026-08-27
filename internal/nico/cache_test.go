@@ -5,14 +5,12 @@ package nico
 
 import (
 	"context"
-	"encoding/base64"
-	"io"
-	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
 )
 
 func TestClientCacheReusesClientForSameSecretRevision(t *testing.T) {
@@ -73,42 +71,11 @@ func TestClientCacheInvalidatesOnSecretRevisionChange(t *testing.T) {
 }
 
 func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
-	var tokenCalls int
-	var tenantCalls int
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/token":
-			tokenCalls++
-			expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("client-id:client-secret"))
-			if got := r.Header.Get("Authorization"); got != expectedAuth {
-				t.Fatalf("expected Authorization header %q, got %q", expectedAuth, got)
-			}
-			bodyBytes, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Fatalf("ReadAll() error = %v", err)
-			}
-			values, err := url.ParseQuery(string(bodyBytes))
-			if err != nil {
-				t.Fatalf("ParseQuery() error = %v", err)
-			}
-			if got := values.Get("grant_type"); got != "client_credentials" {
-				t.Fatalf("expected client_credentials grant type, got %q", got)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"dynamic-token","token_type":"Bearer","expires_in":3600}`))
-		case testTenantPath:
-			tenantCalls++
-			if got := r.Header.Get("Authorization"); got != "Bearer dynamic-token" {
-				t.Fatalf("expected bearer token header, got %q", got)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"tenant-1"}`))
-		default:
-			t.Fatalf("unexpected request path %q", r.URL.Path)
-		}
-	}))
-	defer server.Close()
+	api := fake.New()
+	api.SeedClient("client-id", "client-secret")
+	api.SeedTenant("test-org", testTenant())
+	server := httptest.NewServer(api.Handler())
+	t.Cleanup(server.Close)
 
 	cfg := SecretConfig{
 		Endpoint:     server.URL,
@@ -132,6 +99,10 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 		t.Fatalf("expected tenant-1, got %q", tenantID)
 	}
 
+	replacement := testTenant()
+	replacement.SetId("tenant-2")
+	api.SeedTenant("test-org", replacement)
+
 	tenantID, err = client.ResolveTenantID(context.Background())
 	if err != nil {
 		t.Fatalf("ResolveTenantID() second call error = %v", err)
@@ -140,10 +111,7 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 		t.Fatalf("expected tenant-1 on second call, got %q", tenantID)
 	}
 
-	if tokenCalls != 1 {
-		t.Fatalf("expected token endpoint to be called once, got %d", tokenCalls)
-	}
-	if tenantCalls != 1 {
-		t.Fatalf("expected tenant API to be called once, got %d", tenantCalls)
+	if got := api.TokenRequestCount(); got != 1 {
+		t.Fatalf("expected token endpoint to be called once, got %d", got)
 	}
 }

@@ -5,194 +5,172 @@ package controllers
 
 import (
 	"context"
-	"testing"
+	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
-
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/test/fixtures"
 )
 
-const testProviderInstanceID = "instance-1"
+const (
+	timeout     = 60 * time.Second
+	testMachine = "nicomachine-1"
+)
 
-func TestSetObservedTopologyPreservesRawForgeValues(t *testing.T) {
-	machine := &infrav1.NicoMachine{}
-	instance := nicosdk.NewInstance()
-	instance.SetMachineId("machine-1")
-	instance.SetSiteId("site-1")
-	instance.SetVpcId("vpc-1")
-	site := nicosdk.NewSite()
-	site.SetName("New York / A")
-	vpc := nicosdk.NewVPC()
-	vpc.SetName("Tenant VPC")
-
-	setObservedTopology(machine, instance, site, vpc)
-
-	assert.Equal(t, "machine-1", machine.Status.MachineID)
-	assert.Equal(t, "site-1", machine.Status.SiteID)
-	assert.Equal(t, "New York / A", machine.Status.SiteName)
-	assert.Equal(t, "vpc-1", machine.Status.VPCID)
-	assert.Equal(t, "Tenant VPC", machine.Status.VPCName)
-}
-
-func TestSetObservedTopologyLeavesUnavailableNamesAbsent(t *testing.T) {
-	machine := &infrav1.NicoMachine{Status: infrav1.NicoMachineStatus{
-		SiteName: "stale site name",
-		VPCName:  "stale VPC name",
-	}}
-	instance := nicosdk.NewInstance()
-	instance.SetMachineId("machine-1")
-	instance.SetSiteId("site-1")
-	instance.SetVpcId("vpc-1")
-
-	setObservedTopology(machine, instance, nil, nil)
-
-	assert.Equal(t, "machine-1", machine.Status.MachineID)
-	assert.Equal(t, "site-1", machine.Status.SiteID)
-	assert.Empty(t, machine.Status.SiteName)
-	assert.Equal(t, "vpc-1", machine.Status.VPCID)
-	assert.Empty(t, machine.Status.VPCName)
-}
-
-func TestObservedTopologyLabels(t *testing.T) {
-	// This test protects the post-create VM label update contract, including the
-	// late-arriving machine-id and normalized topology name labels.
-	machine := &infrav1.NicoMachine{Status: infrav1.NicoMachineStatus{
-		MachineID: "machine-1",
-		SiteID:    "site-1",
-		SiteName:  "Forge VMs Site",
-		VPCID:     "vpc-1",
-		VPCName:   "Mock VPC",
-	}}
-
-	labels := observedTopologyLabels(machine)
-
-	assert.Equal(t, "machine-1", labels[labelKeyMachineID])
-	assert.Equal(t, "site-1", labels[labelKeySiteID])
-	assert.Equal(t, "forge-vms-site", labels[labelKeySiteName])
-	assert.Equal(t, "vpc-1", labels[labelKeyVPCID])
-	assert.Equal(t, "mock-vpc", labels[labelKeyVPCName])
-}
-
-func TestNeedsLabelUpdate(t *testing.T) {
-	observed := map[string]string{
-		labelKeyMachineID: "machine-1",
-		labelKeySiteID:    "site-1",
-		labelKeySiteName:  "forge-vms-site",
-		labelKeyVPCID:     "vpc-1",
-		labelKeyVPCName:   "mock-vpc",
-	}
-
-	type parameters struct {
-		existing map[string]string
-		desired  map[string]string
-		want     bool
-	}
-
-	tests := map[string]parameters{
-		"true when the instance has no labels": {
-			desired: observed,
-			want:    true,
-		},
-		"true when a value drifted": {
-			existing: mergeLabels(observed, map[string]string{labelKeySiteName: "stale-site"}),
-			desired:  observed,
-			want:     true,
-		},
-		"true when a key is missing": {
-			existing: map[string]string{labelKeyMachineID: "machine-1"},
-			desired:  observed,
-			want:     true,
-		},
-		"true when unrelated labels are present and topology labels are missing": {
-			existing: map[string]string{"other": "keep"},
-			desired:  mergeLabels(observed, map[string]string{"other": "keep"}),
-			want:     true,
-		},
-		"false when labels already match": {
-			existing: mergeLabels(observed, map[string]string{"other": "keep"}),
-			desired:  mergeLabels(observed, map[string]string{"other": "keep"}),
-			want:     false,
-		},
-		"false when both are empty": {},
-	}
-
-	for name, params := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, params.want, needsLabelUpdate(params.existing, params.desired))
-		})
-	}
-}
-
-func TestNicoMachineReconciler_ProviderIDClaimedBy(t *testing.T) {
-	type parameters struct {
-		existing []infrav1.NicoMachine
-		machine  infrav1.NicoMachine
-		want     string
-	}
-
-	tests := map[string]parameters{
-		"returns empty when provider ID is not claimed": {
-			existing: []infrav1.NicoMachine{
-				nicoMachine("default", "other", "other-instance", "other-uid"),
-			},
-			machine: nicoMachine("default", "machine", testProviderInstanceID, "machine-uid"),
-		},
-		"ignores the current NicoMachine": {
-			existing: []infrav1.NicoMachine{
-				nicoMachine("default", "machine", testProviderInstanceID, "machine-uid"),
-			},
-			machine: nicoMachine("default", "machine", testProviderInstanceID, "machine-uid"),
-		},
-		"returns claiming NicoMachine": {
-			existing: []infrav1.NicoMachine{
-				nicoMachine("default", "claiming-machine", testProviderInstanceID, "claiming-machine-uid"),
-			},
-			machine: nicoMachine("default", "machine", testProviderInstanceID, "machine-uid"),
-			want:    "default/claiming-machine",
-		},
-	}
-
-	for name, params := range tests {
-		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			require.NoError(t, infrav1.AddToScheme(scheme))
-
-			objects := make([]runtime.Object, 0, len(params.existing))
-			for i := range params.existing {
-				objects = append(objects, &params.existing[i])
+func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
+	return fixtures.CaseSet{
+		Description:          description,
+		DirPrefix:            dirPrefix,
+		MaskExpectedMetadata: true,
+		SchemeFn:             newScheme,
+		EnvironmentFn:        newEnvironment,
+		CompareObjects: func() []client.ObjectList {
+			return []client.ObjectList{
+				&infrav1.NicoClusterList{},
+				&infrav1.NicoMachineList{},
 			}
-			reconciler := NicoMachineReconciler{
-				Client: fake.NewClientBuilder().
-					WithScheme(scheme).
-					WithRuntimeObjects(objects...).
-					Build(),
-			}
+		},
+		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
+			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
+			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
+			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
 
-			got, err := reconciler.providerIDClaimedBy(context.Background(), params.machine, testProviderInstanceID)
+			server := fake.New()
+			caseFakes.Store(tc.Name, server)
+			gomega.Expect(seedFakeResources(tc, server)).To(gomega.Succeed())
+			tc.AddGolden("expected_nico.yaml", func(context.Context) (string, error) {
+				return server.Dump()
+			})
 
-			require.NoError(t, err)
-			assert.Equal(t, params.want, got)
+			endpoint := startFake(server)
+			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
+			startReconcilers(ctx, tc)
+		},
+		DefineSteps: defineSteps,
+	}
+}
+
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+// Represents a provisioned CR at generation 2 after CAPNICo sets providerID.
+var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+	"NicoMachine create reconciliation ending provisioned",
+	"nicomachine-create-provisioned-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoMachine := &infrav1.NicoMachine{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
+				g.Expect(provisioned).NotTo(gomega.BeNil())
+				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 1))
+				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 		})
-	}
-}
+	},
+))
 
-func nicoMachine(namespace, name, instanceID, uid string) infrav1.NicoMachine { //nolint:unparam
-	return infrav1.NicoMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      name,
-			UID:       types.UID(uid),
-		},
-		Spec: infrav1.NicoMachineSpec{
-			ProviderID: nico.ProviderID(instanceID),
-		},
-	}
-}
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+// Represents an unprovisioned CR at generation 1 with no providerID.
+var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+	"NicoMachine create reconciliation ending not provisioned",
+	"nicomachine-create-not-provisioned-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoMachine := &infrav1.NicoMachine{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
+				g.Expect(provisioned).NotTo(gomega.BeNil())
+				g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(nicoMachine.Generation).To(gomega.Equal(int64(1)))
+				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+	},
+))
+
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+// Represents a provisioned CR at generation 2 after a spec update.
+var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+	"NicoMachine update reconciliation ending provisioned",
+	"nicomachine-update-provisioned-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoMachine := &infrav1.NicoMachine{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
+				g.Expect(provisioned).NotTo(gomega.BeNil())
+				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("applies the NicoMachine update", func(ctx ginkgo.SpecContext) {
+			gomega.Expect(tc.PatchObjects(ctx, "input_update.yaml")).To(gomega.Succeed())
+		})
+
+		ginkgo.It("reconciles the updated NicoMachine", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoMachine := &infrav1.NicoMachine{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+
+				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
+				g.Expect(provisioned).NotTo(gomega.BeNil())
+				g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionTrue))
+
+				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 2))
+				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+	},
+))
+
+// IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
+// have to add or update a case set.
+var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+	"NicoMachine delete reconciliation",
+	"nicomachine-delete-",
+	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+		var deletedObjects []client.Object
+
+		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoMachine := &infrav1.NicoMachine{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
+				g.Expect(provisioned).NotTo(gomega.BeNil())
+				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("deletes the selected objects", func(ctx ginkgo.SpecContext) {
+			var err error
+			deletedObjects, err = tc.DeleteObjects(ctx, "input_delete.yaml")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		})
+
+		ginkgo.It("reconciles the object deletion", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, object := range deletedObjects {
+					actual := object.DeepCopyObject().(client.Object)
+					err := tc.Client.Get(ctx, client.ObjectKeyFromObject(object), actual)
+					g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue())
+				}
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+		})
+	},
+))

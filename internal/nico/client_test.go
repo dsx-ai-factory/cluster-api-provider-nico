@@ -5,35 +5,25 @@ package nico
 
 import (
 	"context"
-	"net/http"
+	"fmt"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
 )
 
 func TestClientGetSite(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
-			t.Fatalf("Authorization = %q, want %q", got, want)
-		}
-		switch r.URL.Path {
-		case testTenantPath:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"tenant-1"}`))
-		case "/v2/org/test-org/carbide/site":
-			if got, want := r.URL.Query().Get("tenantId"), testTenantID; got != want {
-				t.Fatalf("tenantId = %q, want %q", got, want)
-			}
-			if got, want := r.URL.Query().Get("pageSize"), "100"; got != want {
-				t.Fatalf("pageSize = %q, want %q", got, want)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[{"id":"other-site","name":"Other"},{"id":"site-1","name":"Site / West"}]`))
-		default:
-			t.Fatalf("request path = %q, want current tenant or tenant-scoped sites", r.URL.Path)
-		}
-	}))
-	defer server.Close()
+	api := fake.New()
+	api.SeedToken("static-token")
+	api.SeedTenant("test-org", testTenant())
+	siteResource := nicosdk.NewSite()
+	siteResource.SetId("site-1")
+	siteResource.SetName("Site / West")
+	api.SeedSite("test-org", *siteResource)
+	server := httptest.NewServer(api.Handler())
+	t.Cleanup(server.Close)
 
 	client := newStaticTokenClient(t, server.URL)
 	site, err := client.GetSite(context.Background(), "site-1")
@@ -46,17 +36,14 @@ func TestClientGetSite(t *testing.T) {
 }
 
 func TestClientGetVPC(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.URL.Path, "/v2/org/test-org/carbide/vpc/vpc-1"; got != want {
-			t.Fatalf("request path = %q, want %q", got, want)
-		}
-		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
-			t.Fatalf("Authorization = %q, want %q", got, want)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"vpc-1","name":"VPC / Production"}`))
-	}))
-	defer server.Close()
+	api := fake.New()
+	api.SeedToken("static-token")
+	vpcResource := nicosdk.NewVPC()
+	vpcResource.SetId("vpc-1")
+	vpcResource.SetName("VPC / Production")
+	api.SeedVPC("test-org", *vpcResource)
+	server := httptest.NewServer(api.Handler())
+	t.Cleanup(server.Close)
 
 	client := newStaticTokenClient(t, server.URL)
 	vpc, err := client.GetVPC(context.Background(), "vpc-1")
@@ -69,50 +56,33 @@ func TestClientGetVPC(t *testing.T) {
 }
 
 func TestClientGetSiteQueriesAdditionalPagesUntilFound(t *testing.T) {
-	var sitePageRequests []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
-			t.Fatalf("Authorization = %q, want %q", got, want)
-		}
-		switch r.URL.Path {
-		case testTenantPath:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"tenant-1"}`))
-		case "/v2/org/test-org/carbide/site":
-			if got, want := r.URL.Query().Get("tenantId"), testTenantID; got != want {
-				t.Fatalf("tenantId = %q, want %q", got, want)
-			}
-			if got, want := r.URL.Query().Get("pageSize"), "100"; got != want {
-				t.Fatalf("pageSize = %q, want %q", got, want)
-			}
-			page := r.URL.Query().Get("pageNumber")
-			sitePageRequests = append(sitePageRequests, page)
-			w.Header().Set("Content-Type", "application/json")
-			switch page {
-			case "1":
-				_, _ = w.Write([]byte("[" + strings.TrimSuffix(strings.Repeat(`{"id":"other-site"},`, pageSize), ",") + "]"))
-			case "2":
-				_, _ = w.Write([]byte(`[{"id":"site-101","name":"Site / East"}]`))
-			default:
-				t.Fatalf("unexpected pageNumber %q", page)
-			}
-		default:
-			t.Fatalf("request path = %q, want current tenant or tenant-scoped sites", r.URL.Path)
-		}
-	}))
-	defer server.Close()
+	api := fake.New()
+	api.SeedToken("static-token")
+	api.SeedTenant("test-org", testTenant())
+	for i := range 101 {
+		siteResource := nicosdk.NewSite()
+		siteResource.SetId(fmt.Sprintf("site-%03d", i))
+		siteResource.SetName(fmt.Sprintf("Site %03d", i))
+		api.SeedSite("test-org", *siteResource)
+	}
+	server := httptest.NewServer(api.Handler())
+	t.Cleanup(server.Close)
 
 	client := newStaticTokenClient(t, server.URL)
-	site, err := client.GetSite(context.Background(), "site-101")
+	site, err := client.GetSite(context.Background(), "site-100")
 	if err != nil {
 		t.Fatalf("GetSite() error = %v", err)
 	}
-	if got, want := site.GetName(), "Site / East"; got != want {
+	if got, want := site.GetName(), "Site 100"; got != want {
 		t.Fatalf("site name = %q, want raw name %q", got, want)
 	}
-	if got, want := strings.Join(sitePageRequests, ","), "1,2"; got != want {
-		t.Fatalf("site page requests = %q, want %q", got, want)
-	}
+}
+
+func testTenant() nicosdk.Tenant {
+	tenant := nicosdk.NewTenant()
+	tenant.SetId(testTenantID)
+	tenant.SetOrg("test-org")
+	return *tenant
 }
 
 func newStaticTokenClient(t *testing.T, endpoint string) *Client {

@@ -52,8 +52,6 @@ type NicoClusterReconciler struct {
 	APIReader      client.Reader
 	Scheme         *runtime.Scheme
 	ProviderConfig nico.ProviderConfig
-	// nicoClientFactory optionally overrides client construction after Secret load (tests).
-	nicoClientFactory nicoClientFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch;update;patch
@@ -181,7 +179,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *NicoClusterReconciler) nicoClientForCluster(ctx context.Context, nicoCluster *infrav1.NicoCluster) (nico.API, error) {
-	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials, r.nicoClientFactory)
+	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials)
 }
 
 func (r *NicoClusterReconciler) reader() client.Reader {

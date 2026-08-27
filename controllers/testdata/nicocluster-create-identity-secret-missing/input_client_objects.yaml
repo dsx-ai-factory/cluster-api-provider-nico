@@ -1,0 +1,25 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: cluster-1
+  namespace: default
+spec:
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoCluster
+    name: nico-1
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: nico-1
+  namespace: default
+  ownerReferences:
+  - apiVersion: cluster.x-k8s.io/v1beta2
+    kind: Cluster
+    name: cluster-1
+    uid: 00000000-0000-0000-0000-000000000000
+spec:
+  siteID: site-1
+  identityRef:
+    name: nico-creds

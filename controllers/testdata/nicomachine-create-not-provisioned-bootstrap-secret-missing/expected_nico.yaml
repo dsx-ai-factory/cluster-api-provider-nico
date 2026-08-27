@@ -1,0 +1,22 @@
+instance_types: []
+instances: []
+requests: []
+sites:
+- org: org-1
+  resource:
+    id: site-1
+    name: fake-site
+    org: org-1
+tenants:
+- org: org-1
+  resource:
+    id: tenant-1
+    org: org-1
+vpcs:
+- org: org-1
+  resource:
+    id: vpc-1
+    name: fake-vpc
+    org: org-1
+    siteId: site-1
+    tenantId: tenant-1

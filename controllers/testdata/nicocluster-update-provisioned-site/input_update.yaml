@@ -1,0 +1,9 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: nico-1
+  namespace: default
+spec:
+  siteID: site-2
+  identityRef:
+    name: nico-creds

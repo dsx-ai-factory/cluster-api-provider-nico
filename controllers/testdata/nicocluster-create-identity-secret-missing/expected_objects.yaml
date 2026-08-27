@@ -21,10 +21,10 @@ items:
   status:
     conditions:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: ""
+      message: '* NicoReady: Secret "nico-creds" not found'
       observedGeneration: 1
-      reason: Available
-      status: "True"
+      reason: NotAvailable
+      status: "False"
       type: Available
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
@@ -33,10 +33,10 @@ items:
       status: "False"
       type: Deleting
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: ""
+      message: Secret "nico-creds" not found
       observedGeneration: 1
-      reason: InfrastructureReady
-      status: "True"
+      reason: WaitingForIdentitySecret
+      status: "False"
       type: NicoReady
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
@@ -45,20 +45,19 @@ items:
       status: "False"
       type: Paused
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: ""
+      message: |-
+        * Available:
+          * NicoReady: Secret "nico-creds" not found
       observedGeneration: 1
-      reason: Ready
-      status: "True"
+      reason: NotReady
+      status: "False"
       type: Ready
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: ""
+      message: '* NicoReady: Secret "nico-creds" not found'
       observedGeneration: 1
-      reason: Synced
-      status: "True"
+      reason: NotSynced
+      status: "False"
       type: Synced
-    initialization:
-      provisioned: true
-    ready: true
 metadata: {}
 ---
 items: []

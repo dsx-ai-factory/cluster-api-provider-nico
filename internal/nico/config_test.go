@@ -5,15 +5,13 @@ package nico
 
 import (
 	"context"
-	"encoding/base64"
-	"io"
-	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
 )
 
 func TestLoadSecretConfigStaticToken(t *testing.T) {
@@ -105,42 +103,15 @@ func TestTokenSourceStaticToken(t *testing.T) {
 }
 
 func TestTokenSourceOAuthClientCredentials(t *testing.T) {
-	var sawRequest bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawRequest = true
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST request, got %s", r.Method)
-		}
-
-		expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("client-id:client-secret"))
-		if got := r.Header.Get("Authorization"); got != expectedAuth {
-			t.Fatalf("expected Authorization header %q, got %q", expectedAuth, got)
-		}
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("ReadAll() error = %v", err)
-		}
-		values, err := url.ParseQuery(string(bodyBytes))
-		if err != nil {
-			t.Fatalf("ParseQuery() error = %v", err)
-		}
-		if got := values.Get("grant_type"); got != "client_credentials" {
-			t.Fatalf("expected client_credentials grant type, got %q", got)
-		}
-		if got := values.Get("scope"); got != "carbide" {
-			t.Fatalf("expected scope carbide, got %q", got)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"dynamic-token","token_type":"Bearer","expires_in":3600}`))
-	}))
-	defer server.Close()
+	api := fake.New()
+	api.SeedClient("client-id", "client-secret")
+	server := httptest.NewServer(api.Handler())
+	t.Cleanup(server.Close)
 
 	cfg := SecretConfig{
 		Endpoint:     "https://nico.example.com",
 		OrgID:        "test-org",
-		TokenURL:     server.URL,
+		TokenURL:     server.URL + "/token",
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		Scopes:       []string{"carbide"},
@@ -160,10 +131,10 @@ func TestTokenSourceOAuthClientCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Token() error = %v", err)
 	}
-	if !sawRequest {
+	if api.TokenRequestCount() != 1 {
 		t.Fatalf("expected token endpoint to be called")
 	}
-	if token.AccessToken != "dynamic-token" {
-		t.Fatalf("expected dynamic token, got %q", token.AccessToken)
+	if token.AccessToken == "" {
+		t.Fatalf("expected a non-empty access token")
 	}
 }

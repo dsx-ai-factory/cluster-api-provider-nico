@@ -69,6 +69,8 @@ type Case struct {
 	Config           *rest.Config
 	Client           client.Client
 
+	additionalGoldens map[string]func(context.Context) (string, error)
+
 	mu                 sync.Mutex
 	managerCancel      context.CancelFunc
 	managerDone        chan error
@@ -115,15 +117,37 @@ func DescribeCaseSet(set CaseSet) bool {
 
 				ginkgo.It("matches the expected objects", func(ctx ginkgo.SpecContext) {
 					compareOrUpdateObjects(ctx, tc, set.CompareObjects(), set.MaskExpectedMetadata)
+					compareOrUpdateAdditionalGoldens(ctx, tc)
 				})
 			})
 		}
 	})
 }
 
+func (c *Case) AddGolden(filename string, source func(context.Context) (string, error)) {
+	if filename == "" || filepath.Base(filename) != filename {
+		panic(fmt.Sprintf("fixtures: golden filename %q must be a file name", filename))
+	}
+	if source == nil {
+		panic(fmt.Sprintf("fixtures: golden source %q is nil", filename))
+	}
+	if c.additionalGoldens == nil {
+		c.additionalGoldens = map[string]func(context.Context) (string, error){}
+	}
+	if _, ok := c.additionalGoldens[filename]; ok {
+		panic(fmt.Sprintf("fixtures: golden source %q is already registered", filename))
+	}
+	c.additionalGoldens[filename] = source
+}
+
 func (c *Case) HasInput(name string) bool {
 	_, ok := c.Inputs[name]
 	return ok
+}
+
+func (c *Case) Input(name string) (string, bool) {
+	input, ok := c.Inputs[name]
+	return input, ok
 }
 
 func (c *Case) StartManager(ctx context.Context, mgr manager.Manager) {
@@ -296,7 +320,9 @@ func discoverCases(root, prefix string) ([]*Case, error) {
 			if file.IsDir() || !strings.HasPrefix(file.Name(), "input") {
 				continue
 			}
-			content, err := os.ReadFile(filepath.Join(path, file.Name()))
+			// Reading a path built from a directory walk is the whole point of
+			// a file-backed fixture loader, and the root is testdata.
+			content, err := os.ReadFile(filepath.Join(path, file.Name())) // #nosec G304 -- fixture path under testdata
 			if err != nil {
 				return err
 			}
@@ -365,7 +391,7 @@ func (c *Case) objectsFromFile(filename string) ([]client.Object, error) {
 
 func (c *Case) decodeObjects(filename, data string) ([]client.Object, error) {
 	serializer := runtimejson.NewSerializer(runtimejson.DefaultMetaFactory, c.Scheme, c.Scheme, false)
-	var objects []client.Object
+	objects := make([]client.Object, 0, strings.Count(data, "\n---\n")+1)
 
 	for document := range strings.SplitSeq(data, "\n---\n") {
 		document = strings.TrimSpace(document)
@@ -409,15 +435,33 @@ func (c *Case) decodeObjects(filename, data string) ([]client.Object, error) {
 func compareOrUpdateObjects(ctx context.Context, tc *Case, compareObjects []client.ObjectList, maskExpectedMetadata bool) {
 	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
+}
 
-	newPath := tc.ExpectedFilepath + ".new"
+func compareOrUpdateAdditionalGoldens(ctx context.Context, tc *Case) {
+	filenames := make([]string, 0, len(tc.additionalGoldens))
+	for filename := range tc.additionalGoldens {
+		filenames = append(filenames, filename)
+	}
+	sort.Strings(filenames)
+
+	for _, filename := range filenames {
+		actual, err := tc.additionalGoldens[filename](ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		expectedPath := filepath.Join(filepath.Dir(tc.ExpectedFilepath), filename)
+		compareOrUpdateGolden(expectedPath, actual)
+	}
+}
+
+func compareOrUpdateGolden(expectedPath, actual string) {
+	newPath := expectedPath + ".new"
 	if os.Getenv(updateExpectedEnv) == "true" {
-		gomega.Expect(os.WriteFile(tc.ExpectedFilepath, []byte(actual), 0o600)).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(expectedPath, []byte(actual), 0o600)).To(gomega.Succeed())
 		gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 		return
 	}
 
-	expectedBytes, err := os.ReadFile(tc.ExpectedFilepath)
+	expectedBytes, err := os.ReadFile(expectedPath) // #nosec G304 -- fixture path under testdata
 	if os.IsNotExist(err) {
 		expectedBytes = nil
 	} else {
@@ -425,7 +469,7 @@ func compareOrUpdateObjects(ctx context.Context, tc *Case, compareObjects []clie
 	}
 
 	gomega.Expect(os.WriteFile(newPath, []byte(actual), 0o600)).To(gomega.Succeed())
-	gomega.Expect(actual).To(matchers.MatchGolden(string(expectedBytes), tc.ExpectedFilepath, newPath))
+	gomega.Expect(actual).To(matchers.MatchGolden(string(expectedBytes), expectedPath, newPath))
 	gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 }
 

@@ -75,6 +75,6 @@ metadata:
     cluster.x-k8s.io/cluster-name: cluster-1
 spec:
   vpcID: vpc-1
-  machineID: machine-id-1
+  instanceTypeID: type-1
   interfaces:
   - subnetID: subnet-1

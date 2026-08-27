@@ -90,7 +90,10 @@ Do not:
 
 The controller reads NICo credentials from Kubernetes Secrets. When writing tests or examples:
 
-- Use `fake.NewClientBuilder()` — never embed real credentials in test fixtures.
+- Use `fake.NewClientBuilder()` for unit tests that only need a Kubernetes
+  client. Controller envtests must use the stateful HTTP fake in
+  `internal/fake`; do not inject a Go implementation of the NICo API.
+- Use only synthetic credentials in fixtures.
 - Never log `endpoint`, `token`, `clientSecret`, or `ca.crt` values.
 - Redact secret data in error messages with `<redacted>` or similar.
 - The credentials Secret keys are: `endpoint`, `orgID`, `token` (or `tokenURL`+`clientID`+`clientSecret`).
