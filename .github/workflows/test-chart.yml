@@ -19,9 +19,12 @@ on:
       - "go.mod"
       - "go.sum"
       - "Makefile"
+      - "PROJECT"
       - "Dockerfile"
-      - "charts/**"
+      - "chart/**"
       - "config/**"
+      - "test/helm/**"
+      - "hack/helm-chart-fixups.sh"
       - "hack/release-manifests.sh"
       - ".github/workflows/test-chart.yml"
   workflow_dispatch:
@@ -36,6 +39,8 @@ jobs:
     runs-on: linux-amd64-cpu16
     if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     env:
+      HELM_NAMESPACE: capnico-system
+      HELM_RELEASE: capi-provider-nico
       IMG: controller:latest
     steps:
       - name: Clone the code
@@ -70,23 +75,75 @@ jobs:
         run: |
           make docker-build
           kind load docker-image "$IMG"
-          # CAPNICO's chart embeds the generated infrastructure manifest, so
-          # populate it before running the same lint/deploy checks as CAPLL.
-          make kustomize
-          KUSTOMIZE="$(pwd)/bin/kustomize" CONTROLLER_IMG="$IMG" \
-            make helm-chart-manifests
+
+          legacy_chart="${RUNNER_TEMP}/legacy-chart"
+          legacy_release="${RUNNER_TEMP}/legacy-release"
+          cp -R test/helm/legacy-chart "${legacy_chart}"
+          mkdir -p "${legacy_chart}/files"
+          make release-manifests RELEASE_DIR="${legacy_release}" CONTROLLER_IMG="$IMG"
+          cp "${legacy_release}/infrastructure-components.yaml" \
+            "${legacy_chart}/files/infrastructure-components.yaml"
+          echo "LEGACY_CHART=${legacy_chart}" >> "${GITHUB_ENV}"
 
       - name: Install Helm
         run: make install-helm
 
       - name: Lint Helm Chart
         run: |
-          helm lint ./charts/capi-provider-nico
+          helm lint ./chart
 
-      - name: Deploy manager via Helm
+      - name: Verify native install and CRD retention
         run: |
           make helm-deploy
-
-      - name: Check Helm release status
-        run: |
           make helm-status
+          make helm-uninstall
+
+          # Deletion without --ignore-not-found doubles as the retention
+          # assertion: Helm uninstall must have left every CRD behind.
+          kubectl delete customresourcedefinition \
+            nicoclusters.infrastructure.cluster.x-k8s.io \
+            nicoclustertemplates.infrastructure.cluster.x-k8s.io \
+            nicomachines.infrastructure.cluster.x-k8s.io \
+            nicomachinetemplates.infrastructure.cluster.x-k8s.io \
+            --wait=true
+          kubectl delete namespace "${HELM_NAMESPACE}" --wait=true
+
+      - name: Verify legacy-to-native upgrade
+        run: |
+          helm upgrade --install "${HELM_RELEASE}" "${LEGACY_CHART}" \
+            --namespace "${HELM_NAMESPACE}" \
+            --create-namespace \
+            --wait \
+            --timeout 5m
+
+          legacy_uid="$(kubectl get deployment controller-manager \
+            --namespace "${HELM_NAMESPACE}" \
+            --output jsonpath='{.metadata.uid}')"
+          legacy_selector="$(kubectl get deployment controller-manager \
+            --namespace "${HELM_NAMESPACE}" \
+            --output json | jq -cS '.spec.selector')"
+
+          make helm-deploy
+
+          native_uid="$(kubectl get deployment controller-manager \
+            --namespace "${HELM_NAMESPACE}" \
+            --output jsonpath='{.metadata.uid}')"
+          native_selector="$(kubectl get deployment controller-manager \
+            --namespace "${HELM_NAMESPACE}" \
+            --output json | jq -cS '.spec.selector')"
+
+          test "${native_uid}" = "${legacy_uid}"
+          test "${native_selector}" = "${legacy_selector}"
+          kubectl rollout status deployment/controller-manager \
+            --namespace "${HELM_NAMESPACE}" \
+            --timeout 5m
+          make helm-status
+
+          make helm-uninstall
+          for crd in \
+            nicoclusters.infrastructure.cluster.x-k8s.io \
+            nicoclustertemplates.infrastructure.cluster.x-k8s.io \
+            nicomachines.infrastructure.cluster.x-k8s.io \
+            nicomachinetemplates.infrastructure.cluster.x-k8s.io; do
+            kubectl get customresourcedefinition "${crd}"
+          done
