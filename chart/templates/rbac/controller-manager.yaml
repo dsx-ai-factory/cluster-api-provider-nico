@@ -1,0 +1,7 @@
+{{- if ne .Values.serviceAccount.enabled false }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cluster-api-provider-nico.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

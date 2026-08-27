@@ -46,9 +46,14 @@ help: ## Display this help.
 
 .PHONY: manifests
 
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: controller-gen kustomize generate kubebuilder ## Generate CRDs, RBAC, the installer bundle, and Helm chart.
 	"$(CONTROLLER_GEN)" crd:crdVersions=v1 paths=./api/... output:crd:artifacts:config=config/crd/bases
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role paths=./controllers/... output:rbac:artifacts:config=config/rbac
+	mkdir -p dist
+	RELEASE_DIR=dist CONTROLLER_IMG=controller:latest KUSTOMIZE="$(KUSTOMIZE)" bash hack/release-manifests.sh
+	cp dist/infrastructure-components.yaml dist/install.yaml
+	"$(KUBEBUILDER)" edit --plugins=helm/v2-alpha --manifests=./dist/install.yaml --output-dir=.
+	bash hack/helm-chart-fixups.sh
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -105,9 +110,8 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 
 # Every source file carries an SPDX header; the check runs in
 # .github/workflows/license.yml.
-# config/ holds generated output that `make manifests` rewrites. charts/ is
-# NOT excluded: charts/capi-provider-nico is this project's own chart. Only its
-# generated files/ subdirectory is skipped, which .gitignore also lists.
+# config/ and chart/ hold generated output that `make manifests` and
+# Kubebuilder rewrite, so their templates do not carry source-file headers.
 #
 # addlicense only ever ADDS a header to a file that has none. It cannot detect a
 # wrong header, a stale year or a foreign copyright holder, and it skips any
@@ -119,7 +123,7 @@ ADDLICENSE_IGNORES := \
 	-ignore '**/*.pb.go' \
 	-ignore '**/testdata/**' \
 	-ignore 'bin/**' \
-	-ignore 'charts/*/files/**' \
+	-ignore 'chart/**' \
 	-ignore 'config/**' \
 	-ignore 'vendor/**'
 
@@ -256,11 +260,6 @@ CONTROLLER_IMG ?= $(IMG)
 release-manifests: manifests kustomize ## Generate release manifests.
 	RELEASE_DIR=$(RELEASE_DIR) CONTROLLER_IMG=$(CONTROLLER_IMG) KUSTOMIZE="$(KUSTOMIZE)" bash hack/release-manifests.sh
 
-.PHONY: helm-chart-manifests
-helm-chart-manifests: release-manifests ## Copy release manifests into the Helm chart.
-	mkdir -p $(HELM_CHART_DIR)/files
-	cp $(RELEASE_DIR)/infrastructure-components.yaml $(HELM_CHART_DIR)/files/infrastructure-components.yaml
-
 ##@ Helm Deployment
 
 ## Helm binary to use for deploying the chart
@@ -270,7 +269,7 @@ HELM_NAMESPACE ?= capnico-system
 ## Name of the Helm release
 HELM_RELEASE ?= capi-provider-nico
 ## Path to the Helm chart directory
-HELM_CHART_DIR ?= charts/capi-provider-nico
+HELM_CHART_DIR ?= ./chart
 ## Additional arguments to pass to helm commands
 HELM_EXTRA_ARGS ?=
 
@@ -282,10 +281,12 @@ install-helm: ## Install the latest version of Helm.
 	}
 
 .PHONY: helm-deploy
-helm-deploy: helm-chart-manifests install-helm ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
+helm-deploy: install-helm ## Deploy manager to the K8s cluster via Helm. Specify an image with IMG.
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_DIR) \
 		--namespace $(HELM_NAMESPACE) \
 		--create-namespace \
+		--set manager.image.repository=$${IMG%:*} \
+		--set manager.image.tag=$${IMG##*:} \
 		--wait \
 		--timeout 5m \
 		$(HELM_EXTRA_ARGS)
@@ -317,6 +318,7 @@ $(LOCALBIN):
 KUBECTL ?= kubectl
 KIND ?= kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
+KUBEBUILDER ?= $(LOCALBIN)/kubebuilder
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GINKGO ?= $(LOCALBIN)/ginkgo
@@ -325,6 +327,7 @@ CRANE ?= $(LOCALBIN)/crane
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
+KUBEBUILDER_VERSION ?= v4.15.0
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
 CRANE_VERSION ?= v0.21.9
 GINKGO_VERSION ?= $(call gomodver,github.com/onsi/ginkgo/v2)
@@ -344,6 +347,11 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+.PHONY: kubebuilder
+kubebuilder: $(KUBEBUILDER) ## Download Kubebuilder locally if necessary.
+$(KUBEBUILDER): $(LOCALBIN)
+	$(call go-install-tool,$(KUBEBUILDER),sigs.k8s.io/kubebuilder/v4,$(KUBEBUILDER_VERSION))
 
 .PHONY: crane
 crane: $(CRANE) ## Download crane locally if necessary.
@@ -421,7 +429,7 @@ bin/go-licenses:
 	GOTOOLCHAIN=$(GO_TOOLCHAIN) GOBIN=$(CURDIR)/bin \
 		go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
 
-CHART_LICENSE_DIR ?= charts/capi-provider-nico
+CHART_LICENSE_DIR ?= chart
 
 # The chart is a distributed artefact in the same way the container image is, so
 # it carries the same attribution. The image gained these files earlier; the
