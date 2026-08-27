@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **This file is generated — do not edit it by hand.** See `cliff.toml`.
 
-## [Unreleased]
+## [0.0.44] - 2026-08-27
+
+### Added
+
+- Expand InfiniBand and NVLink partition IDs across instance-type devices
+
+### Documentation
+
+- Restore the Unreleased section to the changelog
+
+### Maintenance
+
+- *(controllers)* Standardize fixture-based envtests
 
 ## [0.0.43] - 2026-08-26
 
