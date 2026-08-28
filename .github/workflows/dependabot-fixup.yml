@@ -115,9 +115,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          # Then an explicit token on the push below. Leaving checkout
-          # credentials in .git/config would let every later step push,
-          # including anything a generator runs.
+          # The commit is made through the API, so nothing here ever needs to
+          # push. Leaving checkout credentials in .git/config would let every
+          # later step push, including anything a generator runs.
           persist-credentials: false
 
       - name: Set up Go
@@ -173,30 +173,83 @@ jobs:
           fi
           printf '%s\n' "$changed" | sed 's/^/  regenerated: /'
 
+      # Committed through the GraphQL API rather than with `git commit` and
+      # `git push`, and the reason is not style.
+      #
+      # The `Signed commits, branch names` ruleset applies `required_signatures`
+      # to ~ALL refs of this repository, with `current_user_can_bypass: never`.
+      # A commit this job builds on the runner carries no signature, so the push
+      # was rejected outright and every Go bump arrived with stale attribution:
+      #
+      #   remote: error: GH013: Repository rule violations found for
+      #           refs/heads/dependabot/go_modules/...
+      #   remote: - Commits must have verified signatures.
+      #
+      # `createCommitOnBranch` builds the commit server-side, and GitHub signs
+      # what it builds, so it lands Verified and the rule is satisfied rather
+      # than circumvented. That is also why file contents go over the wire as
+      # base64: the mutation takes contents, not git objects, so there is no
+      # push and nothing on the runner needs a credential.
+      #
+      # NVIDIA/nke runs the `git push` form of this same job and is green. That
+      # is not evidence this is unnecessary -- nke has no signed-commits ruleset
+      # and this repository does. Do not collapse the two by diffing them.
       - name: Commit onto the Dependabot branch
         if: steps.dependency-only.outputs.skip != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "Nothing to commit."
-            exit 0
-          fi
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { execFileSync } = require('node:child_process');
+            const fs = require('node:fs');
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+            const lines = (out) => out.split('\n').filter(Boolean);
 
-          # Pathspecs rather than `git add -A`: the guard above already refused
-          # anything outside this set, but this means a future loosening of the
-          # guard still cannot commit an arbitrary file by accident.
-          git add -- \
-            go.mod go.sum \
-            THIRD_PARTY_NOTICES.md \
-            charts/capi-provider-nico/LICENSE \
-            charts/capi-provider-nico/NOTICE \
-            charts/capi-provider-nico/THIRD_PARTY_NOTICES.md
+            // --diff-filter=d (lower case) excludes deletions from the set we
+            // read off disk; they are collected separately below. Untracked
+            // files are gathered alongside, because `git diff` says nothing
+            // about a path git is not tracking and the chart copy can add one
+            // on a fresh checkout.
+            const modified = lines(git('diff', '--name-only', '--diff-filter=d'));
+            const untracked = lines(git('ls-files', '--others', '--exclude-standard'));
+            const deleted = lines(git('diff', '--name-only', '--diff-filter=D'));
 
-          git commit -m "chore: regenerate THIRD_PARTY_NOTICES.md for this bump"
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
+            const additions = [...new Set([...modified, ...untracked])].sort()
+              .map((path) => ({ path, contents: fs.readFileSync(path).toString('base64') }));
+            const deletions = deleted.sort().map((path) => ({ path }));
+
+            if (additions.length === 0 && deletions.length === 0) {
+              core.info('Nothing to commit; the bump was already complete.');
+              return;
+            }
+            for (const { path } of additions) core.info(`  committing: ${path}`);
+            for (const { path } of deletions) core.info(`  deleting:   ${path}`);
+
+            // expectedHeadOid is the commit this job checked out. If Dependabot
+            // force-pushed a rebase in the meantime the mutation fails rather
+            // than clobbering the newer head -- and that same force-push raised
+            // a `synchronize`, which re-runs this workflow against it.
+            const { createCommitOnBranch } = await github.graphql(
+              `mutation ($input: CreateCommitOnBranchInput!) {
+                 createCommitOnBranch(input: $input) { commit { oid } }
+               }`,
+              {
+                input: {
+                  branch: {
+                    repositoryNameWithOwner: process.env.GITHUB_REPOSITORY,
+                    branchName: context.payload.pull_request.head.ref,
+                  },
+                  expectedHeadOid: git('rev-parse', 'HEAD'),
+                  message: {
+                    headline: 'chore: regenerate THIRD_PARTY_NOTICES.md for this bump',
+                    // The DCO check runs on every commit on the branch,
+                    // including this one. The API attributes the commit to the
+                    // token's identity, so this trailer names that identity.
+                    body: 'Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>',
+                  },
+                  fileChanges: { additions, deletions },
+                },
+              },
+            );
+
+            core.info(`Committed ${createCommitOnBranch.commit.oid}.`);
