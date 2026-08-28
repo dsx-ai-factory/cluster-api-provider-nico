@@ -128,6 +128,43 @@ The provider expects the NICo API to be reachable from the management cluster, a
 
 The `NicoMachine`'s iPXE script must boot an OS image that can consume kubeadm cloud-init user data.
 
+## Local development (no NICo access needed)
+
+`make tilt-up` creates a local kind cluster, brings up Cluster API core, installs
+CAPNICo through its native Helm chart, and runs it against the fake NICo
+endpoint shipped in this repository. No hardware and no access to a real NICo
+deployment is required.
+
+```bash
+# Create the kind cluster and start Tilt; the web UI is on localhost:10352
+make tilt-up
+```
+
+The Tilt UI deliberately avoids Tilt's default port of 10350, so this loop runs
+alongside another Cluster API development environment on the same machine.
+Override `CAPNICO_TILT_PORT` if 10352 is taken too.
+
+In a second terminal, point kubectl at the local cluster and apply the worked
+example:
+
+```bash
+export KUBECONFIG=~/.kube/capnico.kubeconfig   # or: eval "$(make kubeconfig)"
+
+kubectl apply -f examples/cluster-fake.yaml
+kubectl get nicoclusters,nicomachines
+```
+
+Tear everything down with `make tilt-down`.
+
+To run just the fake endpoint on its own, without Kubernetes:
+
+```bash
+make run-fake   # serves the NICo API surface on :8090
+```
+
+See [docs/development.md](docs/development.md) for the complete development
+workflow and test commands.
+
 ## Install
 
 Initialize the core Cluster API controllers and the kubeadm providers:
