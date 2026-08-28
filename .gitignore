@@ -1,6 +1,7 @@
 .DS_Store
 .idea/
 .worktrees/
+.tiltbuild/
 bin/
 dist/
 out/

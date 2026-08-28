@@ -18,6 +18,9 @@
 !NOTICE
 !THIRD_PARTY_NOTICES.md
 
+# Re-include the host-built manager consumed by the Tilt development image.
+!.tiltbuild/bin/manager
+
 # Re-include the vendor tree, for when one is added. `go mod vendor` writes
 # more than Go source: vendor/modules.txt, assembly files and //go:embed
 # assets are all build inputs. The `**` above keeps them out, and the build

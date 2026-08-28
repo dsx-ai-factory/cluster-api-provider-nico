@@ -191,6 +191,10 @@ binary: ## Compile every package and the manager binary. This is what CI runs.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd
 
+.PHONY: run-fake
+run-fake: ## Run the self-contained fake NICo endpoint on :8090.
+	go run ./cmd/fake
+
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
@@ -201,6 +205,47 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+##@ Local development
+
+# These settings are scoped so another Cluster API development environment can
+# run alongside CAPNICo without inheriting or colliding with them.
+CAPNICO_TILT_PORT ?= 10352
+CAPNICO_KUBECONFIG ?= $(HOME)/.kube/capnico.kubeconfig
+CAPNICO_CLUSTER_NAME ?= capnico
+CAPNICO_TILT_ENV = KUBECONFIG="$(CAPNICO_KUBECONFIG)"
+
+.PHONY: capi-init
+capi-init: clusterctl ## Install Cluster API core and the kubeadm providers into the local cluster.
+	@set -e; \
+	if KUBECONFIG="$(CAPNICO_KUBECONFIG)" kubectl get deployment -n capi-system capi-controller-manager >/dev/null 2>&1; then \
+		echo "  Cluster API $(CAPI_VERSION) already installed"; \
+	else \
+		KUBECONFIG="$(CAPNICO_KUBECONFIG)" "$(CLUSTERCTL)" init \
+			--core cluster-api:$(CAPI_VERSION) \
+			--bootstrap kubeadm:$(CAPI_VERSION) \
+			--control-plane kubeadm:$(CAPI_VERSION); \
+	fi
+
+.PHONY: tilt-up
+tilt-up: manifests kustomize ## Create the local cluster, install Cluster API, and start Tilt.
+	KUBECONFIG="$(CAPNICO_KUBECONFIG)" ctlptl apply -f ctlptl.yaml
+	$(MAKE) capi-init
+	@echo
+	@echo "  Local cluster ready. In another terminal, run:"
+	@echo "    export KUBECONFIG=$(CAPNICO_KUBECONFIG)"
+	@echo
+	$(CAPNICO_TILT_ENV) tilt up --port $(CAPNICO_TILT_PORT)
+
+.PHONY: tilt-down
+tilt-down: ## Stop Tilt and delete the local kind cluster.
+	- $(CAPNICO_TILT_ENV) tilt down
+	- pkill -f "tilt up --port $(CAPNICO_TILT_PORT)"
+	KUBECONFIG="$(CAPNICO_KUBECONFIG)" ctlptl delete -f ctlptl.yaml --ignore-not-found
+
+.PHONY: kubeconfig
+kubeconfig: ## Print the export line for the local cluster's kubeconfig.
+	@echo "export KUBECONFIG=$(CAPNICO_KUBECONFIG)"
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
@@ -324,6 +369,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GINKGO ?= $(LOCALBIN)/ginkgo
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 CRANE ?= $(LOCALBIN)/crane
+CLUSTERCTL ?= $(LOCALBIN)/clusterctl
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -331,6 +377,7 @@ KUBEBUILDER_VERSION ?= v4.15.0
 CONTROLLER_TOOLS_VERSION ?= v0.20.1
 CRANE_VERSION ?= v0.21.9
 GINKGO_VERSION ?= $(call gomodver,github.com/onsi/ginkgo/v2)
+CAPI_VERSION ?= $(call gomodver,sigs.k8s.io/cluster-api)
 
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
@@ -380,6 +427,11 @@ $(ENVTEST): $(LOCALBIN)
 ginkgo: $(GINKGO) ## Download the Ginkgo CLI locally if necessary.
 $(GINKGO): $(LOCALBIN)
 	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
+
+.PHONY: clusterctl
+clusterctl: $(CLUSTERCTL) ## Download clusterctl locally if necessary.
+$(CLUSTERCTL): $(LOCALBIN)
+	$(call go-install-tool,$(CLUSTERCTL),sigs.k8s.io/cluster-api/cmd/clusterctl,$(CAPI_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.

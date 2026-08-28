@@ -10,6 +10,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
@@ -20,6 +21,15 @@ func main() {
 	flag.Parse()
 
 	endpoint := fake.New()
+
+	clientID, clientSecret := os.Getenv("FAKE_CLIENT_ID"), os.Getenv("FAKE_CLIENT_SECRET")
+	switch {
+	case (clientID == "") != (clientSecret == ""):
+		log.Fatal("set both FAKE_CLIENT_ID and FAKE_CLIENT_SECRET, or neither")
+	case clientID != "":
+		endpoint.SeedClient(clientID, clientSecret)
+		log.Printf("requiring an access token minted for client %q", clientID)
+	}
 
 	server := &http.Server{
 		Addr:              *addr,
