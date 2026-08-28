@@ -59,7 +59,7 @@ commands are not listed, because they are not distributed.
 | [go.uber.org/multierr](https://github.com/uber-go/multierr/blob/v1.11.0/LICENSE.txt) | MIT | go.uber.org/multierr@v1.11.0 |
 | [go.uber.org/zap](https://github.com/uber-go/zap/blob/v1.27.1/LICENSE) | MIT | go.uber.org/zap@v1.27.1 |
 | [go.yaml.in/yaml/v2](https://github.com/yaml/go-yaml/blob/v2.4.3/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v2@v2.4.3 |
-| [go.yaml.in/yaml/v3](https://github.com/yaml/go-yaml/blob/v3.0.4/LICENSE) | MIT | go.yaml.in/yaml/v3@v3.0.4 |
+| [go.yaml.in/yaml/v3](https://github.com/yaml/go-yaml/blob/v3.0.5/LICENSE) | MIT | go.yaml.in/yaml/v3@v3.0.5 |
 | [go.yaml.in/yaml/v4](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.6/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v4@v4.0.0-rc.6 |
 | [golang.org/x/net](https://cs.opensource.google/go/x/net/+/v0.56.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/oauth2](https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE) | BSD-3-Clause | golang.org/x/oauth2@v0.36.0 |
