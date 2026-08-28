@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The fake NICo API used by the local development loop. This is not part of the
+# released provider components.
+#
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fake-nico-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-nico-api
+  namespace: fake-nico-api
+  labels:
+    app.kubernetes.io/name: fake-nico-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fake-nico-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fake-nico-api
+    spec:
+      containers:
+      - name: api
+        image: fake-nico-api-server
+        ports:
+        - name: http
+          containerPort: 8090
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: http
+          initialDelaySeconds: 1
+          periodSeconds: 2
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake-nico-api
+  namespace: fake-nico-api
+  labels:
+    app.kubernetes.io/name: fake-nico-api
+spec:
+  selector:
+    app.kubernetes.io/name: fake-nico-api
+  ports:
+  - name: http
+    port: 8090
+    protocol: TCP
+    targetPort: http

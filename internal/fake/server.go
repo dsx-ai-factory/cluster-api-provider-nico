@@ -28,9 +28,14 @@ import (
 const (
 	// ReadyAfterPolls is how many reads an instance stays in a transitional
 	// state before reporting its next state.
-	ReadyAfterPolls  = 2
-	defaultIPAddress = "10.0.0.10"
-	statusTerminated = "Terminated"
+	ReadyAfterPolls       = 2
+	defaultIPAddress      = "10.0.0.10"
+	defaultInstanceTypeID = "type-1"
+	defaultOrgID          = "org-1"
+	defaultSiteID         = "site-1"
+	defaultTenantID       = "tenant-1"
+	defaultVPCID          = "vpc-1"
+	statusTerminated      = "Terminated"
 )
 
 type operation string
@@ -118,16 +123,46 @@ type Server struct {
 	nextID int
 }
 
-// New returns an isolated fake with no NICo resources. Each test case seeds the
-// tenant and resources it owns explicitly.
+// New returns a Server seeded with the resources needed by the worked example.
 func New() *Server {
-	return &Server{
+	s := &Server{
 		tenants:       map[string]*nicosdk.Tenant{},
 		instanceTypes: map[string]*nicosdk.InstanceType{},
 		instances:     map[string]*instanceRecord{},
 		sites:         map[string]*nicosdk.Site{},
 		vpcs:          map[string]*nicosdk.VPC{},
 	}
+
+	tenant := nicosdk.NewTenant()
+	tenant.SetId(defaultTenantID)
+	tenant.SetOrg(defaultOrgID)
+	s.SeedTenant(defaultOrgID, *tenant)
+
+	instanceType := nicosdk.NewInstanceType()
+	instanceType.SetId(defaultInstanceTypeID)
+	allocation := nicosdk.NewInstanceTypeAllocationStats()
+	allocation.SetTotal(1)
+	allocation.SetUnused(1)
+	allocation.SetUnusedUsable(1)
+	allocation.SetUsed(0)
+	instanceType.SetAllocationStats(*allocation)
+	s.SeedInstanceType(defaultOrgID, *instanceType)
+
+	site := nicosdk.NewSite()
+	site.SetId(defaultSiteID)
+	site.SetName("fake-site")
+	site.SetOrg(defaultOrgID)
+	s.SeedSite(defaultOrgID, *site)
+
+	vpc := nicosdk.NewVPC()
+	vpc.SetId(defaultVPCID)
+	vpc.SetName("fake-vpc")
+	vpc.SetOrg(defaultOrgID)
+	vpc.SetTenantId(defaultTenantID)
+	vpc.SetSiteId(defaultSiteID)
+	s.SeedVPC(defaultOrgID, *vpc)
+
+	return s
 }
 
 // Handler returns the HTTP surface used by controller envtests.
