@@ -149,6 +149,22 @@ Update `config/manager/manager.yaml` to use that image, then install the provide
 kubectl apply -k config/default
 ```
 
+Alternatively, install the native Helm chart and supply the same controller
+image without editing the Kustomize source:
+
+```bash
+helm upgrade --install capi-provider-nico ./chart \
+  --namespace capnico-system \
+  --create-namespace \
+  --set manager.image.repository=ghcr.io/your-org/cluster-api-provider-nico \
+  --set manager.image.tag=latest \
+  --wait
+```
+
+See the [chart documentation](chart/README.md) for published chart locations,
+configuration values, and compatibility notes for upgrading an existing Helm
+release.
+
 ## Provider release artifacts
 
 CAPNICo publishes Cluster API provider artifacts in the same shape consumed by

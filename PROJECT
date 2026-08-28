@@ -7,6 +7,10 @@ domain: cluster.x-k8s.io
 layout:
 - go.kubebuilder.io/v4
 - capnico-layout/v1
+plugins:
+  helm.kubebuilder.io/v2-alpha:
+    manifests: ./dist/install.yaml
+    output: .
 projectName: cluster-api-provider-nico
 repo: github.com/NVIDIA/cluster-api-provider-nico
 resources:
@@ -31,7 +35,6 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  controller: false
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: NicoClusterTemplate
@@ -40,7 +43,6 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  controller: false
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: NicoMachineTemplate

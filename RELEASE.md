@@ -110,15 +110,17 @@ the central promoter to act on, which has no equivalent here.
      matching `sha-<commit>` tag, and records the digest in the job summary.
    - **SBOM** generates an SPDX SBOM per architecture, addressing each one by
      digest, and uploads them as workflow artifacts.
-   - **Chart (NGC)** packages `capi-provider-nico` and pushes it to the NGC
-     chart registry under `DSX_NGC_ORG`/`DSX_NGC_TEAM`, with the chart's manifest
-     pointing at the DSX image.
-   - **Chart (GHCR)** packages the same chart with its manifest pointing at the
-     GHCR image and pushes it to
+   - **Chart (NGC)** packages the native `capi-provider-nico` chart with
+     `manager.image.repository` pointing at the DSX image and pushes it to the
+     NGC chart registry under `DSX_NGC_ORG`/`DSX_NGC_TEAM`.
+   - **Chart (NKE)** packages the same native chart with the NKE image and the
+     `svc-nke-ngc-imagepull` default, then pushes it to
+     `oci://nvcr.io/j7sbcjl3qgta`.
+   - **Chart (GHCR)** packages the chart with its image repository pointing at
+     the promoted GHCR image and pushes it to
      `oci://ghcr.io/nvidia/cluster-api-provider-nico/charts`. It fails if the
-     rendered manifests still mention `nvcr.io`, because a chart that names an
-     image needing an NGC login is not installable from outside NVIDIA and the
-     failure would otherwise surface only at install time.
+     rendered manager still names an NVCR image, because that failure would
+     otherwise surface only at install time.
    - **Create GitHub Release** creates the release as a **draft** and attaches
      notes extracted from `CHANGELOG.md`, the promoted digest, and the
      clusterctl provider artifacts `metadata.yaml` and
@@ -152,6 +154,7 @@ the central promoter to act on, which has no equivalent here.
    - GHCR chart: `helm pull oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico --version <VERSION>`
    - NVCR images: `<NVCR_NKE_IMAGE>:v<VERSION>` and `<NVCR_DSX_IMAGE>:v<VERSION>`
    - NGC chart: `ngc registry chart info <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico`
+   - NKE chart: `helm pull oci://nvcr.io/j7sbcjl3qgta/capi-provider-nico --version <VERSION>`
    - The digests agree, which is the point of promoting rather than rebuilding:
 
      ```bash

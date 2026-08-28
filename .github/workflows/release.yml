@@ -223,9 +223,9 @@ jobs:
           upload-artifact: true
           upload-release-assets: false
 
-  # Two chart jobs, because the chart has to name an image its consumers can
-  # reach. chart-ngc packages the NVCR image for NGC consumers; chart-ghcr
-  # packages the GHCR image for everyone else. Same chart, one registry each.
+  # Three chart jobs, because each package has to name an image its consumers
+  # can reach. The native chart is identical apart from image defaults and the
+  # NKE package's pull secret.
   chart-ngc:
     if: github.repository == 'NVIDIA/cluster-api-provider-nico'
     name: Chart (NGC)
@@ -241,17 +241,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
-      # CONTROLLER_IMG is the DSX image so the packaged manifest points at the
-      # registry the chart's consumers can actually pull from.
-      - name: Render chart manifests
+      - name: Install NGC CLI
+        shell: bash
+        env:
+          NGC_CLI_VERSION: "4.34.10"
+          NGC_CLI_SHA256: "58bc4d7b6901551a095ce5a43a0065b1c22d5eaf1a164d40029ee3fda11ccd47"
+        run: |
+          set -euo pipefail
+          url="https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/${NGC_CLI_VERSION}/files/ngccli_linux.zip"
+
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL \
+            -o ngccli_linux.zip "${url}"
+          echo "${NGC_CLI_SHA256}  ngccli_linux.zip" | sha256sum -c -
+
+          unzip -q -o ngccli_linux.zip
+          chmod +x ngc-cli/ngc
+          echo "$(pwd)/ngc-cli" >> "${GITHUB_PATH}"
+
+      - name: Package chart
         shell: bash
         env:
           DSX_IMAGE: ${{ vars.NVCR_DSX_IMAGE }}
@@ -262,30 +272,26 @@ jobs:
             exit 1
           fi
 
-          make kustomize
-          KUSTOMIZE="$(pwd)/bin/kustomize" \
-          CONTROLLER_IMG="${DSX_IMAGE}:${GITHUB_REF_NAME}" \
-            make helm-chart-manifests
+          version="${GITHUB_REF_NAME#v}"
+          sed -i \
+            -e "s#^    repository: controller\$#    repository: ${DSX_IMAGE}#" \
+            -e 's|^    # tag: ""$|    tag: ""|' \
+            chart/values.yaml
+          grep -Fqx "    repository: ${DSX_IMAGE}" chart/values.yaml \
+            || { echo "::error::chart image rewrite did not apply"; exit 1; }
+          grep -Fqx '    tag: ""' chart/values.yaml \
+            || { echo "::error::chart tag was not cleared"; exit 1; }
 
-      - name: Install NGC CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL \
-            https://ngc.nvidia.com/downloads/ngccli_linux.zip -o ngccli_linux.zip
-          unzip -q -o ngccli_linux.zip
-          chmod +x ngc-cli/ngc
-          echo "$(pwd)/ngc-cli" >> "${GITHUB_PATH}"
-
-      - name: Package chart
-        shell: bash
-        run: |
-          set -euo pipefail
-          helm lint charts/capi-provider-nico
-          helm package charts/capi-provider-nico \
-            --version "${GITHUB_REF_NAME#v}" \
+          helm lint chart
+          helm package chart \
+            --version "${version}" \
             --app-version "${GITHUB_REF_NAME}" \
             --destination dist/capi-provider-nico
+
+          chart_pkg="dist/capi-provider-nico/capi-provider-nico-${version}.tgz"
+          rendered="$(helm template "${chart_pkg}")"
+          grep -Fq "image: \"${DSX_IMAGE}:${GITHUB_REF_NAME}\"" <<< "${rendered}" \
+            || { echo "::error::packaged chart names the wrong controller image"; exit 1; }
 
       - name: Push chart to NGC
         shell: bash
@@ -329,31 +335,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-
-      # CONTROLLER_IMG is the NKE image so the packaged manifest points at the
-      # registry ArgoCD's repo-oci-ngc-j7sbcjl3qgta credential can pull from.
-      - name: Render chart manifests
-        shell: bash
-        env:
-          NKE_IMAGE: ${{ vars.NVCR_NKE_IMAGE }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${NKE_IMAGE}" ]]; then
-            echo "::error::NVCR_NKE_IMAGE is not set in the nvcr environment"
-            exit 1
-          fi
-
-          make kustomize
-          KUSTOMIZE="$(pwd)/bin/kustomize" \
-          CONTROLLER_IMG="${NKE_IMAGE}:${GITHUB_REF_NAME}" \
-            make helm-chart-manifests
 
       # values.yaml defaults to imagePullSecrets: [], which is fine for a
       # public registry but leaves a consumer who doesn't override it stuck in
@@ -365,19 +348,43 @@ jobs:
         run: |
           set -euo pipefail
           sed -i -e "s#^imagePullSecrets: \[\]\$#imagePullSecrets:\n  - name: svc-nke-ngc-imagepull#" \
-            charts/capi-provider-nico/values.yaml
-          grep -q "^  - name: svc-nke-ngc-imagepull\$" charts/capi-provider-nico/values.yaml \
+            chart/values.yaml
+          grep -q "^  - name: svc-nke-ngc-imagepull\$" chart/values.yaml \
             || { echo "::error::pull-secret rewrite did not apply"; exit 1; }
 
       - name: Package chart
         shell: bash
+        env:
+          NKE_IMAGE: ${{ vars.NVCR_NKE_IMAGE }}
         run: |
           set -euo pipefail
-          helm lint charts/capi-provider-nico
-          helm package charts/capi-provider-nico \
-            --version "${GITHUB_REF_NAME#v}" \
+          if [[ -z "${NKE_IMAGE}" ]]; then
+            echo "::error::NVCR_NKE_IMAGE is not set in the nvcr environment"
+            exit 1
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          sed -i \
+            -e "s#^    repository: controller\$#    repository: ${NKE_IMAGE}#" \
+            -e 's|^    # tag: ""$|    tag: ""|' \
+            chart/values.yaml
+          grep -Fqx "    repository: ${NKE_IMAGE}" chart/values.yaml \
+            || { echo "::error::chart image rewrite did not apply"; exit 1; }
+          grep -Fqx '    tag: ""' chart/values.yaml \
+            || { echo "::error::chart tag was not cleared"; exit 1; }
+
+          helm lint chart
+          helm package chart \
+            --version "${version}" \
             --app-version "${GITHUB_REF_NAME}" \
             --destination dist/capi-provider-nico
+
+          chart_pkg="dist/capi-provider-nico/capi-provider-nico-${version}.tgz"
+          rendered="$(helm template "${chart_pkg}")"
+          grep -Fq "image: \"${NKE_IMAGE}:${GITHUB_REF_NAME}\"" <<< "${rendered}" \
+            || { echo "::error::packaged chart names the wrong controller image"; exit 1; }
+          grep -Fq 'name: svc-nke-ngc-imagepull' <<< "${rendered}" \
+            || { echo "::error::packaged chart omits the NKE pull secret"; exit 1; }
 
       # Re-running a release must not fail once the version is published.
       - name: Push chart to NKE NVCR
@@ -419,22 +426,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
-      # CONTROLLER_IMG is the GHCR image, so the packaged manifest names the
-      # copy that needs no NGC login. ⚠️ Not the same as anonymously pullable:
-      # this repository is internal and a GHCR package inherits that visibility,
-      # so pulling still needs a token with read:packages until the package is
-      # made public in its own settings. See RELEASE.md.
-      - name: Render chart manifests
+      - name: Package and push chart
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ${{ needs.promote-ghcr.outputs.image }}
         run: |
           set -euo pipefail
@@ -443,50 +441,36 @@ jobs:
             exit 1
           fi
 
-          make kustomize
-          KUSTOMIZE="$(pwd)/bin/kustomize" \
-          CONTROLLER_IMG="${IMAGE}:${GITHUB_REF_NAME}" \
-            make helm-chart-manifests
-
-          # A packaged chart that still names nvcr.io would defeat the point of
-          # this job, and the failure is invisible until someone tries to
-          # install it without an NGC login.
-          # Grep the whole chart, not templates/. `make helm-chart-manifests`
-          # writes the rendered manifest to files/, and templates/ holds only a
-          # .tpl wrapper that reads it -- so a guard pointed at templates/ has
-          # nothing to find and passes on every input, including a chart that
-          # names nvcr.io. Assert the file exists first, because `grep -rq` on a
-          # missing directory also exits non-zero and reads as "clean".
-          rendered="charts/capi-provider-nico/files/infrastructure-components.yaml"
-          if [[ ! -s "${rendered}" ]]; then
-            echo "::error::${rendered} is missing or empty; helm-chart-manifests did not run"
-            exit 1
-          fi
-          if grep -rq "nvcr\.io" charts/capi-provider-nico/; then
-            echo "::error::rendered manifests still reference nvcr.io"
-            grep -rn "nvcr\.io" charts/capi-provider-nico/ >&2
-            exit 1
-          fi
-
-      - name: Package and push chart
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
+          sed -i \
+            -e "s#^    repository: controller\$#    repository: ${IMAGE}#" \
+            -e 's|^    # tag: ""$|    tag: ""|' \
+            chart/values.yaml
+          grep -Fqx "    repository: ${IMAGE}" chart/values.yaml \
+            || { echo "::error::chart image rewrite did not apply"; exit 1; }
+          grep -Fqx '    tag: ""' chart/values.yaml \
+            || { echo "::error::chart tag was not cleared"; exit 1; }
 
-          helm lint charts/capi-provider-nico
-          helm package charts/capi-provider-nico \
+          helm lint chart
+          helm package chart \
             --version "${version}" \
             --app-version "${GITHUB_REF_NAME}" \
             --destination .chart-dist
+
+          chart_pkg=".chart-dist/capi-provider-nico-${version}.tgz"
+          rendered="$(helm template "${chart_pkg}")"
+          grep -Fq "image: \"${IMAGE}:${GITHUB_REF_NAME}\"" <<< "${rendered}" \
+            || { echo "::error::packaged chart names the wrong controller image"; exit 1; }
+          if grep -Fq 'image: "nvcr.io' <<< "${rendered}"; then
+            echo "::error::rendered chart still references an NVCR controller image"
+            exit 1
+          fi
 
           echo "${GH_TOKEN}" \
             | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           # <repo>/charts/, so the chart never lands in the same OCI repository
           # as the controller image.
-          helm push ".chart-dist/capi-provider-nico-${version}.tgz" \
+          helm push "${chart_pkg}" \
             "oci://ghcr.io/${GITHUB_REPOSITORY,,}/charts"
 
   # Last, so the release never advertises an artifact that is not there yet: the

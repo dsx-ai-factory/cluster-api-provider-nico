@@ -19,9 +19,11 @@ on:
       - "go.mod"
       - "go.sum"
       - "Makefile"
+      - "PROJECT"
       - "Dockerfile"
-      - "charts/**"
+      - "chart/**"
       - "config/**"
+      - "hack/helm-chart-fixups.sh"
       - "hack/release-manifests.sh"
       - ".github/workflows/test-chart.yml"
   workflow_dispatch:
@@ -70,18 +72,13 @@ jobs:
         run: |
           make docker-build
           kind load docker-image "$IMG"
-          # CAPNICO's chart embeds the generated infrastructure manifest, so
-          # populate it before running the same lint/deploy checks as CAPLL.
-          make kustomize
-          KUSTOMIZE="$(pwd)/bin/kustomize" CONTROLLER_IMG="$IMG" \
-            make helm-chart-manifests
 
       - name: Install Helm
         run: make install-helm
 
       - name: Lint Helm Chart
         run: |
-          helm lint ./charts/capi-provider-nico
+          helm lint ./chart
 
       - name: Deploy manager via Helm
         run: |
