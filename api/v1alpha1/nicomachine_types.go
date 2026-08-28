@@ -11,18 +11,21 @@ import (
 )
 
 // NicoMachineInterface defines one NICo interface attachment request.
+// +kubebuilder:validation:XValidation:rule="has(self.subnetID) != has(self.vpcPrefixID)",message="exactly one of subnetID or vpcPrefixID must be set"
 // +kubebuilder:validation:XValidation:rule="!(has(self.ipAddress) && has(self.subnetID))",message="ipAddress is only supported with vpcPrefixID interfaces"
 type NicoMachineInterface struct {
 	// SubnetID is the subnet ID for this attachment.
 	// Use SubnetID for Ethernet network virtualization.
 	// Exactly one of SubnetID or VPCPrefixID must be set.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	SubnetID string `json:"subnetID,omitempty"`
 
 	// VPCPrefixID is the VPC prefix ID for this attachment.
 	// Use VPCPrefixID for next-generation networking.
 	// Exactly one of SubnetID or VPCPrefixID must be set.
 	// +optional
+	// +kubebuilder:validation:MinLength=1
 	VPCPrefixID string `json:"vpcPrefixID,omitempty"`
 
 	// IPAddress is the explicitly requested IP address for this interface.
@@ -89,6 +92,7 @@ type NicoMachineNVLinkInterface struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.nvLinkLogicalPartitionID) || has(self.instanceTypeID)",message="nvLinkLogicalPartitionID requires instanceTypeID"
 type NicoMachineSpec struct {
 	// VPCID is the VPC where this provider should create the instance.
+	// +kubebuilder:validation:MinLength=1
 	VPCID string `json:"vpcID"`
 
 	// InstanceTypeID is the instance type ID to provision.
