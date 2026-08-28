@@ -1,9 +1,0 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
-apiVersion: v2
-name: capi-provider-nico
-description: Legacy manifest-wrapper fixture for Helm upgrade testing
-type: application
-version: 0.1.0
-appVersion: "v0.0.0"
