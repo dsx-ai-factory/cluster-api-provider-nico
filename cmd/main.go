@@ -63,9 +63,7 @@ func main() {
 	}
 	providerConfig.BindFlags(flag.CommandLine)
 
-	zapOpts := zap.Options{
-		Development: true,
-	}
+	zapOpts := zap.Options{}
 	zapOpts.BindFlags(flag.CommandLine)
 
 	flag.Parse()

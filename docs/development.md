@@ -13,7 +13,8 @@ make tilt-up
 That creates a local kind cluster, installs Cluster API core and the kubeadm
 providers, installs CAPNICo through its native Helm chart, and runs it against
 the fake endpoint. The Tilt web UI is on `localhost:10352`. Tear it down with
-`make tilt-down`.
+`make tilt-down`. The local chart values enable `--zap-devel`; released
+deployments omit it and use structured JSON logging by default.
 
 With the stack up, apply the sample cluster:
 
