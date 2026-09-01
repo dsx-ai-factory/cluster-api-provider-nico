@@ -21,7 +21,8 @@ items:
   status:
     conditions:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: '* NicoReady: Secret "nico-creds" not found'
+      message: '* NicoReady: getting nico credentials secret default/nico-creds: Secret
+        "nico-creds" not found'
       observedGeneration: 1
       reason: NotAvailable
       status: "False"
@@ -33,7 +34,8 @@ items:
       status: "False"
       type: Deleting
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Secret "nico-creds" not found
+      message: 'getting nico credentials secret default/nico-creds: Secret "nico-creds"
+        not found'
       observedGeneration: 1
       reason: WaitingForIdentitySecret
       status: "False"
@@ -47,13 +49,14 @@ items:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: |-
         * Available:
-          * NicoReady: Secret "nico-creds" not found
+          * NicoReady: getting nico credentials secret default/nico-creds: Secret "nico-creds" not found
       observedGeneration: 1
       reason: NotReady
       status: "False"
       type: Ready
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: '* NicoReady: Secret "nico-creds" not found'
+      message: '* NicoReady: getting nico credentials secret default/nico-creds: Secret
+        "nico-creds" not found'
       observedGeneration: 1
       reason: NotSynced
       status: "False"

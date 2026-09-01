@@ -73,7 +73,7 @@ func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *i
 
 	var identitySecret corev1.Secret
 	if err := c.Get(ctx, secretKey, &identitySecret); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting nico credentials secret %s: %w", secretKey, err)
 	}
 
 	secretConfig, err := nico.LoadSecretConfig(&identitySecret)
