@@ -88,6 +88,8 @@ type NicoMachineReconciler struct {
 func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
 
+	log.Info("reconciling NicoMachine")
+
 	var nicoMachine infrav1.NicoMachine
 	if err := r.reader().Get(ctx, req.NamespacedName, &nicoMachine); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)

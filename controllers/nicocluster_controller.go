@@ -64,6 +64,8 @@ type NicoClusterReconciler struct {
 func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	log.Info("reconciling NicoCluster")
+
 	var nicoCluster infrav1.NicoCluster
 	if err := r.reader().Get(ctx, req.NamespacedName, &nicoCluster); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
