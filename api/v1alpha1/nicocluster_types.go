@@ -50,13 +50,15 @@ type NicoClusterStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,categories=cluster-api,shortName=nicoc
+// +kubebuilder:validation:XValidation:rule="self.spec.siteID == oldSelf.spec.siteID",message="spec.siteID is immutable"
 // +kubebuilder:printcolumn:name="Available",type="string",JSONPath=".status.conditions[?(@.type=='Available')].status",description="Current cluster infrastructure availability"
 // +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status",description="Cluster infrastructure reconciled"
 // +kubebuilder:printcolumn:name="Provisioned",type="string",JSONPath=".status.initialization.provisioned",description="Initial cluster infrastructure provisioning completed"
 // +kubebuilder:printcolumn:name="Site",type="string",JSONPath=".spec.siteID",description="NICo site"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// NicoCluster is the Schema for the nicoclusters API.
+// NicoCluster is the Schema for the nicoclusters API. SiteID is immutable after
+// creation, while IdentityRef remains mutable for credential changes.
 type NicoCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

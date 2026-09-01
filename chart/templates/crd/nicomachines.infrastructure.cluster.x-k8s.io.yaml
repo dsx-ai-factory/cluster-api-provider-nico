@@ -46,7 +46,10 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NicoMachine is the Schema for the nicomachines API.
+        description: |-
+          NicoMachine is the Schema for the nicomachines API. Once ProviderID is
+          assigned, the spec is immutable because NICo does not support reconciling
+          these create-time settings on an existing instance.
         properties:
           apiVersion:
             description: |-
@@ -384,6 +387,9 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: spec is immutable after providerID is set
+          rule: '!has(oldSelf.spec.providerID) || self.spec == oldSelf.spec'
     served: true
     storage: true
     subresources:

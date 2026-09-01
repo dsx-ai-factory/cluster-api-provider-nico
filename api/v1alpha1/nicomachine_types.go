@@ -224,13 +224,16 @@ type NicoMachineStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,categories=cluster-api,shortName=nicom
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || self.spec == oldSelf.spec",message="spec is immutable after providerID is set"
 // +kubebuilder:printcolumn:name="Available",type="string",JSONPath=".status.conditions[?(@.type=='Available')].status",description="Current machine infrastructure availability"
 // +kubebuilder:printcolumn:name="Synced",type="string",JSONPath=".status.conditions[?(@.type=='Synced')].status",description="Machine infrastructure reconciled"
 // +kubebuilder:printcolumn:name="Provisioned",type="string",JSONPath=".status.initialization.provisioned",description="Initial machine infrastructure provisioning completed"
 // +kubebuilder:printcolumn:name="Instance",type="string",JSONPath=".status.instanceID",description="NICo instance"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// NicoMachine is the Schema for the nicomachines API.
+// NicoMachine is the Schema for the nicomachines API. Once ProviderID is
+// assigned, the spec is immutable because NICo does not support reconciling
+// these create-time settings on an existing instance.
 type NicoMachine struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

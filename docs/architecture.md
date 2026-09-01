@@ -45,6 +45,17 @@ its subnet or VPC prefix must already exist.
 | `NicoMachineTemplate` | Consumed by `KubeadmControlPlane` and `MachineDeployment` |
 | `NicoClusterTemplate` | The type exists and generates a CRD. Nothing in this repository consumes it yet — there is no ClusterClass or topology handling, and no example uses it. |
 
+`NicoCluster.spec.siteID` is immutable. Changing the credentials reference is
+supported, but changing the site would affect only machines created after the
+update and leave the cluster split across sites.
+
+`NicoMachine.spec` remains editable until the controller assigns
+`spec.providerID`. After that assignment, the entire spec is immutable because
+the fields describe the NICo instance create request and are not reconciled onto
+an existing instance. Metadata and status updates remain allowed. The
+controller's initial provider ID assignment is the transition that freezes the
+spec.
+
 The API group is `infrastructure.cluster.x-k8s.io/v1alpha1`. `metadata.yaml`
 records the Cluster API contract each release series implements; it is currently
 `v1beta2`.
