@@ -25,4 +25,4 @@ states. Envtest cases are snapshots of that state, not workflow scripts.
 - A provisioned `NicoMachine` create case reaches generation 2 when CAPNICo
   writes `spec.providerID`.
 - An unprovisioned `NicoMachine` create case stays at generation 1.
-- A provisioned `NicoMachine` spec update is rejected and remains at generation 2.
+- A provisioned `NicoMachine` spec update reaches generation 3.

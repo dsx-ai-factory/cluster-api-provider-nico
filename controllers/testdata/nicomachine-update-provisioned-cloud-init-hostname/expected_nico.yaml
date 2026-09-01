@@ -40,7 +40,13 @@ requests:
     machineId: machine-id-1
     name: machine-1
     tenantId: tenant-1
-    userData: '#cloud-config'
+    userData: |
+      #cloud-config
+
+      hostname: machine-1
+      preserve_hostname: false
+      manage_etc_hosts: true
+      packages: []
     vpcId: vpc-1
   instance_id: instance-00000001
   operation: create-instance

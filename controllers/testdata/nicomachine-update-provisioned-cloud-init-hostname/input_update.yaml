@@ -9,3 +9,12 @@ spec:
   interfaces:
   - subnetID: subnet-1
   cloudInitInjectHostname: true
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: machine-1
+  namespace: default
+spec:
+  bootstrap:
+    dataSecretName: bootstrap-1

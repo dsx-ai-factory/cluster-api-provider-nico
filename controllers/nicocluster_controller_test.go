@@ -75,9 +75,9 @@ var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-// Represents a provisioned CR whose immutable site update is rejected.
+// Represents a provisioned CR at generation 2 after a spec update.
 var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
-	"NicoCluster immutable site update",
+	"NicoCluster update reconciliation ending provisioned",
 	"nicocluster-update-provisioned-",
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {
@@ -91,17 +91,20 @@ var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("rejects the NicoCluster site update", func(ctx ginkgo.SpecContext) {
-			err := tc.PatchObjects(ctx, "input_update.yaml")
-			gomega.Expect(apierrors.IsInvalid(err)).To(gomega.BeTrue(), "expected invalid update, got %v", err)
-			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("spec.siteID is immutable")))
+		ginkgo.It("applies the NicoCluster update", func(ctx ginkgo.SpecContext) {
+			gomega.Expect(tc.PatchObjects(ctx, "input_update.yaml")).To(gomega.Succeed())
 		})
 
-		ginkgo.It("preserves the original NicoCluster site", func(ctx ginkgo.SpecContext) {
-			nicoCluster := &infrav1.NicoCluster{}
-			gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testCluster}, nicoCluster)).To(gomega.Succeed())
-			gomega.Expect(nicoCluster.Spec.SiteID).To(gomega.Equal("site-1"))
-			gomega.Expect(nicoCluster.Generation).To(gomega.Equal(int64(1)))
+		ginkgo.It("reconciles the updated NicoCluster", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoCluster := &infrav1.NicoCluster{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testCluster}, nicoCluster)).To(gomega.Succeed())
+				synced := conditions.Get(nicoCluster, infrav1.SyncedCondition)
+				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(nicoCluster.Generation).To(gomega.BeNumerically(">", 1))
+				g.Expect(synced.ObservedGeneration).To(gomega.Equal(nicoCluster.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 		})
 	},
 ))

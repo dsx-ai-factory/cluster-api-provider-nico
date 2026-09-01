@@ -46,9 +46,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          NicoCluster is the Schema for the nicoclusters API. SiteID is immutable after
-          creation, while IdentityRef remains mutable for credential changes.
+        description: NicoCluster is the Schema for the nicoclusters API.
         properties:
           apiVersion:
             description: |-
@@ -174,9 +172,6 @@ spec:
                 type: boolean
             type: object
         type: object
-        x-kubernetes-validations:
-        - message: spec.siteID is immutable
-          rule: self.spec.siteID == oldSelf.spec.siteID
     served: true
     storage: true
     subresources:

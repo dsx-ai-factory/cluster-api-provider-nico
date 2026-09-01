@@ -18,6 +18,7 @@ type: Opaque
 stringData:
   value: |
     #cloud-config
+    packages: []
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
@@ -55,7 +56,7 @@ metadata:
 spec:
   clusterName: cluster-1
   bootstrap:
-    dataSecretName: bootstrap-1
+    dataSecretName: ""
   infrastructureRef:
     apiGroup: infrastructure.cluster.x-k8s.io
     kind: NicoMachine

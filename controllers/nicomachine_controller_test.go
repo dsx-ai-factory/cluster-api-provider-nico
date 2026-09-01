@@ -112,9 +112,9 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-// Represents a provisioned CR whose create-time spec update is rejected.
+// Represents a provisioned CR at generation 2 after a spec update.
 var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
-	"NicoMachine immutable spec update",
+	"NicoMachine update reconciliation ending provisioned",
 	"nicomachine-update-provisioned-",
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
@@ -128,17 +128,22 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("rejects the provisioned NicoMachine update", func(ctx ginkgo.SpecContext) {
-			err := tc.PatchObjects(ctx, "input_update.yaml")
-			gomega.Expect(apierrors.IsInvalid(err)).To(gomega.BeTrue(), "expected invalid update, got %v", err)
-			gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("spec is immutable after providerID is set")))
+		ginkgo.It("applies the NicoMachine update", func(ctx ginkgo.SpecContext) {
+			gomega.Expect(tc.PatchObjects(ctx, "input_update.yaml")).To(gomega.Succeed())
 		})
 
-		ginkgo.It("preserves the original NicoMachine spec", func(ctx ginkgo.SpecContext) {
-			nicoMachine := &infrav1.NicoMachine{}
-			gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
-			gomega.Expect(nicoMachine.Spec.CloudInitInjectHostname).To(gomega.BeFalse())
-			gomega.Expect(nicoMachine.Generation).To(gomega.Equal(int64(2)))
+		ginkgo.It("reconciles the updated NicoMachine", func(ctx ginkgo.SpecContext) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				nicoMachine := &infrav1.NicoMachine{}
+				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+
+				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
+				g.Expect(provisioned).NotTo(gomega.BeNil())
+				g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionTrue))
+
+				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 2))
+				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 		})
 	},
 ))
