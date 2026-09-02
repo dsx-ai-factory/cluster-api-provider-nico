@@ -232,8 +232,8 @@ type NicoMachineStatus struct {
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // NicoMachine is the Schema for the nicomachines API. Once ProviderID is
-// assigned, the spec is immutable because NICo does not support reconciling
-// these create-time settings on an existing instance.
+// assigned, the spec is immutable because the controller does not reconcile
+// these create-time settings onto an existing instance.
 type NicoMachine struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
