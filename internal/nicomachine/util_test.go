@@ -69,3 +69,93 @@ func TestUtil_KeyedSlicesMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestUtil_SlicesMatchFunc(t *testing.T) {
+	type actualValue struct {
+		ID    string
+		Extra string
+	}
+	type expectedValue struct {
+		ID    string
+		Extra string
+	}
+	type parameters struct {
+		actual   []actualValue
+		expected []expectedValue
+		want     bool
+	}
+
+	matches := func(actual actualValue, expected expectedValue) bool {
+		if actual.ID != expected.ID {
+			return false
+		}
+		if expected.Extra != "" && actual.Extra != expected.Extra {
+			return false
+		}
+		return true
+	}
+
+	tests := map[string]parameters{
+		"matches values regardless of order": {
+			actual: []actualValue{
+				{ID: "a", Extra: "x"},
+				{ID: "b", Extra: "y"},
+			},
+			expected: []expectedValue{
+				{ID: "b"},
+				{ID: "a"},
+			},
+			want: true,
+		},
+		"rejects different lengths": {
+			actual: []actualValue{
+				{ID: "a"},
+			},
+			expected: []expectedValue{
+				{ID: "a"},
+				{ID: "b"},
+			},
+			want: false,
+		},
+		"rejects when a specific expected has no actual": {
+			actual: []actualValue{
+				{ID: "a", Extra: "x"},
+				{ID: "a", Extra: "y"},
+			},
+			expected: []expectedValue{
+				{ID: "a", Extra: "x"},
+				{ID: "a", Extra: "z"},
+			},
+			want: false,
+		},
+		"greedy pairing can miss a valid assignment": {
+			actual: []actualValue{
+				{ID: "a", Extra: "x"},
+				{ID: "a", Extra: "y"},
+			},
+			expected: []expectedValue{
+				{ID: "a"},
+				{ID: "a", Extra: "x"},
+			},
+			want: false,
+		},
+		"pairs when the more specific expected is first": {
+			actual: []actualValue{
+				{ID: "a", Extra: "x"},
+				{ID: "a", Extra: "y"},
+			},
+			expected: []expectedValue{
+				{ID: "a", Extra: "x"},
+				{ID: "a"},
+			},
+			want: true,
+		},
+	}
+
+	for name, params := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := nicomachine.SlicesMatchFunc(params.actual, params.expected, matches)
+			assert.Equal(t, params.want, got)
+		})
+	}
+}

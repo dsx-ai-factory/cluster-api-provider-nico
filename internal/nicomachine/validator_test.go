@@ -106,6 +106,33 @@ func TestValidator_ValidateInstance(t *testing.T) {
 			machine: validMachine(),
 			wantErr: "instance and machine interfaces do not match",
 		},
+		"accepts prefix-only spec when instance sets isPhysical": {
+			instance: validInstanceWith(func(instance *nicosdk.Instance) {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetIsPhysical(true)
+				instance.SetInterfaces([]nicosdk.Interface{*iface})
+			}),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				machine.Spec.Interfaces = []infrav1.NicoMachineInterface{{VPCPrefixID: testVPCPrefixID}}
+			}),
+		},
+		"rejects when spec physical disagrees with instance": {
+			instance: validInstanceWith(func(instance *nicosdk.Instance) {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetIsPhysical(true)
+				instance.SetInterfaces([]nicosdk.Interface{*iface})
+			}),
+			machine: validMachineWith(func(machine *infrav1.NicoMachine) {
+				physical := false
+				machine.Spec.Interfaces = []infrav1.NicoMachineInterface{{
+					VPCPrefixID: testVPCPrefixID,
+					Physical:    &physical,
+				}}
+			}),
+			wantErr: "instance and machine interfaces do not match",
+		},
 		"rejects InfiniBand interface mismatch": {
 			instance: validInstanceWith(func(instance *nicosdk.Instance) {
 				instance.SetInfinibandInterfaces([]nicosdk.InfiniBandInterface{instanceInfiniBandInterface("other-partition")})
