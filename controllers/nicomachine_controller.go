@@ -503,10 +503,6 @@ func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Ins
 	}
 }
 
-// applyObservedTopologyLabels merges the observed machine/topology labels into
-// the existing instance labels and sends them back to NICo as a label update.
-// The update is skipped when needsLabelUpdate is false, so a
-// steady-state reconcile does not write to NICo on every pass.
 func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
 	existing := instance.GetLabels()
 	desired := mergeLabels(existing, observedTopologyLabels(nicoMachine))
@@ -518,7 +514,6 @@ func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, insta
 	return err
 }
 
-// needsLabelUpdate reports whether desired differs from existing labels.
 func needsLabelUpdate(existing, desired map[string]string) bool {
 	return !maps.Equal(desired, existing)
 }
@@ -590,31 +585,6 @@ func (r *NicoMachineReconciler) reader() client.Reader {
 	return r.Client
 }
 
-func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if r.APIReader == nil {
-		r.APIReader = mgr.GetAPIReader()
-	}
-
-	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
-	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
-	if err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.NicoMachine{}).
-		Watches(
-			&clusterv1.Machine{},
-			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
-		).
-		Watches(
-			&clusterv1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(clusterToNicoMachines),
-			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), predicateLog)),
-		).
-		Complete(r)
-}
-
 // reconcileReboot actuates Machine annotation reboot requests and removes the
 // request annotation once NICo has accepted the reboot trigger.
 func (r *NicoMachineReconciler) reconcileReboot(
@@ -652,8 +622,6 @@ func (r *NicoMachineReconciler) reconcileReboot(
 
 // deferForControlPlanePriority checks if this worker instance create should be
 // deferred to allow control-plane machines to claim capacity first.
-// Returns (true, nil) if deferral was applied, (false, nil) if proceed normally,
-// or (false, err) on lookup failure.
 func (r *NicoMachineReconciler) deferForControlPlanePriority(
 	ctx context.Context,
 	nicoMachine *infrav1.NicoMachine,
@@ -666,20 +634,16 @@ func (r *NicoMachineReconciler) deferForControlPlanePriority(
 		return false, nil
 	}
 
-	// Count waiting control-plane machines on this instance type.
 	cpWaiting, sample, err := countControlPlaneWaitingForInstanceType(
 		ctx, r.Client, nicoMachine.Spec.InstanceTypeID, nicoMachine)
 	if err != nil {
 		return false, fmt.Errorf("failed to count waiting control plane machines: %w", err)
 	}
 
-	// Any waiting control-plane machine defers this worker: unusedUsable is a
-	// stale-able reading, so headroom is not a safe thing to race on.
 	if !shouldDeferForControlPlane(cpWaiting) {
 		return false, nil
 	}
 
-	// Deferral applies: surface condition and return defer signal.
 	message := fmt.Sprintf(
 		"Deferring instance create: %d control-plane NicoMachine(s) (e.g. %s) are waiting on "+
 			"instance type %q with only %d unused usable allocation(s)",
@@ -936,10 +900,6 @@ func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachin
 	return interfaces
 }
 
-// instanceTypeAvailability is the result of the pre-create allocation check. It
-// carries unusedUsable so callers can apply capacity policy (e.g. control-plane
-// priority) without a second NICo round trip, and the instance type itself so
-// callers can parse its device capabilities.
 type instanceTypeAvailability struct {
 	available    bool
 	unusedUsable int32
@@ -986,29 +946,31 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 	}, nil
 }
 
-// shouldDeferForControlPlane reports whether a worker instance create must wait
-// so control-plane NicoMachines waiting on the same instance type can claim
-// capacity first. Any waiting control-plane machine defers every worker of that
-// type, regardless of how much headroom NICo reports.
-//
-// The gate used to be headroom-aware -- defer only while unusedUsable was at or
-// below the number of waiting control-plane machines -- and that does not hold.
-// unusedUsable is a NICo reading that does not drop until a create actually
-// lands, so two worker reconciles can both observe the same free allocation and
-// both decide they have headroom. With one control-plane machine waiting and two
-// free allocations, both workers pass the check, both create, and the
-// control-plane machine gets nothing. Unlike the Forge scheduler, which runs a
-// whole site in one tick and can carry a shared capacity budget across it, each
-// reconcile here is independent and has nowhere to record what a sibling just
-// spent. Being unconditional is what closes that race.
-//
-// The cost is that a control-plane machine which can never progress would stall
-// every worker of its instance type. That is bounded on the counting side
-// instead: countControlPlaneWaitingForInstanceType tallies only machines whose
-// MachineProvisioned condition names one of capacityWaitReasons, so a machine
-// stuck for any
-// other reason -- including one added to the API after this was written -- does
-// not hold capacity.
 func shouldDeferForControlPlane(controlPlaneWaiting int) bool {
 	return controlPlaneWaiting > 0
+}
+
+func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
+	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&infrav1.NicoMachine{}).
+		Watches(
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
+		).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(clusterToNicoMachines),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), log)),
+		).
+		Complete(r)
 }

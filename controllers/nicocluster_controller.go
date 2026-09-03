@@ -118,41 +118,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	})
 
 	if !nicoCluster.DeletionTimestamp.IsZero() {
-		conditions.Set(&nicoCluster, metav1.Condition{
-			Type:    clusterv1.DeletingCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  infrav1.DeletingReason,
-			Message: "Deleting cluster infrastructure",
-		})
-		if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
-			return ctrl.Result{}, nil
-		}
-
-		nicoMachines, err := r.listNicoMachinesForCluster(ctx, cluster)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if len(nicoMachines) > 0 {
-			log.Info("waiting for NicoMachines to be deleted", "count", len(nicoMachines))
-			conditions.Set(&nicoCluster, metav1.Condition{
-				Type:    clusterv1.DeletingCondition,
-				Status:  metav1.ConditionTrue,
-				Reason:  infrav1.WaitingForNicoMachinesDeletionReason,
-				Message: fmt.Sprintf("Waiting for %d NicoMachines to be deleted", len(nicoMachines)),
-			})
-			return ctrl.Result{RequeueAfter: clusterDeleteRequeue}, nil
-		}
-
-		log.Info("removing finalizer")
-		conditions.Set(&nicoCluster, metav1.Condition{
-			Type:    clusterv1.DeletingCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  clusterv1.DeletionCompletedReason,
-			Message: "Cluster infrastructure deletion completed",
-		})
-		controllerutil.RemoveFinalizer(&nicoCluster, nicoClusterFinalizer)
-		return ctrl.Result{}, nil
+		return r.reconcileDelete(ctx, cluster, &nicoCluster)
 	}
 
 	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
@@ -180,6 +146,51 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
 }
 
+// reconcileDelete waits for the cluster's NicoMachines to be deleted before
+// removing the NicoCluster finalizer.
+func (r *NicoClusterReconciler) reconcileDelete(ctx context.Context, cluster *clusterv1.Cluster, nicoCluster *infrav1.NicoCluster) (ctrl.Result, error) {
+	conditions.Set(nicoCluster, metav1.Condition{
+		Type:    clusterv1.DeletingCondition,
+		Status:  metav1.ConditionTrue,
+		Reason:  infrav1.DeletingReason,
+		Message: "Deleting cluster infrastructure",
+	})
+
+	if !controllerutil.ContainsFinalizer(nicoCluster, nicoClusterFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	nicoMachines, err := r.listNicoMachinesForCluster(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(nicoMachines) > 0 {
+		ctrl.LoggerFrom(ctx).Info("waiting for NicoMachines to be deleted", "count", len(nicoMachines))
+		conditions.Set(nicoCluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  infrav1.WaitingForNicoMachinesDeletionReason,
+			Message: fmt.Sprintf("Waiting for %d NicoMachines to be deleted", len(nicoMachines)),
+		})
+		return ctrl.Result{RequeueAfter: clusterDeleteRequeue}, nil
+	}
+
+	completeClusterDeletion(ctx, nicoCluster)
+	return ctrl.Result{}, nil
+}
+
+func completeClusterDeletion(ctx context.Context, nicoCluster *infrav1.NicoCluster) {
+	ctrl.LoggerFrom(ctx).Info("removing finalizer")
+	conditions.Set(nicoCluster, metav1.Condition{
+		Type:    clusterv1.DeletingCondition,
+		Status:  metav1.ConditionTrue,
+		Reason:  clusterv1.DeletionCompletedReason,
+		Message: "Cluster infrastructure deletion completed",
+	})
+	controllerutil.RemoveFinalizer(nicoCluster, nicoClusterFinalizer)
+}
+
 func (r *NicoClusterReconciler) nicoClientForCluster(ctx context.Context, nicoCluster *infrav1.NicoCluster) (nico.API, error) {
 	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials)
 }
@@ -189,22 +200,6 @@ func (r *NicoClusterReconciler) reader() client.Reader {
 		return r.APIReader
 	}
 	return r.Client
-}
-
-func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if r.APIReader == nil {
-		r.APIReader = mgr.GetAPIReader()
-	}
-
-	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.NicoCluster{}).
-		Watches(
-			&clusterv1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("NicoCluster"), mgr.GetClient(), &infrav1.NicoCluster{})),
-			builder.WithPredicates(predicates.ClusterPausedTransitions(mgr.GetScheme(), predicateLog)),
-		).
-		Complete(r)
 }
 
 func (r *NicoClusterReconciler) listNicoMachinesForCluster(ctx context.Context, cluster *clusterv1.Cluster) ([]infrav1.NicoMachine, error) {
@@ -310,4 +305,20 @@ func setNicoClusterConditions(nicoCluster *infrav1.NicoCluster) error {
 // The jitter spreads reconciles across the window so many clusters do not requeue at once.
 func clusterReadyRequeueAfter(nicoCluster infrav1.NicoCluster) time.Duration {
 	return clusterReadyRequeue + deterministicJitter(string(nicoCluster.UID), clusterReadyJitterWindow)
+}
+
+func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
+
+	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&infrav1.NicoCluster{}).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("NicoCluster"), mgr.GetClient(), &infrav1.NicoCluster{})),
+			builder.WithPredicates(predicates.ClusterPausedTransitions(mgr.GetScheme(), predicateLog)),
+		).
+		Complete(r)
 }

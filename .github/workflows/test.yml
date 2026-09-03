@@ -67,9 +67,9 @@ jobs:
       - name: Run unit tests
         run: make test
 
-      - name: Verify generated files are up to date
+      - name: Verify generated files and formatting are up to date
         run: |
           if ! git diff --exit-code; then
-            echo "::error::Generated files are out of date. Run 'make manifests' and commit the result."
+            echo "::error::Generated files or formatting are out of date. Run 'make generate manifests fmt' and commit the result."
             exit 1
           fi

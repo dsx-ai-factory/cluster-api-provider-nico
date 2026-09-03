@@ -20,10 +20,6 @@ FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0
 WORKDIR /
 COPY --from=builder /manager /manager
 
-# The image is a redistribution of this work and of every dependency linked
-# into the binary, so it carries their terms. /licenses is where image tooling
-# and Red Hat certification look. Copied from the build context rather than the
-# builder stage, so a change here cannot be masked by a stale build layer.
 COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /licenses/
 
 ## https://github.com/opencontainers/image-spec/blob/main/annotations.md
