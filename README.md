@@ -250,6 +250,20 @@ Then initialize the provider:
 clusterctl init --infrastructure nico:v0.0.43
 ```
 
+### Controller scope
+
+The CAPNICo manager accepts the standard Cluster API provider scope flags:
+
+* `--namespace` limits reconciliation to Cluster API objects in one namespace.
+  The empty default watches all namespaces, which is the mode used by
+  `clusterctl` installations.
+* `--watch-filter` limits reconciliation to objects labeled
+  `cluster.x-k8s.io/watch-filter=<value>`. The empty default reconciles all
+  objects.
+
+Use both flags when running multiple CAPNICo manager instances in one
+management cluster.
+
 This release does not publish workload cluster templates yet. Use
 `clusterctl generate cluster --from <template-file-or-url>` with a local
 template when generating clusters.
