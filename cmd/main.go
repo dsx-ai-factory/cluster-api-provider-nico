@@ -37,14 +37,6 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
-type managerOptions struct {
-	metricsAddr      string
-	probeAddr        string
-	leaderElect      bool
-	watchNamespace   string
-	watchFilterValue string
-}
-
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
@@ -52,31 +44,23 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-func (o *managerOptions) BindFlags(fs *flag.FlagSet) {
-	fs.StringVar(&o.metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	fs.StringVar(&o.probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	fs.BoolVar(&o.leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
-	fs.StringVar(&o.watchNamespace, "namespace", "", "Namespace that the controller watches to reconcile Cluster API objects. If unspecified, the controller watches all namespaces.")
-	fs.StringVar(&o.watchFilterValue, "watch-filter", "", "Label value that the controller watches to reconcile Cluster API objects. The label key is cluster.x-k8s.io/watch-filter. If unspecified, the controller watches all objects.")
-}
-
-func managerCacheOptions(watchNamespace string) cache.Options {
-	var defaultNamespaces map[string]cache.Config
-	if watchNamespace != "" {
-		defaultNamespaces = map[string]cache.Config{watchNamespace: {}}
-	}
-	return cache.Options{DefaultNamespaces: defaultNamespaces}
-}
-
 func main() {
-	managerOpts := managerOptions{}
+	var metricsAddr string
+	var probeAddr string
+	var leaderElect bool
+	var watchNamespace string
+	var watchFilterValue string
 
 	defaultProviderNamespace := os.Getenv(podNamespaceEnvVar)
 	if defaultProviderNamespace == "" {
 		defaultProviderNamespace = defaultProviderCredentialsNamespace
 	}
 
-	managerOpts.BindFlags(flag.CommandLine)
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
+	flag.StringVar(&watchNamespace, "namespace", "", "Namespace that the controller watches to reconcile Cluster API objects. If unspecified, the controller watches all namespaces.")
+	flag.StringVar(&watchFilterValue, "watch-filter", "", "Label value that the controller watches to reconcile Cluster API objects. The label key is cluster.x-k8s.io/watch-filter. If unspecified, the controller watches all objects.")
 
 	providerConfig := nico.ProviderConfig{
 		Credentials: types.NamespacedName{
@@ -91,17 +75,22 @@ func main() {
 
 	flag.Parse()
 
+	var watchNamespaces map[string]cache.Config
+	if watchNamespace != "" {
+		watchNamespaces = map[string]cache.Config{watchNamespace: {}}
+	}
+
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
 	setupLog.Info("provider configuration", "config", providerConfig)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: managerOpts.metricsAddr},
-		HealthProbeBindAddress: managerOpts.probeAddr,
-		LeaderElection:         managerOpts.leaderElect,
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         leaderElect,
 		LeaderElectionID:       "nico.infrastructure.cluster.x-k8s.io",
-		Cache:                  managerCacheOptions(managerOpts.watchNamespace),
+		Cache:                  cache.Options{DefaultNamespaces: watchNamespaces},
 		Client: client.Options{
 			Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}},
 		},
@@ -116,7 +105,7 @@ func main() {
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		ProviderConfig:   providerConfig,
-		WatchFilterValue: managerOpts.watchFilterValue,
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoCluster")
 		os.Exit(1)
@@ -126,7 +115,7 @@ func main() {
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		ProviderConfig:   providerConfig,
-		WatchFilterValue: managerOpts.watchFilterValue,
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
 		os.Exit(1)
