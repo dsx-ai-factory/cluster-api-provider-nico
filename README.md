@@ -51,6 +51,10 @@ same objects, and this provider satisfies them with NICo hardware.
 
 ## Documentation
 
+- [docs/getting-started.md](docs/getting-started.md) — **start here.** First
+  cluster three ways: the in-repo fake, a local NICo, and a production site.
+  What must exist on the NICo side first, the credentials Secret, what the OS
+  image has to contain, and the traps.
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit: the CRDs and
   which fields live on which, credential resolution and client caching, machine
   reconciliation and what the finalizer guards, provider ID and node matching,
@@ -210,7 +214,7 @@ CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
 Generate the local artifacts with the controller image you want to publish:
 
 ```bash
-CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.8 \
+CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.43 \
 make release-manifests
 ```
 
@@ -237,13 +241,13 @@ does not specify one explicitly:
 providers:
   - name: nico
     type: InfrastructureProvider
-    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.10/infrastructure-components.yaml
+    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.43/infrastructure-components.yaml
 ```
 
 Then initialize the provider:
 
 ```bash
-clusterctl init --infrastructure nico:v0.0.10
+clusterctl init --infrastructure nico:v0.0.43
 ```
 
 This release does not publish workload cluster templates yet. Use
@@ -478,12 +482,20 @@ machines stuck in deletion and require manual NICo cleanup.
 ## Machine Repair
 
 CAPNICo exposes repair as an annotation-driven contract on the owning CAPI
-`Machine`. A consumer requests that a NiCo instance be flagged for repair
-before deletion by setting the configured repair annotation on the `Machine`.
-CAPNICo treats annotation presence as the repair request; the annotation value
-is used as the health-issue summary forwarded to NiCo. When the annotation is
-present, CAPNICo forwards the health issue to the NiCo delete request as
-machine health context for the repair workflow.
+`Machine`. A consumer requests that a NICo instance be flagged for repair before
+deletion by setting the configured repair annotation on the `Machine`. CAPNICo
+treats a non-empty annotation value as the repair request and forwards the
+health issue to the NICo delete request as machine health context for the repair
+workflow.
+
+The value is parsed as JSON first:
+
+```json
+{"category": "Thermal", "summary": "over temperature", "details": "optional"}
+```
+
+A value that does not parse as JSON is treated as a legacy plain-string summary
+and assigned the category `Other`.
 
 The feature can be disabled by setting the flag to an empty string.
 
@@ -499,8 +511,9 @@ The key is configurable with a manager flag:
 
 CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
 `Machine`. A consumer requests a reboot by setting the configured reboot
-annotation on the `Machine`. CAPNICo treats annotation presence as the reboot
-request; the annotation value is consumer-owned metadata and is not interpreted.
+annotation on the `Machine`. CAPNICo treats a non-empty annotation value as the
+reboot request; the value itself is consumer-owned metadata and is not
+interpreted.
 CAPNICo triggers at most one NICo instance reboot for each observed annotation
 application. After NICo accepts the reboot trigger, CAPNICo removes the
 configured reboot annotation from the `Machine`.
