@@ -59,8 +59,21 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
-	flag.StringVar(&watchNamespace, "namespace", "", "Namespace that the controller watches to reconcile Cluster API objects. If unspecified, the controller watches all namespaces.")
-	flag.StringVar(&watchFilterValue, "watch-filter", "", "Label value that the controller watches to reconcile Cluster API objects. The label key is cluster.x-k8s.io/watch-filter. If unspecified, the controller watches all objects.")
+	flag.StringVar(
+		&watchNamespace,
+		"namespace",
+		"",
+		"Namespace that the controller watches to reconcile Cluster API objects. "+
+			"If unspecified, the controller watches all namespaces.",
+	)
+	flag.StringVar(
+		&watchFilterValue,
+		"watch-filter",
+		"",
+		"Label value that the controller watches to reconcile Cluster API objects. "+
+			"The label key is cluster.x-k8s.io/watch-filter. "+
+			"If unspecified, the controller watches all objects.",
+	)
 
 	providerConfig := nico.ProviderConfig{
 		Credentials: types.NamespacedName{
