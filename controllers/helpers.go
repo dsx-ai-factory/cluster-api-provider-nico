@@ -58,16 +58,19 @@ func firstIPv4FromInstance(instance *nicosdk.Instance) string {
 	return ""
 }
 
-func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (nico.API, error) {
-	var secretKey types.NamespacedName
+func credentialsSecretKey(nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (types.NamespacedName, bool) {
+	if nicoCluster.Spec.IdentityRef.Name != "" {
+		return types.NamespacedName{Namespace: nicoCluster.Namespace, Name: nicoCluster.Spec.IdentityRef.Name}, true
+	}
+	if providerCreds.Namespace != "" && providerCreds.Name != "" {
+		return providerCreds, true
+	}
+	return types.NamespacedName{}, false
+}
 
-	// Prefer the cluster-specific credentials Secret over the provider-level credentials Secret.
-	switch {
-	case nicoCluster.Spec.IdentityRef.Name != "":
-		secretKey = types.NamespacedName{Namespace: nicoCluster.Namespace, Name: nicoCluster.Spec.IdentityRef.Name}
-	case providerCreds.Namespace != "" && providerCreds.Name != "":
-		secretKey = providerCreds
-	default:
+func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (nico.API, error) {
+	secretKey, ok := credentialsSecretKey(nicoCluster, providerCreds)
+	if !ok {
 		return nil, apierrors.NewNotFound(corev1.Resource("secrets"), "")
 	}
 

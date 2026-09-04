@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
@@ -36,13 +37,14 @@ import (
 )
 
 const (
-	nicoMachineFinalizer          = "infrastructure.cluster.x-k8s.io/nicomachine"
-	lastRebootTriggeredAnnotation = "nico.nvidia.com/last-reboot-triggered-timestamp"
-	machineRequeueFast            = 15 * time.Second
-	machineRequeueSlow            = 30 * time.Second
-	machineReadyRequeue           = 5 * time.Minute
-	machineReadyJitterWindow      = 1 * time.Minute
-	instanceTypeUnavailableWait   = 2 * time.Minute
+	nicoMachineFinalizer                 = "infrastructure.cluster.x-k8s.io/nicomachine"
+	nicoMachineCredentialsSecretRefIndex = "nicoMachineCredentialsSecretRef"
+	lastRebootTriggeredAnnotation        = "nico.nvidia.com/last-reboot-triggered-timestamp"
+	machineRequeueFast                   = 15 * time.Second
+	machineRequeueSlow                   = 30 * time.Second
+	machineReadyRequeue                  = 5 * time.Minute
+	machineReadyJitterWindow             = 1 * time.Minute
+	instanceTypeUnavailableWait          = 2 * time.Minute
 
 	// These NKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
@@ -955,6 +957,17 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		r.APIReader = mgr.GetAPIReader()
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineCredentialsSecretRefIndex, func(object client.Object) []string {
+		nicoCluster := object.(*infrav1.NicoCluster)
+		secretKey, ok := credentialsSecretKey(nicoCluster, r.ProviderConfig.Credentials)
+		if !ok {
+			return nil
+		}
+		return []string{secretKey.String()}
+	}); err != nil {
+		return fmt.Errorf("index NicoClusters by credentials Secret for NicoMachines: %w", err)
+	}
+
 	log := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
 	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
 	if err != nil {
@@ -971,6 +984,37 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToNicoMachines),
 			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), log)),
+		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				secretKey := client.ObjectKeyFromObject(object)
+				listOptions := []client.ListOption{
+					client.MatchingFields{nicoMachineCredentialsSecretRefIndex: secretKey.String()},
+				}
+				if secretKey != r.ProviderConfig.Credentials {
+					listOptions = append(listOptions, client.InNamespace(secretKey.Namespace))
+				}
+
+				var nicoClusters infrav1.NicoClusterList
+				if err := r.List(ctx, &nicoClusters, listOptions...); err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
+					return nil
+				}
+
+				requests := []reconcile.Request{}
+				for i := range nicoClusters.Items {
+					cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters.Items[i].ObjectMeta)
+					if err != nil {
+						ctrl.LoggerFrom(ctx).Error(err, "failed to get Cluster for credentials Secret", "secret", secretKey, "nicoCluster", client.ObjectKeyFromObject(&nicoClusters.Items[i]))
+						continue
+					}
+					if cluster != nil {
+						requests = append(requests, clusterToNicoMachines(ctx, cluster)...)
+					}
+				}
+				return requests
+			}),
 		).
 		Complete(r)
 }
