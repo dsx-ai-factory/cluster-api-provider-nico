@@ -98,13 +98,12 @@ side needs:
 
 - a **site** — goes on `NicoCluster.spec.siteID`
 - a **VPC** — goes on `NicoMachine.spec.vpcID`, **not** on the cluster
-- a **VPC prefix** or a **subnet** — one per interface attachment
+- a **subnet** — one per interface attachment (`vpcPrefixID` instead of
+  `subnetID` only on sites with Native Networking enabled)
 - an **instance type** for control-plane and worker machines
-- optionally **SSH key groups** for Serial-over-LAN access
-- an **iPXE script** URL that boots an OS image able to consume kubeadm
-  cloud-init
 
-`vpcPrefixID` is the current path; `subnetID` is legacy.
+For a local NICo, `hack/local-nico-seed.sh` creates all of these — see "Seed
+test resources" below.
 
 ### Standing up a local NICo
 
@@ -119,17 +118,32 @@ dev/deployment/devspace/bootstrap-prereqs.sh   # cert-manager, PostgreSQL, Vault
 devspace deploy                                # Core + REST + machine-a-tron (the mock hosts)
 ```
 
-Both build a full Rust/Go workspace and several images. Give Docker at least
-8 CPUs, 12GB RAM, and 100GB free disk — short of that, the build thrashes or
-runs out of space rather than failing cleanly. `devspace deploy`'s final
-verification step can also run for 15–20 minutes with **no output at all**;
-that is expected, not a hang.
+Both build a full Rust/Go workspace and several images.
+
+- Docker: 8 CPUs, 12GB RAM, 100GB free disk, minimum.
+- `devspace deploy`'s final verification step runs 15–20 minutes with no
+  output. Expected, not a hang.
+
+For a real site instead, see that repository's `helm-prereqs/setup.sh`.
 
 Keep the REST API and Keycloak reachable:
 
 ```bash
 kubectl -n nico-rest port-forward service/nico-rest-api 18388:8388
 kubectl -n nico-rest port-forward service/keycloak     18082:8082
+```
+
+### Seed test resources
+
+A fresh local site has mock hosts but no VPC, instance type, or allocation
+yet — "Create a cluster" below needs all three, and nothing up to this point
+creates them. Safe to re-run — it reuses what already exists rather than
+duplicating it. It also extends the realm's access-token lifespan from the
+5-minute default.
+
+```bash
+hack/local-nico-seed.sh > /tmp/nico-env.sh
+source /tmp/nico-env.sh
 ```
 
 Mint a token and confirm the API answers:
@@ -144,33 +158,6 @@ TOKEN=$(curl -fsS -X POST http://localhost:18082/realms/nico-dev/protocol/openid
 curl -fsS http://localhost:18388/v2/org/test-org/nico/tenant/current \
   -H "Authorization: Bearer ${TOKEN}" | jq
 ```
-
-For a real site instead, see that repository's `helm-prereqs/setup.sh`.
-
-### Seed test resources
-
-A fresh local site has mock hosts but no VPC, instance type, or allocation
-yet — "Create a cluster" below needs all three, and nothing up to this point
-creates them. From this repository, with the port-forwards above still
-running:
-
-```bash
-hack/local-nico-seed.sh > /tmp/nico-env.sh
-source /tmp/nico-env.sh
-```
-
-Safe to re-run — it reuses what already exists rather than duplicating it. It
-also extends the realm's access-token lifespan from the 5-minute default, so
-mint the `TOKEN` for the Secret below *after* running this, not before.
-
-### ⚠️ Set `apiName`
-
-The path segment after `/org/{org}/` is deployment-specific. **The SDK defaults
-it to `carbide`**, and a local NICo serves `nico`. Wrong value, every call 404s
-and the `NicoCluster` never goes ready.
-
-Read it off a URL that works — `/v2/org/test-org/**nico**/tenant/current` — and
-put it in the Secret.
 
 ### The credentials Secret
 
@@ -192,16 +179,6 @@ kubectl create secret generic nico-credentials -n capnico-system \
   --from-literal=token="${TOKEN}"
 ```
 
-Optional keys: `ca.crt`, `insecureSkipTLSVerify`, `scope`/`scopes`. `apiName` is
-optional to the API and required in practice — omit it only if your site really
-does serve the SDK default, `carbide`.
-
-For OAuth2 instead of a static token: `tokenURL`, `clientID`, `clientSecret`,
-and optionally `scope`. **CAPNICo uses the client-credentials grant only.** The
-local Keycloak example above uses the password grant, so either configure a
-client-credentials client or paste a static token as shown — and expect the
-static one to expire.
-
 `endpoint` must be reachable **from a pod in the management cluster**, not from
 your laptop. The in-cluster DNS name above only works when CAPNICo and NICo share
 a cluster. If they do not, expose the NICo REST Service to the management cluster
@@ -212,15 +189,6 @@ Docker network — and use that address. Check it from a pod, not a shell:
 kubectl -n capnico-system run netcheck --rm -it --restart=Never \
   --image=curlimages/curl -- curl -sv <endpoint>/healthz
 ```
-
-Two ways to supply the Secret:
-
-- **Provider-level**, in the manager's namespace — used by every `NicoCluster`
-  that does not override it. Configurable with `--provider-credentials-namespace`
-  (default `$POD_NAMESPACE`, else `capnico-system`) and
-  `--provider-credentials-secret-name` (default `nico-credentials`).
-- **Per-cluster**, via `NicoCluster.spec.identityRef.name`, in the
-  `NicoCluster`'s own namespace. Overrides the provider-level Secret.
 
 Clients are cached per Secret `resourceVersion`, so an external rotation is
 picked up on the next reconcile with no manager restart.

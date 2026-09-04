@@ -2,42 +2,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Seed the test resources Path B's "Create a cluster" step needs against a
-# local NICo (docs/getting-started.md, "Path B — against a real NICo"), and
-# print them as `export` lines ready to source.
+# Creates the VPC, instance type, and allocations a fresh local NICo needs
+# before "Create a cluster" in docs/getting-started.md works, and prints them
+# as `export` lines.
 #
-# bootstrap-prereqs.sh and devspace deploy stand up a site with mock hosts,
-# but nothing creates the VPC, instance type, or allocations a NicoCluster /
-# NicoMachineTemplate needs -- those are tenant-side resources, not part of
-# the site bootstrap. This script creates them, idempotently, and exits with
-# their IDs so the reader never has to hand-roll them from the API reference.
-#
-# Usage:
-#   dev/deployment/devspace/setup-rest-integration.sh's port-forwards (or the
-#   two `kubectl port-forward` commands from the guide) must already be
-#   running, then:
+# Usage: with the guide's port-forwards running,
 #
 #     hack/local-nico-seed.sh > /tmp/nico-env.sh
 #     source /tmp/nico-env.sh
 #
-# Configuration is by environment variable, matching every other Keycloak/API
-# constant already fixed by the guide's own examples:
-#
-#   API_URL        REST API base URL           (default http://localhost:18388)
-#   KEYCLOAK_URL   Keycloak base URL            (default http://localhost:18082)
-#   KEYCLOAK_REALM Keycloak realm               (default nico-dev)
-#   CLIENT_ID      OAuth client_id              (default nico-api)
-#   CLIENT_SECRET  OAuth client_secret          (default nico-local-secret)
-#   USERNAME       Password-grant username      (default admin@example.com)
-#   PASSWORD       Password-grant password      (default adminpassword)
-#   ORG            Org path segment             (default test-org)
-#   SITE_NAME      Site to seed                 (default local-dev-site)
-#   ACCESS_TOKEN_LIFESPAN  Seconds to extend the realm's access tokens to, so
-#                          a Secret minted from this script's TOKEN survives
-#                          a normal working session instead of the realm
-#                          default (300s -- five minutes)     (default 3600)
-#   KEYCLOAK_ADMIN_USER / KEYCLOAK_ADMIN_PASSWORD  master-realm admin, used
-#                          only for the token-lifespan bump   (default admin/admin)
+# Env vars (all optional, defaults match the guide):
+#   API_URL KEYCLOAK_URL KEYCLOAK_REALM CLIENT_ID CLIENT_SECRET USERNAME
+#   PASSWORD ORG SITE_NAME ACCESS_TOKEN_LIFESPAN KEYCLOAK_ADMIN_USER
+#   KEYCLOAK_ADMIN_PASSWORD
 
 set -euo pipefail
 
@@ -60,11 +37,8 @@ log() { echo "  $*" >&2; }
 command -v curl >/dev/null || die "curl is not on PATH."
 command -v jq >/dev/null || die "jq is not on PATH."
 
-# The realm ships with a 5-minute access-token lifespan, which routinely
-# expires mid-session and then looks like a stuck reconcile or a stuck
-# deletion (CAPNICo silently retries against a 401 with no visible signal
-# short of reading its logs). Best-effort: a non-default local Keycloak admin
-# password must not block the rest of the script.
+# Realm default is 5 minutes, which expires mid-session. Best-effort: a
+# non-default admin password must not block the rest of the script.
 ADMIN_TOKEN="$(curl -fsS -X POST "${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token" \
     -H 'Content-Type: application/x-www-form-urlencoded' \
     -d 'client_id=admin-cli' -d 'grant_type=password' \
@@ -75,9 +49,9 @@ if [[ -n "${ADMIN_TOKEN}" && "${ADMIN_TOKEN}" != "null" ]]; then
     curl -fsS -X PUT "${KEYCLOAK_URL}/admin/realms/${KEYCLOAK_REALM}" \
         -H "Authorization: Bearer ${ADMIN_TOKEN}" -H 'Content-Type: application/json' \
         -d "$(jq -n --argjson s "${ACCESS_TOKEN_LIFESPAN}" '{accessTokenLifespan: $s}')" >/dev/null \
-        || log "could not extend the token lifespan -- continuing with the realm default"
+        || log "could not extend the token lifespan, continuing with the realm default"
 else
-    log "could not authenticate to Keycloak's master realm -- leaving the token lifespan as-is"
+    log "could not reach Keycloak's master realm, leaving the token lifespan as-is"
 fi
 
 TOKEN="$(curl -fsS -X POST "${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token" \
@@ -102,8 +76,7 @@ SITE_ID="$(api GET "site?query=${SITE_NAME}" | jq -r --arg n "${SITE_NAME}" '.[]
 TENANT_ID="$(api GET "tenant/current" | jq -r '.id')"
 [[ -n "${TENANT_ID}" && "${TENANT_ID}" != "null" ]] || die "could not resolve the current tenant."
 
-# 1. Site IP block. A fresh site has none of its own -- these are supposed to
-# come from fabric prefixes the site reports, which a mock site never does.
+# 1. Site IP block.
 IPBLOCK_ID="$(api GET "ipblock?siteId=${SITE_ID}" | jq -r '.[0].id // empty')"
 if [[ -z "${IPBLOCK_ID}" ]]; then
     log "creating site IP block"
@@ -114,14 +87,11 @@ if [[ -z "${IPBLOCK_ID}" ]]; then
     }')" | jq -r '.id')"
 fi
 
-# 2. Instance type. Its machineCapabilities gate which Machines can be
-# associated with it (a Machine must be a capability superset). Read the
-# requirement off a real Ready Machine at the site instead of guessing --
-# guessed capabilities silently associate with nothing, and every instance
-# created against the type then sits forever with no Machine to run on.
+# 2. Instance type, matched to a real Machine's capabilities -- a guessed
+# value silently matches nothing, and every Instance then has no Machine.
 INSTANCE_TYPE_ID="$(api GET "instance/type?siteId=${SITE_ID}" | jq -r '.[0].id // empty')"
 if [[ -z "${INSTANCE_TYPE_ID}" ]]; then
-    log "creating instance type from a Ready Machine's reported capabilities"
+    log "creating instance type"
     REF_MACHINE_CAPS="$(api GET "machine?siteId=${SITE_ID}&pageSize=100" \
         | jq -c '[.[] | select(.status == "Ready")][0].machineCapabilities | map(select(.type == "CPU")) | .[0:1]')"
     [[ "${REF_MACHINE_CAPS}" != "null" && "${REF_MACHINE_CAPS}" != "[]" ]] \
@@ -132,15 +102,13 @@ if [[ -z "${INSTANCE_TYPE_ID}" ]]; then
     }')" | jq -r '.id')"
 fi
 
-# 3. Associate every unassigned Ready Machine at the site with it.
+# 3. Associate unassigned Machines with it.
 UNASSIGNED_IDS="$(api GET "machine?siteId=${SITE_ID}&pageSize=100" \
     | jq -c '[.[] | select(.status == "Ready" and .instanceTypeId == null) | .id]')"
 UNASSIGNED_COUNT="$(jq 'length' <<<"${UNASSIGNED_IDS}")"
 if [[ "${UNASSIGNED_COUNT}" -gt 0 ]]; then
-    log "associating ${UNASSIGNED_COUNT} unassigned Machine(s) with the instance type"
-    # A brand-new instance type is not always immediately queryable by ID on
-    # the write path this call uses, so the very first attempt right after
-    # creation can 400. Retrying is cheap and the call itself is idempotent.
+    log "associating ${UNASSIGNED_COUNT} unassigned Machine(s)"
+    # A brand-new instance type can 400 on the first attempt; idempotent retry.
     for attempt in 1 2 3; do
         api POST "instance/type/${INSTANCE_TYPE_ID}/machine" \
             "$(jq -c --argjson ids "${UNASSIGNED_IDS}" '{machineIds: $ids}')" >/dev/null && break
@@ -149,8 +117,7 @@ if [[ "${UNASSIGNED_COUNT}" -gt 0 ]]; then
     done
 fi
 
-# 4. Compute allocation, sized to every Machine now associated with the type
-# -- creating one exceeding that count is rejected outright.
+# 4. Compute allocation, sized to Machines associated with the type.
 MACHINE_COUNT="$(api GET "instance/type/${INSTANCE_TYPE_ID}/machine" | jq 'length')"
 [[ "${MACHINE_COUNT}" -gt 0 ]] || die "instance type ${INSTANCE_TYPE_ID} has no associated Machines to allocate."
 HAS_COMPUTE_ALLOC="$(api GET "allocation?siteId=${SITE_ID}" \
@@ -165,13 +132,11 @@ if [[ "${HAS_COMPUTE_ALLOC}" != "true" ]]; then
     }')" >/dev/null
 fi
 
-# 5. Network allocation, which is what actually derives a tenant-scoped IP
-# block from the site IP block -- a VPC/Subnet cannot be created without one,
-# no matter how healthy the site IP block itself looks.
+# 5. Network allocation, to derive a tenant IP block from the site IP block.
 TENANT_IPBLOCK_ID="$(api GET "allocation?siteId=${SITE_ID}" \
     | jq -r --arg ib "${IPBLOCK_ID}" '[.[].allocationConstraints[]? | select(.resourceType == "IPBlock" and .resourceTypeId == $ib)][0].derivedResourceId // empty')"
 if [[ -z "${TENANT_IPBLOCK_ID}" ]]; then
-    log "creating network allocation to derive a tenant IP block"
+    log "creating network allocation"
     TENANT_IPBLOCK_ID="$(api POST allocation "$(jq -n --arg tenant "${TENANT_ID}" --arg site "${SITE_ID}" --arg ib "${IPBLOCK_ID}" '{
         name: "capnico-local-dev-network", description: "Seeded by hack/local-nico-seed.sh",
         tenantId: $tenant, siteId: $site,
@@ -179,13 +144,10 @@ if [[ -z "${TENANT_IPBLOCK_ID}" ]]; then
     }')" | jq -r '.allocationConstraints[0].derivedResourceId')"
 fi
 
-# 6. VPC + Subnet. The local devspace site never has Native Networking (FNN)
-# enabled -- so this always uses ETHERNET_VIRTUALIZER + Subnet, never FNN +
-# VpcPrefix. Getting that wrong isn't a style choice: an FNN VPC on a site
-# that doesn't support it has no backing FNN config, and a Machine assigned to
-# it gets stuck in WaitingForNetworkConfig forever with no API-level way to
-# recover the Machine or the Instance. Reuse only a VPC of this type -- a
-# leftover VPC of the wrong type must not be picked up by mere presence.
+# 6. VPC + Subnet. Always ETHERNET_VIRTUALIZER/subnet, never FNN/VpcPrefix --
+# the local site has no Native Networking, and an FNN VPC here permanently
+# wedges any Machine assigned to it. Match on type so a leftover VPC of the
+# wrong kind is never reused.
 VPC_ID="$(api GET "vpc?siteId=${SITE_ID}" | jq -r '[.[] | select(.networkVirtualizationType == "ETHERNET_VIRTUALIZER")][0].id // empty')"
 if [[ -z "${VPC_ID}" ]]; then
     log "creating VPC"
