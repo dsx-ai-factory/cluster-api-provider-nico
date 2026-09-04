@@ -37,6 +37,7 @@ does not install them for you.
 | `kubectl` | Everything |
 | [Go](https://go.dev/dl/) | Builds the manager and the codegen tools |
 | [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Paths B and C only |
+| [devspace](https://www.devspace.sh) | Path B only — deploys the local NICo stack |
 
 Ports `10352` (Tilt UI) and `5006` (the local registry) must be free.
 
@@ -109,12 +110,20 @@ side needs:
 
 [NVIDIA/infra-controller](https://github.com/NVIDIA/infra-controller) runs
 locally with mock hosts, which is enough to exercise CAPNICo against the real
-REST API. From that repository:
+REST API. `bootstrap-prereqs.sh` operates on whatever kube context is
+current, so point `KUBECONFIG` at a **dedicated local kind cluster** first —
+not the Path A cluster, and not a shared or remote one. From that repository:
 
 ```bash
 dev/deployment/devspace/bootstrap-prereqs.sh   # cert-manager, PostgreSQL, Vault, Temporal, Keycloak
 devspace deploy                                # Core + REST + machine-a-tron (the mock hosts)
 ```
+
+Both build a full Rust/Go workspace and several images. Give Docker at least
+8 CPUs, 12GB RAM, and 100GB free disk — short of that, the build thrashes or
+runs out of space rather than failing cleanly. `devspace deploy`'s final
+verification step can also run for 15–20 minutes with **no output at all**;
+that is expected, not a hang.
 
 Keep the REST API and Keycloak reachable:
 
@@ -137,6 +146,22 @@ curl -fsS http://localhost:18388/v2/org/test-org/nico/tenant/current \
 ```
 
 For a real site instead, see that repository's `helm-prereqs/setup.sh`.
+
+### Seed test resources
+
+A fresh local site has mock hosts but no VPC, instance type, or allocation
+yet — "Create a cluster" below needs all three, and nothing up to this point
+creates them. From this repository, with the port-forwards above still
+running:
+
+```bash
+hack/local-nico-seed.sh > /tmp/nico-env.sh
+source /tmp/nico-env.sh
+```
+
+Safe to re-run — it reuses what already exists rather than duplicating it. It
+also extends the realm's access-token lifespan from the 5-minute default, so
+mint the `TOKEN` for the Secret below *after* running this, not before.
 
 ### ⚠️ Set `apiName`
 
@@ -226,15 +251,15 @@ Three templates under `examples/kubeadm/`. List a template's variables with
 | `cluster-kube-vip.yaml` | You want the template to bootstrap kube-vip as a static pod |
 | `cluster-single-control-plane-static-ip.yaml` | Developer bring-up only — single control plane, requested IP, no HA |
 
+For a local NICo, `source /tmp/nico-env.sh` from "Seed test resources" above
+sets `NICO_SITE_ID`, `NICO_VPC_ID`, the instance type IDs, and
+`NICO_NETWORK_METHOD`/`NICO_NETWORK_ID` — only the iPXE scripts and the
+control-plane endpoint stay as placeholders, since nothing local boots them:
+
 ```bash
 kubectl create namespace demo
 
-NICO_SITE_ID=your-site \
-NICO_VPC_ID=your-vpc \
-NICO_CONTROL_PLANE_INSTANCE_TYPE_ID=your-cp-type \
-NICO_WORKER_INSTANCE_TYPE_ID=your-worker-type \
-NICO_NETWORK_METHOD=vpcPrefixID \
-NICO_NETWORK_ID=your-vpc-prefix \
+source /tmp/nico-env.sh
 NICO_CONTROL_PLANE_IPXE_SCRIPT='chain https://boot.example.com/ipxe/control-plane.ipxe' \
 NICO_WORKER_IPXE_SCRIPT='chain https://boot.example.com/ipxe/worker.ipxe' \
 CONTROL_PLANE_ENDPOINT_HOST=10.0.0.100 \
@@ -242,6 +267,17 @@ clusterctl generate cluster demo --from examples/kubeadm/cluster.yaml \
   --target-namespace demo --kubernetes-version v1.36.0 \
   --control-plane-machine-count 1 --worker-machine-count 1 | kubectl apply -f -
 ```
+
+If reconciliation reports `401 Unauthorized` or `TenantResolutionFailed`
+partway through, the static token from "The credentials Secret" has expired —
+re-mint it and update the Secret, same as before.
+
+Against a local NICo, this is as far as Path B goes: `kubectl -n demo get
+nicomachine` reaching `PROVISIONED=true` means the CAPNICo↔NICo integration
+works end to end. It will not reach a booted, `Ready` node — the iPXE URLs
+above are placeholders and `machine-a-tron` only mocks the hardware, so
+nothing ever actually boots `kubeadm`. For a real boot chain, see "What has to
+be in the OS image" below and Path C.
 
 Nodes get their provider ID from the NICo metadata service: the templates read
 `169.254.169.254:7777/latest/meta-data/instance-id` and patch kubelet with
