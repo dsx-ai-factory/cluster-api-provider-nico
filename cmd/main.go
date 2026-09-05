@@ -7,12 +7,15 @@ import (
 	"flag"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -45,6 +48,8 @@ func main() {
 	var metricsAddr string
 	var probeAddr string
 	var leaderElect bool
+	var watchNamespace string
+	var watchFilterValue string
 
 	defaultProviderNamespace := os.Getenv(podNamespaceEnvVar)
 	if defaultProviderNamespace == "" {
@@ -54,6 +59,21 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
+	flag.StringVar(
+		&watchNamespace,
+		"namespace",
+		"",
+		"Namespace that the controller watches to reconcile Cluster API objects. "+
+			"If unspecified, the controller watches all namespaces.",
+	)
+	flag.StringVar(
+		&watchFilterValue,
+		"watch-filter",
+		"",
+		"Label value that the controller watches to reconcile Cluster API objects. "+
+			"The label key is cluster.x-k8s.io/watch-filter. "+
+			"If unspecified, the controller watches all objects.",
+	)
 
 	providerConfig := nico.ProviderConfig{
 		Credentials: types.NamespacedName{
@@ -68,6 +88,11 @@ func main() {
 
 	flag.Parse()
 
+	var watchNamespaces map[string]cache.Config
+	if watchNamespace != "" {
+		watchNamespaces = map[string]cache.Config{watchNamespace: {}}
+	}
+
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
 	setupLog.Info("provider configuration", "config", providerConfig)
@@ -78,6 +103,10 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       "nico.infrastructure.cluster.x-k8s.io",
+		Cache:                  cache.Options{DefaultNamespaces: watchNamespaces},
+		Client: client.Options{
+			Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -86,18 +115,20 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	if err := (&controllers.NicoClusterReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		ProviderConfig: providerConfig,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ProviderConfig:   providerConfig,
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoCluster")
 		os.Exit(1)
 	}
 
 	if err := (&controllers.NicoMachineReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		ProviderConfig: providerConfig,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		ProviderConfig:   providerConfig,
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
 		os.Exit(1)

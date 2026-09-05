@@ -72,9 +72,10 @@ type NicoMachineReconciler struct {
 	// Reading the cache there can return the version from before that write,
 	// which reads as "nothing created yet" and creates a second instance. The
 	// cost is one uncached read per pass, against one object.
-	APIReader      client.Reader
-	Scheme         *runtime.Scheme
-	ProviderConfig nico.ProviderConfig
+	APIReader        client.Reader
+	Scheme           *runtime.Scheme
+	ProviderConfig   nico.ProviderConfig
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -963,6 +964,7 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoMachine{}).
+		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),

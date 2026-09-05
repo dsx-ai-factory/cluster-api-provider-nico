@@ -48,10 +48,12 @@ type ProviderConfig struct {
 	RebootAnnotation string
 
 	// RepairAnnotation is the annotation key the controller watches on the owner
-	// CAPI Machine during deletion. When the annotation is present its value is
-	// forwarded to the NICo API as the MachineHealthIssue summary, signalling
-	// that the underlying hardware should be flagged for repair rather than
-	// returned to the available pool. An empty string disables the behaviour.
+	// CAPI Machine during deletion. A non-empty value is forwarded to the NICo
+	// API as a MachineHealthIssue, signalling that the underlying hardware
+	// should be flagged for repair rather than returned to the available pool.
+	// The value is parsed as JSON ({category, summary, details}); anything that
+	// does not parse becomes the summary with category "Other". An empty string
+	// disables the behaviour.
 	RepairAnnotation string
 }
 
@@ -72,7 +74,7 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 	fs.StringVar(&p.RebootAnnotation, "reboot-annotation", p.RebootAnnotation,
 		"CAPI Machine annotation key used to request a NICo instance reboot.")
 	fs.StringVar(&p.RepairAnnotation, "repair-annotation", p.RepairAnnotation,
-		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The annotation value is used as the health-issue summary. Leave empty to disable.")
+		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The value is parsed as JSON ({category, summary, details}), or treated as a plain summary with category Other. Leave empty to disable.")
 }
 
 // SecretConfig contains NICo API connection settings loaded from a Secret.
