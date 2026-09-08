@@ -107,7 +107,7 @@ func (c *Client) ResolveTenantID(ctx context.Context) (string, error) {
 
 // ValidateReadiness confirms the client can authenticate and resolve tenant context.
 func (c *Client) ValidateReadiness(ctx context.Context) error {
-	_, err := c.ResolveTenantID(ctx)
+	_, err := c.GetCurrentTenantID(ctx)
 	return err
 }
 

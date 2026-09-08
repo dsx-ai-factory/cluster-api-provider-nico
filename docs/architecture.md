@@ -107,11 +107,12 @@ instance already exists; any other 409 becomes a plain conflict and fails the
 reconcile without adoption.
 
 `status.instanceID` is the link back to the real instance. On delete, the
-controller issues the delete request and removes the finalizer once that request
-succeeds — including when NICo reports the instance is already gone. It does not
-poll for a terminal state, so **the finalizer guards the request, not the
-completion**. Do not remove it while `status.instanceID` may still refer to a live
-instance.
+controller reads the instance before deleting it, so one already released or
+mid-teardown is not deleted twice. It then holds the finalizer and requeues
+until the instance reaches a terminal state, so **the finalizer guards the
+completion, not just the request**. NICo retains terminated instance records, so
+both `Terminated` and not-found count as released. Do not remove the finalizer
+while `status.instanceID` may still refer to a live instance.
 
 `NicoCluster` holds its own finalizer and refuses to release it while any
 `NicoMachine` remains in the same namespace carrying a matching

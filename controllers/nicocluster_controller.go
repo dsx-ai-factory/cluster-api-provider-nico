@@ -51,9 +51,10 @@ var nicoClusterOwnedConditions = []string{
 // NicoClusterReconciler reconciles a NicoCluster object.
 type NicoClusterReconciler struct {
 	client.Client
-	APIReader      client.Reader
-	Scheme         *runtime.Scheme
-	ProviderConfig nico.ProviderConfig
+	APIReader        client.Reader
+	Scheme           *runtime.Scheme
+	ProviderConfig   nico.ProviderConfig
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch;update;patch
@@ -328,6 +329,7 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoCluster{}).
+		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue)).
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("NicoCluster"), mgr.GetClient(), &infrav1.NicoCluster{})),
