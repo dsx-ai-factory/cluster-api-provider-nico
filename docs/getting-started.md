@@ -410,6 +410,11 @@ Readiness on a `NicoCluster` is a validation check — *can this identity reach
 NICo and resolve a tenant* — and it provisions nothing. So a throwaway one is a
 free credential test that cannot cost you hardware.
 
+A `NicoCluster` only starts reconciling once a CAPI `Cluster` sets an owner
+reference on it — a bare `NicoCluster` with no owning `Cluster` sits
+forever logging `Waiting for Cluster controller to set OwnerRef on
+NicoCluster` and never even attempts the credential check. Apply both:
+
 ```bash
 kubectl create namespace demo
 
@@ -421,6 +426,17 @@ metadata:
   namespace: demo
 spec:
   siteID: "<site-id>"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: credcheck
+  namespace: demo
+spec:
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoCluster
+    name: credcheck
 EOF
 
 kubectl -n demo describe nicocluster credcheck | sed -n '/Conditions/,$p'
@@ -431,10 +447,11 @@ all correct. Not ready names the failure: `WaitingForIdentitySecret` for a
 missing or misnamed Secret, `IdentityConfigurationFailed` for one the provider
 cannot parse, and `TenantResolutionFailed` for everything else — see step 7.
 
-**Fix this before creating a single Machine**, then clean up:
+**Fix this before creating a single Machine**, then clean up — delete the
+`Cluster` first, same as "Things that will bite you" below:
 
 ```bash
-kubectl -n demo delete nicocluster credcheck
+kubectl -n demo delete cluster credcheck
 ```
 
 ### 6. First cluster: one control plane, one worker
@@ -469,6 +486,19 @@ kubectl --kubeconfig <(clusterctl get kubeconfig demo -n demo) get nodes
 A node appearing means the whole chain worked: CAPNICo created the instance, it
 booted the iPXE image, cloud-init ran kubeadm, and kubelet picked up
 `providerID: nico://<instance-id>` from the metadata service.
+
+#### Validating without the kubeadm providers
+
+The templates above need the kubeadm bootstrap and control-plane providers
+(`clusterctl init --bootstrap kubeadm --control-plane kubeadm`, step 4)
+installed on the management cluster. Not every real site has them — some run
+a different orchestrator on top of CAPNICo instead of vanilla kubeadm CAPI.
+
+If yours doesn't, you can still validate CAPNICo on its own by creating a
+`Machine` and `NicoMachine` directly instead of going through
+`KubeadmControlPlane` — see `examples/cluster-fake.yaml`'s pattern. That
+proves CAPNICo's own create → status behavior against the real REST API and
+real hardware without depending on kubeadm at all.
 
 ### 7. When it stalls
 
