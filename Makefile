@@ -300,10 +300,27 @@ undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.
 RELEASE_TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
 RELEASE_DIR ?= out
 CONTROLLER_IMG ?= $(IMG)
+RELEASE_REMOTE ?= origin
 
 .PHONY: release-manifests
 release-manifests: manifests kustomize ## Generate release manifests.
 	RELEASE_DIR=$(RELEASE_DIR) CONTROLLER_IMG=$(CONTROLLER_IMG) KUSTOMIZE="$(KUSTOMIZE)" bash hack/release-manifests.sh
+
+.PHONY: release-rc
+release-rc: ## Tag and push an RC. Usage: make release-rc VERSION=v0.1.0-rc.1
+	@version="$(VERSION)"; \
+	[[ "$$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$$ ]] || { echo "VERSION must look like v0.1.0-rc.1" >&2; exit 1; }; \
+	git tag -s "$$version" -m "Release candidate $$version"; \
+	git push "$(RELEASE_REMOTE)" "$$version"
+
+.PHONY: promote-rc
+promote-rc: ## Promote an RC to a final release. Usage: make promote-rc VERSION=v0.1.0-rc.1
+	@rc="$(VERSION)"; \
+	[[ "$$rc" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$$ ]] || { echo "VERSION must look like v0.1.0-rc.1" >&2; exit 1; }; \
+	release="$${rc%-rc.*}"; \
+	commit="$$(git rev-parse "$$rc^{commit}")"; \
+	git tag -s "$$release" "$$commit" -m "Release $$release"; \
+	git push "$(RELEASE_REMOTE)" "$$release"
 
 ##@ Helm Deployment
 

@@ -96,7 +96,9 @@ the central promoter to act on, which has no equivalent here.
    ```
    Merge after review.
 
-4. **Tag the release** on the merge commit:
+4. **Tag the release** on the merge commit. Normally this is the promotion of a
+   tested release candidate, as described below. To tag a final release
+   directly:
    ```bash
    git tag -s v<VERSION> -m "Release v<VERSION>"
    git push upstream v<VERSION>
@@ -165,18 +167,27 @@ the central promoter to act on, which has no equivalent here.
 
 ## Release candidates
 
-Tag a candidate on the commit you intend to release:
+Tag and push a candidate from the commit you intend to release:
 
 ```bash
-git tag -s v<VERSION>-rc.1 -m "Release candidate v<VERSION>-rc.1"
-git push upstream v<VERSION>-rc.1
+make release-rc VERSION=v0.1.0-rc.1
 ```
+
+The target is a small wrapper around `git tag -s` and `git push`. It pushes to
+`origin` by default; set `RELEASE_REMOTE` to use another Git remote.
 
 A candidate takes the identical path a release does — same digest promoted to the
 same registries, a public GitHub prerelease, and clusterctl artifacts you can
 `clusterctl init` from. Iterate with `-rc.2` and so on. When the candidate is
-good, tag the same commit as `v<VERSION>`, and the release is that same digest
-under a new name.
+good, promote it:
+
+```bash
+make promote-rc VERSION=v0.1.0-rc.1
+```
+
+This derives `v0.1.0`, tags the commit referenced by `v0.1.0-rc.1`, and pushes
+the final tag. The release is therefore the same digest under a new name even
+if the candidate commit is no longer checked out.
 
 Candidate tags are kept, not deleted, so `v<VERSION>-rc.1` and `v<VERSION>` both
 remain resolvable and, on the same commit, identical.
