@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+
+if ! command -v git-cliff >/dev/null 2>&1; then
+  echo "git-cliff is required to preview release notes" >&2
+  exit 1
+fi
+
+LAST_TAG=""
+while IFS= read -r tag; do
+  if [[ "${tag}" != *-* ]]; then
+    LAST_TAG="${tag}"
+    break
+  fi
+done < <(git tag -l 'v*' --sort=-v:refname)
+
+if [[ -z "${LAST_TAG}" ]]; then
+  echo "no stable release tag found" >&2
+  exit 1
+fi
+
+echo "Changes since ${LAST_TAG}" >&2
+git-cliff "${LAST_TAG}..HEAD" --strip header
