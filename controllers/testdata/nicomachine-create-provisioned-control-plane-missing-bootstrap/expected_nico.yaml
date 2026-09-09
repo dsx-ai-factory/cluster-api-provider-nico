@@ -1,0 +1,76 @@
+instance_types:
+- org: org-1
+  resource:
+    allocationStats:
+      total: 1
+      unused: 1
+      unusedUsable: 1
+      used: 0
+    id: type-1
+instances:
+- org: org-1
+  resource:
+    id: instance-00000001
+    instanceTypeId: type-1
+    interfaces:
+    - ipAddresses:
+      - 10.0.0.10
+      subnetId: subnet-1
+    labels:
+      cluster.x-k8s.io/cluster-name: cluster-1
+      cluster.x-k8s.io/machine-name: machine-1
+      nke.nvidia.com/site-id: site-1
+      nke.nvidia.com/site-name: fake-site
+      nke.nvidia.com/vpc-id: vpc-1
+      nke.nvidia.com/vpc-name: fake-vpc
+    name: machine-1
+    siteId: site-1
+    status: Ready
+    tenantId: tenant-1
+    vpcId: vpc-1
+requests:
+- create:
+    description: Managed by Cluster API
+    instanceTypeId: type-1
+    interfaces:
+    - subnetId: subnet-1
+    labels:
+      cluster.x-k8s.io/cluster-name: cluster-1
+      cluster.x-k8s.io/machine-name: machine-1
+    name: machine-1
+    tenantId: tenant-1
+    userData: '#cloud-config'
+    vpcId: vpc-1
+  instance_id: instance-00000001
+  operation: create-instance
+  org: org-1
+- instance_id: instance-00000001
+  operation: update-instance
+  org: org-1
+  update:
+    labels:
+      cluster.x-k8s.io/cluster-name: cluster-1
+      cluster.x-k8s.io/machine-name: machine-1
+      nke.nvidia.com/site-id: site-1
+      nke.nvidia.com/site-name: fake-site
+      nke.nvidia.com/vpc-id: vpc-1
+      nke.nvidia.com/vpc-name: fake-vpc
+sites:
+- org: org-1
+  resource:
+    id: site-1
+    name: fake-site
+    org: org-1
+tenants:
+- org: org-1
+  resource:
+    id: tenant-1
+    org: org-1
+vpcs:
+- org: org-1
+  resource:
+    id: vpc-1
+    name: fake-vpc
+    org: org-1
+    siteId: site-1
+    tenantId: tenant-1

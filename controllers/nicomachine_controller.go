@@ -219,15 +219,17 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
 			}
 			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(availability.instanceType)
-			if !availability.available {
-				setMachineProvisionedFalse(&nicoMachine, availability.reason, availability.message)
-				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
-			}
 
-			// Control-plane priority: defer this worker if needed.
+			// Control-plane priority: defer workers before handling exhausted
+			// capacity so a fresh control-plane machine gets the next allocation.
 			if shouldDefer, err := r.deferForControlPlanePriority(ctx, &nicoMachine, availability.unusedUsable); err != nil {
 				return ctrl.Result{}, err
 			} else if shouldDefer {
+				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
+			}
+
+			if !availability.available {
+				setMachineProvisionedFalse(&nicoMachine, availability.reason, availability.message)
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
 		}
@@ -643,7 +645,7 @@ func (r *NicoMachineReconciler) deferForControlPlanePriority(
 		return false, fmt.Errorf("failed to count waiting control plane machines: %w", err)
 	}
 
-	if !shouldDeferForControlPlane(cpWaiting) {
+	if cpWaiting == 0 {
 		return false, nil
 	}
 
@@ -947,10 +949,6 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 		message:      message,
 		instanceType: instanceType,
 	}, nil
-}
-
-func shouldDeferForControlPlane(controlPlaneWaiting int) bool {
-	return controlPlaneWaiting > 0
 }
 
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {

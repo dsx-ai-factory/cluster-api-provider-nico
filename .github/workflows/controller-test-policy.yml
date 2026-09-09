@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Controller Test Policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  controller-test-policy:
+    name: no new controller test code
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Ginkgo
+        run: make ginkgo
+
+      - name: Reject new controller test code
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+
+          check_ginkgo_specs() {
+            local file="$1"
+            local maximum="$2"
+            local actual
+
+            actual="$(
+              ./bin/ginkgo outline --format csv "${file}" |
+                awk -F, 'NR > 1 && $5 == "true" { count++ } END { print count + 0 }'
+            )"
+
+            if ((actual > maximum)); then
+              echo "::error file=${file}::Found ${actual} Ginkgo specs; the maximum is ${maximum}. Add a YAML fixture under controllers/testdata instead."
+              failed=1
+            fi
+          }
+
+          check_ginkgo_specs controllers/nicocluster_controller_test.go 7
+          check_ginkgo_specs controllers/nicomachine_controller_test.go 8
+
+          ordinary_tests="$(
+            go test ./controllers -run '^$' -list '^(Test|Benchmark|Fuzz)' |
+              awk '/^(Test|Benchmark|Fuzz)[[:alnum:]_]*$/ { print }'
+          )"
+          if [[ "${ordinary_tests}" != "TestControllers" ]]; then
+            echo "::error file=controllers::The controllers package may only define its Ginkgo suite entry point, TestControllers. Add a YAML fixture under controllers/testdata instead."
+            echo "Found:"
+            printf '%s\n' "${ordinary_tests:-<none>}"
+            failed=1
+          fi
+
+          if ((failed)); then
+            echo "See docs/writing-tests.md."
+            exit 1
+          fi
+
+          echo "Controller test policy passed."
