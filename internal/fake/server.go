@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	"sigs.k8s.io/yaml"
 )
 
@@ -173,15 +173,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST "+tokenPath, s.issueToken)
 
 	// Controller-used NICo surface.
-	mux.HandleFunc("GET /v2/org/{org}/carbide/tenant/current", s.getCurrentTenant)
-	mux.HandleFunc("GET /v2/org/{org}/carbide/instance/type/{instanceTypeID}", s.getInstanceType)
-	mux.HandleFunc("POST /v2/org/{org}/carbide/instance", s.createInstance)
-	mux.HandleFunc("GET /v2/org/{org}/carbide/instance", s.listInstances)
-	mux.HandleFunc("GET /v2/org/{org}/carbide/instance/{instanceID}", s.getInstance)
-	mux.HandleFunc("PATCH /v2/org/{org}/carbide/instance/{instanceID}", s.updateInstance)
-	mux.HandleFunc("DELETE /v2/org/{org}/carbide/instance/{instanceID}", s.deleteInstance)
-	mux.HandleFunc("GET /v2/org/{org}/carbide/site", s.listSites)
-	mux.HandleFunc("GET /v2/org/{org}/carbide/vpc/{vpcID}", s.getVPC)
+	mux.HandleFunc("GET /v2/org/{org}/nico/tenant/current", s.getCurrentTenant)
+	mux.HandleFunc("GET /v2/org/{org}/nico/instance/type/{instanceTypeID}", s.getInstanceType)
+	mux.HandleFunc("POST /v2/org/{org}/nico/instance", s.createInstance)
+	mux.HandleFunc("GET /v2/org/{org}/nico/instance", s.listInstances)
+	mux.HandleFunc("GET /v2/org/{org}/nico/instance/{instanceID}", s.getInstance)
+	mux.HandleFunc("PATCH /v2/org/{org}/nico/instance/{instanceID}", s.updateInstance)
+	mux.HandleFunc("DELETE /v2/org/{org}/nico/instance/{instanceID}", s.deleteInstance)
+	mux.HandleFunc("GET /v2/org/{org}/nico/site", s.listSites)
+	mux.HandleFunc("GET /v2/org/{org}/nico/vpc/{vpcID}", s.getVPC)
 
 	return s.authenticate(mux)
 }

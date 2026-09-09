@@ -33,7 +33,7 @@ import (
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
 	nicomachine "github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 const (
@@ -472,7 +472,6 @@ func (r *NicoMachineReconciler) machineHealthIssue(ctx context.Context, ownerMac
 	}
 
 	ctrl.LoggerFrom(ctx).Info("repair annotation present, flagging instance for repair", "instanceID", instanceID, "annotation", r.ProviderConfig.RepairAnnotation)
-	healthIssue := nicosdk.NewMachineHealthIssue()
 	var parsed struct {
 		Category string  `json:"category"`
 		Summary  string  `json:"summary"`
@@ -480,17 +479,24 @@ func (r *NicoMachineReconciler) machineHealthIssue(ctx context.Context, ownerMac
 	}
 	if err := json.Unmarshal([]byte(annotationValue), &parsed); err != nil {
 		// Annotation is a plain string (legacy format); treat as summary with a generic category.
-		healthIssue.SetCategory("Other")
-		healthIssue.SetSummary(annotationValue)
-		return healthIssue
+		details := ""
+		return nicosdk.NewMachineHealthIssue(
+			"Other",
+			*nicosdk.NewNullableString(&annotationValue),
+			*nicosdk.NewNullableString(&details),
+		)
 	}
 
-	healthIssue.SetCategory(parsed.Category)
-	healthIssue.SetSummary(parsed.Summary)
+	summary := nicosdk.NewNullableString(&parsed.Summary)
+	details := ""
 	if parsed.Details != nil {
-		healthIssue.SetDetails(*parsed.Details)
+		details = *parsed.Details
 	}
-	return healthIssue
+	return nicosdk.NewMachineHealthIssue(
+		parsed.Category,
+		*summary,
+		*nicosdk.NewNullableString(&details),
+	)
 }
 
 func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Instance, site *nicosdk.Site, vpc *nicosdk.VPC) {
@@ -799,7 +805,8 @@ func buildInstanceCreateRequest(
 		interfaces = append(interfaces, *req)
 	}
 
-	createReq := nicosdk.NewInstanceCreateRequest(name, tenantID, nicoMachine.Spec.VPCID, interfaces)
+	createReq := nicosdk.NewInstanceCreateRequest(name, tenantID, nicoMachine.Spec.VPCID)
+	createReq.SetInterfaces(interfaces)
 	createReq.SetDescription("Managed by Cluster API")
 	createReq.SetUserData(bootstrapCloudConfig)
 	if nicoMachine.Spec.InstanceTypeID != "" {
@@ -877,12 +884,12 @@ func buildInfiniBandInterfaces(spec infrav1.NicoMachineSpec, capabilities nicoma
 	return interfaces
 }
 
-func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachine.InstanceTypeCapabilities) []nicosdk.NVLinkInterfaceCreateRequest {
+func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachine.InstanceTypeCapabilities) []nicosdk.NVLinkInterfaceCreateOrUpdateRequest {
 	if spec.NVLinkLogicalPartitionID != "" {
-		interfaces := make([]nicosdk.NVLinkInterfaceCreateRequest, 0, len(capabilities.NVLinkActiveDeviceIDs))
+		interfaces := make([]nicosdk.NVLinkInterfaceCreateOrUpdateRequest, 0, len(capabilities.NVLinkActiveDeviceIDs))
 		for _, deviceID := range capabilities.NVLinkActiveDeviceIDs {
-			req := nicosdk.NewNVLinkInterfaceCreateRequest()
-			req.SetNvLinklogicalPartitionId(spec.NVLinkLogicalPartitionID)
+			req := nicosdk.NewNVLinkInterfaceCreateOrUpdateRequest()
+			req.SetNvLinkLogicalPartitionId(spec.NVLinkLogicalPartitionID)
 			req.SetDeviceInstance(deviceID)
 			interfaces = append(interfaces, *req)
 		}
@@ -893,10 +900,10 @@ func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachin
 		return nil
 	}
 
-	interfaces := make([]nicosdk.NVLinkInterfaceCreateRequest, 0, len(spec.NVLinkInterfaces))
+	interfaces := make([]nicosdk.NVLinkInterfaceCreateOrUpdateRequest, 0, len(spec.NVLinkInterfaces))
 	for _, nv := range spec.NVLinkInterfaces {
-		req := nicosdk.NewNVLinkInterfaceCreateRequest()
-		req.SetNvLinklogicalPartitionId(nv.NVLinkLogicalPartitionID)
+		req := nicosdk.NewNVLinkInterfaceCreateOrUpdateRequest()
+		req.SetNvLinkLogicalPartitionId(nv.NVLinkLogicalPartitionID)
 		if nv.DeviceInstance != nil {
 			req.SetDeviceInstance(*nv.DeviceInstance)
 		}

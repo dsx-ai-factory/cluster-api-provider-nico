@@ -10,7 +10,7 @@ import (
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 func ValidateInstance(instance *nicosdk.Instance, machine infrav1.NicoMachine, instanceType *nicosdk.InstanceType) error {

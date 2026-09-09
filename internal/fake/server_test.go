@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
 )
@@ -126,9 +126,13 @@ func assertInstanceUpdatesAndReads(t *testing.T, client *nico.Client, instance *
 func assertInstanceDeletion(t *testing.T, server *Server, client *nico.Client, instance *nicosdk.Instance) {
 	t.Helper()
 
-	healthIssue := nicosdk.NewMachineHealthIssue()
-	healthIssue.SetCategory("Hardware")
-	healthIssue.SetSummary("GPU health alert")
+	summary := "GPU health alert"
+	details := ""
+	healthIssue := nicosdk.NewMachineHealthIssue(
+		"Hardware",
+		*nicosdk.NewNullableString(&summary),
+		*nicosdk.NewNullableString(&details),
+	)
 	if err := client.DeleteInstance(t.Context(), instance.GetId(), healthIssue); err != nil {
 		t.Fatalf("delete instance: %v", err)
 	}
@@ -263,7 +267,7 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 	request, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		endpoint.URL+"/v2/org/"+testOrgID+"/carbide/instance",
+		endpoint.URL+"/v2/org/"+testOrgID+"/nico/instance",
 		bytes.NewBufferString(`{"name":"incomplete"}`),
 	)
 	if err != nil {
@@ -282,7 +286,7 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 
 	client := newStaticClient(t, endpoint.URL, testStaticToken)
 	missingTarget := testCreateRequest()
-	missingTarget.MachineId = nil
+	missingTarget.UnsetMachineId()
 	if _, err := client.CreateInstance(t.Context(), missingTarget); err == nil {
 		t.Fatal("create without instanceTypeId or machineId succeeded")
 	}
@@ -294,7 +298,7 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 	}
 
 	unknownType := testCreateRequest()
-	unknownType.MachineId = nil
+	unknownType.UnsetMachineId()
 	unknownType.SetInstanceTypeId("missing-type")
 	if _, err := client.CreateInstance(t.Context(), unknownType); err == nil {
 		t.Fatal("create with an unknown instanceTypeId succeeded")
@@ -373,8 +377,8 @@ func testCreateRequest() nicosdk.InstanceCreateRequest {
 		"machine-1",
 		testTenantID,
 		testVPCID,
-		[]nicosdk.InterfaceCreateRequest{*interfaceRequest},
 	)
+	request.SetInterfaces([]nicosdk.InterfaceCreateRequest{*interfaceRequest})
 	request.SetMachineId("machine-id-1")
 	request.SetLabels(map[string]string{"cluster.x-k8s.io/cluster-name": "cluster-1"})
 	request.SetUserData("#cloud-config\n")

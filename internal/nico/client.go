@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	"golang.org/x/oauth2"
 )
 
@@ -172,7 +172,7 @@ func (c *Client) DeleteInstance(ctx context.Context, instanceID string, healthIs
 		deleteReq.SetMachineHealthIssue(*healthIssue)
 		req = req.InstanceDeleteRequest(*deleteReq)
 	}
-	resp, err := req.Execute()
+	_, resp, err := req.Execute()
 	return normalizeError(resp, err)
 }
 
