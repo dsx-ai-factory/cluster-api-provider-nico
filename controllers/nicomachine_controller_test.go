@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"testing"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -24,6 +25,10 @@ const (
 	timeout     = 60 * time.Second
 	testMachine = "nicomachine-1"
 )
+
+func TestControllerTestPolicyRejectsNewTests(t *testing.T) {
+	t.Helper()
+}
 
 func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
 	return fixtures.CaseSet{
