@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local kind cluster plus a registry, so Tilt can push the manager image without
+# a remote registry. Applied by `make tilt-up`.
+apiVersion: ctlptl.dev/v1alpha1
+kind: Registry
+name: capnico-registry
+port: 5006
+---
+apiVersion: ctlptl.dev/v1alpha1
+kind: Cluster
+product: kind
+registry: capnico-registry
+kindV1Alpha4Cluster:
+  name: capnico
+  nodes:
+    - role: control-plane

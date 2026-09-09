@@ -62,7 +62,7 @@ func validateSshKeyGroups(instanceValues, machineValues []string) error {
 }
 
 func validateInterfaces(instanceInterfaces []nicosdk.Interface, machineInterfaces []infrav1.NicoMachineInterface) error {
-	if !KeyedSlicesMatch(instanceInterfaces, machineInterfaces, InstanceInterfaceKey, MachineInterfaceKey) {
+	if !SlicesMatchFunc(instanceInterfaces, machineInterfaces, InterfaceMatches) {
 		return fmt.Errorf("instance and machine interfaces do not match")
 	}
 	return nil

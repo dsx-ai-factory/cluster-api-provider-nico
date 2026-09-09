@@ -10,7 +10,6 @@ import (
 )
 
 // API is the NICo surface used by CAPNICo reconcilers.
-// *Client implements it; tests can substitute an in-memory fake.
 type API interface {
 	ValidateReadiness(ctx context.Context) error
 	ResolveTenantID(ctx context.Context) (string, error)

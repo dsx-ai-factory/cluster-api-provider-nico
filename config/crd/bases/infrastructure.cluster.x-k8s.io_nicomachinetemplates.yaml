@@ -254,6 +254,8 @@ spec:
                     - vpcID
                     type: object
                     x-kubernetes-validations:
+                    - message: spec.template.spec is immutable
+                      rule: self == oldSelf
                     - message: exactly one of instanceTypeID or machineID must be
                         set
                       rule: has(self.instanceTypeID) != has(self.machineID)

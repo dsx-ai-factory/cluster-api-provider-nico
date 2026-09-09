@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Development image only. The manager binary is compiled on the host so
+# rebuilds reuse the local Go cache. Released images use the root Dockerfile.
+FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
+WORKDIR /
+COPY .tiltbuild/bin/manager /manager
+USER 65532:65532
+ENTRYPOINT ["/manager"]

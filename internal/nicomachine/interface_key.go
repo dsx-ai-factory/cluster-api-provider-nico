@@ -59,3 +59,29 @@ func MachineInterfaceKey(machineInterface infrav1.NicoMachineInterface) Interfac
 
 	return key
 }
+
+// InterfaceMatches reports whether an instance interface satisfies the interface
+// requested by the machine spec. Only subnetID and vpcPrefixID identify the
+// attachment; the other fields are optional in the spec and NICo populates them
+// on the instance, so they are compared only when the spec sets them.
+func InterfaceMatches(instanceInterface nicosdk.Interface, machineInterface infrav1.NicoMachineInterface) bool {
+	actual := InstanceInterfaceKey(instanceInterface)
+	expected := MachineInterfaceKey(machineInterface)
+
+	if actual.SubnetID != expected.SubnetID || actual.VPCPrefixID != expected.VPCPrefixID {
+		return false
+	}
+	if expected.IPAddress != "" && actual.IPAddress != expected.IPAddress {
+		return false
+	}
+	if expected.Device != "" && actual.Device != expected.Device {
+		return false
+	}
+	if expected.PhysicalSet && (!actual.PhysicalSet || actual.Physical != expected.Physical) {
+		return false
+	}
+	if expected.DeviceInstanceSet && (!actual.DeviceInstanceSet || actual.DeviceInstance != expected.DeviceInstance) {
+		return false
+	}
+	return true
+}

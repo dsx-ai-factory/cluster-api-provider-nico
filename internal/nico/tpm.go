@@ -13,13 +13,6 @@ import (
 )
 
 // ComputePublicKeyHash computes the SHA256 hash of a TPM EK public key.
-// Input is a base64-encoded certificate bundle containing one or more TPM EK certificates in DER format.
-// Output is the SHA256 hash of the first EK's public key. Any further EK certificates in the bundle are ignored.
-//
-// Note that this uses asn1.Unmarshal to parse the cert data, because we have observed some TPM EK certificates that contain serial numbers
-// that are not minimally encoded, making them technically invalid, and causing the strict parsing in x509.ParseCertificate to fail.
-// For our purposes, we can still use a TPM that returns these invalid certs, because we only need to verify the identity of the EK for
-// attestation in spire-tpm-plugin.
 func ComputePublicKeyHash(tpmEkCertBase64 string) (string, error) {
 	normalizedBase64 := normalizeBase64Input(tpmEkCertBase64)
 	tpmEkCertBytes, err := base64.StdEncoding.DecodeString(normalizedBase64)

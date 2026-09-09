@@ -5,11 +5,14 @@ Documentation for `cluster-api-provider-nico` beyond the
 
 | Document | What it covers |
 |---|---|
+| [getting-started.md](getting-started.md) | First cluster, two ways: the in-repo fake NICo, and a real NICo deployment. What must exist on the NICo side first, the credentials Secret, and the traps |
 | [architecture.md](architecture.md) | Where this provider sits in Cluster API, the four CRDs and which fields live on which, how credentials resolve and cache, machine reconciliation and what the finalizer actually guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts |
+| [development.md](development.md) | The local Kind, Tilt, Helm, and fake-NICo development loop |
 | [writing-tests.md](writing-tests.md) | The controller envtest boundary, fixture inputs, Kubernetes and NICo goldens, and how to extend the HTTP fake |
 
-Start with the [README](../README.md) for installation, the credentials Secret
-layout, and the worked `clusterctl` examples. Read
+New here? Start with [getting-started.md](getting-started.md). The
+[README](../README.md) has the installation reference, the credentials Secret
+layout, and the full worked `clusterctl` examples. Read
 [architecture.md](architecture.md) before changing controller behaviour. Read
 [writing-tests.md](writing-tests.md) before adding or changing controller
 envtests.

@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
@@ -36,13 +37,14 @@ import (
 )
 
 const (
-	nicoMachineFinalizer          = "infrastructure.cluster.x-k8s.io/nicomachine"
-	lastRebootTriggeredAnnotation = "nico.nvidia.com/last-reboot-triggered-timestamp"
-	machineRequeueFast            = 15 * time.Second
-	machineRequeueSlow            = 30 * time.Second
-	machineReadyRequeue           = 5 * time.Minute
-	machineReadyJitterWindow      = 1 * time.Minute
-	instanceTypeUnavailableWait   = 2 * time.Minute
+	nicoMachineFinalizer                 = "infrastructure.cluster.x-k8s.io/nicomachine"
+	nicoMachineCredentialsSecretRefIndex = "nicoMachineCredentialsSecretRef"
+	lastRebootTriggeredAnnotation        = "nico.nvidia.com/last-reboot-triggered-timestamp"
+	machineRequeueFast                   = 15 * time.Second
+	machineRequeueSlow                   = 30 * time.Second
+	machineReadyRequeue                  = 5 * time.Minute
+	machineReadyJitterWindow             = 1 * time.Minute
+	instanceTypeUnavailableWait          = 2 * time.Minute
 
 	// These NKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
@@ -72,9 +74,10 @@ type NicoMachineReconciler struct {
 	// Reading the cache there can return the version from before that write,
 	// which reads as "nothing created yet" and creates a second instance. The
 	// cost is one uncached read per pass, against one object.
-	APIReader      client.Reader
-	Scheme         *runtime.Scheme
-	ProviderConfig nico.ProviderConfig
+	APIReader        client.Reader
+	Scheme           *runtime.Scheme
+	ProviderConfig   nico.ProviderConfig
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -87,6 +90,8 @@ type NicoMachineReconciler struct {
 
 func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
+
+	log.Info("reconciling NicoMachine")
 
 	var nicoMachine infrav1.NicoMachine
 	if err := r.reader().Get(ctx, req.NamespacedName, &nicoMachine); err != nil {
@@ -208,14 +213,21 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// Query instance type availability before creating the instance when creating instances by instance type.
 			// When instances are completely consumed, the instance creation API call will always fail. This preflight
 			// check avoids spamming the NICo API logs with errors, and changes the re-queue interval.
-			instanceType, available, reason, message, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
+			availability, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
 			if err != nil {
 				setMachineProvisionedFalse(&nicoMachine, infrav1.AvailabilityCheckFailedReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
 			}
-			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(instanceType)
-			if !available {
-				setMachineProvisionedFalse(&nicoMachine, reason, message)
+			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(availability.instanceType)
+			if !availability.available {
+				setMachineProvisionedFalse(&nicoMachine, availability.reason, availability.message)
+				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
+			}
+
+			// Control-plane priority: defer this worker if needed.
+			if shouldDefer, err := r.deferForControlPlanePriority(ctx, &nicoMachine, availability.unusedUsable); err != nil {
+				return ctrl.Result{}, err
+			} else if shouldDefer {
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
 		}
@@ -494,10 +506,6 @@ func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Ins
 	}
 }
 
-// applyObservedTopologyLabels merges the observed machine/topology labels into
-// the existing instance labels and sends them back to NICo as a label update.
-// The update is skipped when needsLabelUpdate is false, so a
-// steady-state reconcile does not write to NICo on every pass.
 func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
 	existing := instance.GetLabels()
 	desired := mergeLabels(existing, observedTopologyLabels(nicoMachine))
@@ -509,7 +517,6 @@ func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, insta
 	return err
 }
 
-// needsLabelUpdate reports whether desired differs from existing labels.
 func needsLabelUpdate(existing, desired map[string]string) bool {
 	return !maps.Equal(desired, existing)
 }
@@ -581,31 +588,6 @@ func (r *NicoMachineReconciler) reader() client.Reader {
 	return r.Client
 }
 
-func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if r.APIReader == nil {
-		r.APIReader = mgr.GetAPIReader()
-	}
-
-	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
-	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
-	if err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrav1.NicoMachine{}).
-		Watches(
-			&clusterv1.Machine{},
-			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
-		).
-		Watches(
-			&clusterv1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(clusterToNicoMachines),
-			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), predicateLog)),
-		).
-		Complete(r)
-}
-
 // reconcileReboot actuates Machine annotation reboot requests and removes the
 // request annotation once NICo has accepted the reboot trigger.
 func (r *NicoMachineReconciler) reconcileReboot(
@@ -641,6 +623,43 @@ func (r *NicoMachineReconciler) reconcileReboot(
 	return true, nil
 }
 
+// deferForControlPlanePriority checks if this worker instance create should be
+// deferred to allow control-plane machines to claim capacity first.
+func (r *NicoMachineReconciler) deferForControlPlanePriority(
+	ctx context.Context,
+	nicoMachine *infrav1.NicoMachine,
+	unusedUsable int32,
+) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Control-plane machines always proceed without deferral.
+	if isControlPlaneNicoMachine(nicoMachine) {
+		return false, nil
+	}
+
+	cpWaiting, sample, err := countControlPlaneWaitingForInstanceType(
+		ctx, r.Client, nicoMachine.Spec.InstanceTypeID, nicoMachine)
+	if err != nil {
+		return false, fmt.Errorf("failed to count waiting control plane machines: %w", err)
+	}
+
+	if !shouldDeferForControlPlane(cpWaiting) {
+		return false, nil
+	}
+
+	message := fmt.Sprintf(
+		"Deferring instance create: %d control-plane NicoMachine(s) (e.g. %s) are waiting on "+
+			"instance type %q with only %d unused usable allocation(s)",
+		cpWaiting, sample, nicoMachine.Spec.InstanceTypeID, unusedUsable)
+	log.Info("deferring worker instance create for control-plane priority",
+		"instanceTypeID", nicoMachine.Spec.InstanceTypeID,
+		"controlPlaneWaiting", cpWaiting,
+		"unusedUsable", unusedUsable)
+	setMachineProvisionedFalse(nicoMachine, infrav1.ControlPlanePriorityDeferredReason, message)
+	return true, nil
+}
+
+// setMachineProvisionedFalse marks the machine unprovisioned with a reason.
 func setMachineProvisionedFalse(nicoMachine *infrav1.NicoMachine, reason, message string) {
 	conditions.Set(nicoMachine, metav1.Condition{
 		Type:    infrav1.MachineProvisionedCondition,
@@ -884,21 +903,34 @@ func buildNVLinkInterfaces(spec infrav1.NicoMachineSpec, capabilities nicomachin
 	return interfaces
 }
 
-func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (*nicosdk.InstanceType, bool, string, string, error) {
+type instanceTypeAvailability struct {
+	available    bool
+	unusedUsable int32
+	reason       string
+	message      string
+	instanceType *nicosdk.InstanceType
+}
+
+func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (instanceTypeAvailability, error) {
 	log := ctrl.LoggerFrom(ctx)
 	instanceType, err := nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
 	log.V(2).Info("instance type availability check result", "instanceType", instanceType, "err", err)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
-			return nil, false, infrav1.InstanceTypeNotFoundReason, fmt.Sprintf("Instance type %q was not found", instanceTypeID), nil
+			return instanceTypeAvailability{
+				reason:  infrav1.InstanceTypeNotFoundReason,
+				message: fmt.Sprintf("Instance type %q was not found", instanceTypeID),
+			}, nil
 		}
-		return nil, false, "", "", err
+		return instanceTypeAvailability{}, err
 	}
 	if instanceType == nil || instanceType.AllocationStats == nil || instanceType.AllocationStats.UnusedUsable == nil {
-		return nil, false, "", "", fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
+		return instanceTypeAvailability{}, fmt.Errorf("instance type %q response did not include allocationStats.unusedUsable", instanceTypeID)
 	}
-	if *instanceType.AllocationStats.UnusedUsable > 0 {
-		return instanceType, true, "", "", nil
+
+	unusedUsable := instanceType.AllocationStats.GetUnusedUsable()
+	if unusedUsable > 0 {
+		return instanceTypeAvailability{available: true, unusedUsable: unusedUsable, instanceType: instanceType}, nil
 	}
 
 	message := fmt.Sprintf("Instance type %q has no unused usable allocations (total=%d used=%d unused=%d unusedUsable=%d)",
@@ -906,8 +938,85 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 		instanceType.AllocationStats.GetTotal(),
 		instanceType.AllocationStats.GetUsed(),
 		instanceType.AllocationStats.GetUnused(),
-		instanceType.AllocationStats.GetUnusedUsable(),
+		unusedUsable,
 	)
 
-	return instanceType, false, infrav1.InstanceTypeUnavailableReason, message, nil
+	return instanceTypeAvailability{
+		unusedUsable: unusedUsable,
+		reason:       infrav1.InstanceTypeUnavailableReason,
+		message:      message,
+		instanceType: instanceType,
+	}, nil
+}
+
+func shouldDeferForControlPlane(controlPlaneWaiting int) bool {
+	return controlPlaneWaiting > 0
+}
+
+func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineCredentialsSecretRefIndex, func(object client.Object) []string {
+		nicoCluster := object.(*infrav1.NicoCluster)
+		secretKey, ok := credentialsSecretKey(nicoCluster, r.ProviderConfig.Credentials)
+		if !ok {
+			return nil
+		}
+		return []string{secretKey.String()}
+	}); err != nil {
+		return fmt.Errorf("index NicoClusters by credentials Secret for NicoMachines: %w", err)
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
+	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&infrav1.NicoMachine{}).
+		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
+		Watches(
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
+		).
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(clusterToNicoMachines),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), log)),
+		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				secretKey := client.ObjectKeyFromObject(object)
+				listOptions := []client.ListOption{
+					client.MatchingFields{nicoMachineCredentialsSecretRefIndex: secretKey.String()},
+				}
+				if secretKey != r.ProviderConfig.Credentials {
+					listOptions = append(listOptions, client.InNamespace(secretKey.Namespace))
+				}
+
+				var nicoClusters infrav1.NicoClusterList
+				if err := r.List(ctx, &nicoClusters, listOptions...); err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
+					return nil
+				}
+
+				requests := []reconcile.Request{}
+				for i := range nicoClusters.Items {
+					cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters.Items[i].ObjectMeta)
+					if err != nil {
+						ctrl.LoggerFrom(ctx).Error(err, "failed to get Cluster for credentials Secret", "secret", secretKey, "nicoCluster", client.ObjectKeyFromObject(&nicoClusters.Items[i]))
+						continue
+					}
+					if cluster != nil {
+						requests = append(requests, clusterToNicoMachines(ctx, cluster)...)
+					}
+				}
+				return requests
+			}),
+		).
+		Complete(r)
 }

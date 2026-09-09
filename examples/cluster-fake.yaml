@@ -1,0 +1,175 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Two machines provisioned end to end against the fake NICo endpoint. This
+# needs no hardware and no access to a real NICo deployment.
+#
+#   make tilt-up
+#   kubectl apply -f examples/cluster-fake.yaml
+#
+# CAPNICo provisions machines; it does not install Kubernetes or join nodes.
+# This example creates CAPI Machines directly and supplies their bootstrap data
+# as if an orchestrator had already rendered it. There is intentionally no
+# KubeadmControlPlane or MachineDeployment.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nico-credentials
+  namespace: capnico-system
+type: Opaque
+stringData:
+  endpoint: http://fake-nico-api.fake-nico-api.svc.cluster.local:8090
+  orgID: org-1
+  tokenURL: http://fake-nico-api.fake-nico-api.svc.cluster.local:8090/token
+  clientID: fake-client
+  clientSecret: fake-secret
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-cp-0-bootstrap-data
+  namespace: default
+  labels:
+    cluster.x-k8s.io/cluster-name: demo
+type: Opaque
+stringData:
+  value: |
+    #cloud-config
+    {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: demo-worker-0-bootstrap-data
+  namespace: default
+  labels:
+    cluster.x-k8s.io/cluster-name: demo
+type: Opaque
+stringData:
+  value: |
+    #cloud-config
+    {}
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: demo
+  namespace: default
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoCluster
+    name: demo
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: demo
+  namespace: default
+spec:
+  siteID: site-1
+---
+# Templates are the operator-authored inputs an orchestrator would clone into
+# the concrete NicoMachines below.
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: demo-cp
+  namespace: default
+spec:
+  template:
+    spec:
+      vpcID: vpc-1
+      instanceTypeID: type-1
+      interfaces:
+      - vpcPrefixID: prefix-1
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: demo-worker
+  namespace: default
+spec:
+  template:
+    spec:
+      vpcID: vpc-1
+      instanceTypeID: type-1
+      interfaces:
+      - vpcPrefixID: prefix-1
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachine
+metadata:
+  name: demo-cp-0
+  namespace: default
+  labels:
+    cluster.x-k8s.io/cluster-name: demo
+  annotations:
+    cluster.x-k8s.io/cloned-from-name: demo-cp
+    cluster.x-k8s.io/cloned-from-groupkind: NicoMachineTemplate.infrastructure.cluster.x-k8s.io
+spec:
+  vpcID: vpc-1
+  instanceTypeID: type-1
+  interfaces:
+  - vpcPrefixID: prefix-1
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: demo-cp-0
+  namespace: default
+  labels:
+    cluster.x-k8s.io/cluster-name: demo
+    cluster.x-k8s.io/control-plane: ""
+  annotations:
+    machine.cluster.x-k8s.io/exclude-node-draining: "orchestrator-controlled"
+    machine.cluster.x-k8s.io/exclude-wait-for-node-volume-detach: "orchestrator-controlled"
+spec:
+  clusterName: demo
+  version: v1.35.0
+  bootstrap:
+    dataSecretName: demo-cp-0-bootstrap-data
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoMachine
+    name: demo-cp-0
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachine
+metadata:
+  name: demo-worker-0
+  namespace: default
+  labels:
+    cluster.x-k8s.io/cluster-name: demo
+  annotations:
+    cluster.x-k8s.io/cloned-from-name: demo-worker
+    cluster.x-k8s.io/cloned-from-groupkind: NicoMachineTemplate.infrastructure.cluster.x-k8s.io
+spec:
+  vpcID: vpc-1
+  instanceTypeID: type-1
+  interfaces:
+  - vpcPrefixID: prefix-1
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: demo-worker-0
+  namespace: default
+  labels:
+    cluster.x-k8s.io/cluster-name: demo
+  annotations:
+    machine.cluster.x-k8s.io/exclude-node-draining: "orchestrator-controlled"
+    machine.cluster.x-k8s.io/exclude-wait-for-node-volume-detach: "orchestrator-controlled"
+spec:
+  clusterName: demo
+  version: v1.35.0
+  bootstrap:
+    dataSecretName: demo-worker-0-bootstrap-data
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoMachine
+    name: demo-worker-0

@@ -110,3 +110,130 @@ func TestInterfaceKey_MachineInterfaceKey(t *testing.T) {
 		})
 	}
 }
+
+func TestInterfaceKey_InterfaceMatches(t *testing.T) {
+	type parameters struct {
+		instance nicosdk.Interface
+		machine  infrav1.NicoMachineInterface
+		want     bool
+	}
+
+	physicalTrue := true
+	physicalFalse := false
+	otherDeviceInstance := int32(1)
+
+	tests := map[string]parameters{
+		"prefix-only spec matches instance with populated optional fields": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetIsPhysical(true)
+				iface.SetRequestedIpAddress(testIPAddress)
+				iface.SetDevice(testDevice)
+				iface.SetDeviceInstance(testDeviceIndex)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{VPCPrefixID: testVPCPrefixID},
+			want:    true,
+		},
+		"subnet-only spec matches instance with populated optional fields": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetSubnetId(testSubnetID)
+				iface.SetIsPhysical(true)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{SubnetID: testSubnetID},
+			want:    true,
+		},
+		"rejects prefix mismatch": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId("other-prefix")
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{VPCPrefixID: testVPCPrefixID},
+			want:    false,
+		},
+		"rejects subnet mismatch": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetSubnetId("other-subnet")
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{SubnetID: testSubnetID},
+			want:    false,
+		},
+		"rejects when spec physical disagrees": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetIsPhysical(true)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{
+				VPCPrefixID: testVPCPrefixID,
+				Physical:    &physicalFalse,
+			},
+			want: false,
+		},
+		"accepts when spec physical agrees": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetIsPhysical(true)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{
+				VPCPrefixID: testVPCPrefixID,
+				Physical:    &physicalTrue,
+			},
+			want: true,
+		},
+		"rejects when spec ipAddress disagrees": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetRequestedIpAddress(testIPAddress)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{
+				VPCPrefixID: testVPCPrefixID,
+				IPAddress:   "10.0.0.99",
+			},
+			want: false,
+		},
+		"rejects when spec device disagrees": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetDevice(testDevice)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{
+				VPCPrefixID: testVPCPrefixID,
+				Device:      "eth1",
+			},
+			want: false,
+		},
+		"rejects when spec deviceInstance disagrees": {
+			instance: func() nicosdk.Interface {
+				iface := nicosdk.NewInterface()
+				iface.SetVpcPrefixId(testVPCPrefixID)
+				iface.SetDeviceInstance(testDeviceIndex)
+				return *iface
+			}(),
+			machine: infrav1.NicoMachineInterface{
+				VPCPrefixID:    testVPCPrefixID,
+				DeviceInstance: &otherDeviceInstance,
+			},
+			want: false,
+		},
+	}
+
+	for name, params := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, params.want, nicomachine.InterfaceMatches(params.instance, params.machine))
+		})
+	}
+}
