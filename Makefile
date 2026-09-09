@@ -322,6 +322,10 @@ promote-rc: ## Promote an RC to a final release. Usage: make promote-rc VERSION=
 	git tag -s "$$release" "$$commit" -m "Release $$release"; \
 	git push "$(RELEASE_REMOTE)" "$$release"
 
+.PHONY: changelog
+changelog: ## Preview release notes from changes since the latest stable tag.
+	@tools/changelog
+
 ##@ Helm Deployment
 
 ## Helm binary to use for deploying the chart

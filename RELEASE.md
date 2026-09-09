@@ -64,37 +64,19 @@ the central promoter to act on, which has no equivalent here.
 
 ## Steps to release
 
-1. **Update `CHANGELOG.md`.** It is generated from commit subjects by
-   [git-cliff](https://git-cliff.org), configured in `cliff.toml`. **Do not
-   edit it by hand.**
-
-   ```bash
-   # 1. Drop the pending [Unreleased] section. Without this, --prepend leaves it
-   #    in place holding the same entries the new section just claimed, so the
-   #    file lists everything twice and keeps a stale [Unreleased] forever.
-   awk '/^## \[Unreleased\]/{s=1} /^## \[[0-9]/{s=0} !s' CHANGELOG.md > /tmp/cl && mv /tmp/cl CHANGELOG.md
-   
-   # 2. Prepend the new section. --prepend leaves published sections byte-identical;
-   #    regenerating the whole file re-derives their dates and rewrites history.
-   git-cliff --unreleased --tag v<VERSION> --prepend CHANGELOG.md
-   ```
-   
-   Run this in a **full clone**. On a shallow one git-cliff emits a near-empty
-   section and exits 0, so nothing fails.
-
-   The heading carries **no `v` prefix**, which is what the release workflow
-   expects when it reads the section back with `awk "/^## \[${VERSION}\]/"` —
-   and it falls back to a placeholder rather than failing, so a mismatch ships
-   empty notes.
+1. **Preview the release notes** with `make changelog` if desired. The preview
+   uses [git-cliff](https://git-cliff.org), configured in `cliff.toml`, and
+   includes changes since the latest stable tag. GitHub generates the published
+   notes from merged pull requests when the release workflow runs, so the
+   preview is advisory and `CHANGELOG.md` is not updated for a release.
+   `git-cliff` must be installed and available on `PATH` to run the preview.
 
 2. **Update `metadata.yaml`** if the major or minor version is new, or if the
    Cluster API contract version supported by this release differs from the previous one.
 
-3. **Commit and open a PR** against `main`:
-   ```bash
-   git commit -s -m "chore: prepare release v<VERSION>"
-   ```
-   Merge after review.
+3. **Ensure the intended release commit is on `main`** and its required checks
+   have passed. If step 2 required a change, commit it and merge it through a
+   pull request before continuing.
 
 4. **Tag the release** on the merge commit. Normally this is the promotion of a
    tested release candidate, as described below. To tag a final release
@@ -123,9 +105,9 @@ the central promoter to act on, which has no equivalent here.
      `oci://ghcr.io/nvidia/cluster-api-provider-nico/charts`. It fails if the
      rendered manager still names an NVCR image, because that failure would
      otherwise surface only at install time.
-   - **Create GitHub Release** creates the release as a **draft** and attaches
-     notes extracted from `CHANGELOG.md`, the promoted digest, and the
-     clusterctl provider artifacts `metadata.yaml` and
+   - **Create GitHub Release** creates the release as a **draft**, asks GitHub
+     to generate notes from merged pull requests, and attaches the promoted
+     digest and the clusterctl provider artifacts `metadata.yaml` and
      `infrastructure-components.yaml`. **Publish the release** then checks both
      assets are present and publishes it. They run last so the release never
      advertises an image that has not landed yet.

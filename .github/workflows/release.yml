@@ -530,21 +530,18 @@ jobs:
           category: 'clamav-release'
           output_file: 'clamav-release.sarif'
 
-      - name: Extract changelog for this version
-        id: changelog
+      # GitHub generates the release notes from merged pull requests. The
+      # explicit body is prepended to those notes, keeping the promoted image
+      # references visible without maintaining a per-version changelog file.
+      - name: Prepare release body
+        id: release-body
         env:
           IMAGE: ${{ needs.promote-ghcr.outputs.image }}
           DIGEST: ${{ needs.promote-ghcr.outputs.digest }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
-          if [ -z "$NOTES" ]; then
-            NOTES="See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${GITHUB_REF_NAME}/CHANGELOG.md) for details."
-          fi
+          set -euo pipefail
           {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo
+            echo 'body<<EOF'
             echo "### Image"
             echo
             echo '```'
@@ -586,9 +583,10 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: ${{ github.ref_name }}
-          body: ${{ steps.changelog.outputs.notes }}
+          body: ${{ steps.release-body.outputs.body }}
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
             out/metadata.yaml

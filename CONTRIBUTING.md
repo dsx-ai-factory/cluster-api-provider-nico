@@ -218,21 +218,14 @@ nothing will clean up.
 
 ## Changelog
 
-**Do not edit `CHANGELOG.md`.** It is generated from commit subjects by
-[git-cliff](https://git-cliff.org), configured in `cliff.toml`, and a new
-section is prepended when a release is cut.
+**Do not edit `CHANGELOG.md`.** GitHub generates release notes from merged pull
+requests when a release tag is pushed, and `CHANGELOG.md` points readers to
+those releases.
 
-Your commit subject is the changelog entry, so write it for a reader. The
-conventional-commit type picks the section: `feat` → Added, `refactor` →
-Changed, `fix` → Fixed, `perf` → Performance, `docs` → Documentation,
-`ci`/`build`/`chore`/`test`/`style` → Maintenance, `revert` → Reverted. A
-subject matching no type still appears, under Other. A breaking change — `!`
-after the type, or a `BREAKING CHANGE:` footer — is marked in the entry.
-
-This replaces the previous convention of adding an entry by hand in the same
-pull request. That did not scale: every open pull request appended to the same
-`### Added` list, so each conflicted with the next and whichever landed first
-forced a rebase on all the others.
+Write pull request titles and commit subjects for a reader. Maintainers can run
+`make changelog` to preview the commit history since the latest stable tag with
+[git-cliff](https://git-cliff.org), configured in `cliff.toml`. The preview is
+advisory; GitHub generates the published notes from pull request metadata.
 
 ## Code of Conduct
 
