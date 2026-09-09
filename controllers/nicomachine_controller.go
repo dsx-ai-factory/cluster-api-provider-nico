@@ -21,7 +21,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	crpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -983,6 +985,47 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoMachine{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
+		// When a control-plane machine claims shared instance-type capacity, wake
+		// unscheduled machines using the same instance type so they can retry promptly.
+		Watches(
+			&infrav1.NicoMachine{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				scheduled := object.(*infrav1.NicoMachine)
+				instanceTypeID := scheduled.Spec.InstanceTypeID
+				if instanceTypeID == "" {
+					return nil
+				}
+
+				var machines infrav1.NicoMachineList
+				if err := r.List(ctx, &machines); err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoMachines for scheduled machine", "nicoMachine", client.ObjectKeyFromObject(scheduled))
+					return nil
+				}
+
+				requests := make([]reconcile.Request, 0, len(machines.Items))
+				for i := range machines.Items {
+					candidate := &machines.Items[i]
+					if candidate.Spec.ProviderID != "" || candidate.Spec.InstanceTypeID != instanceTypeID {
+						continue
+					}
+					if r.WatchFilterValue != "" && candidate.Labels[clusterv1.WatchLabel] != r.WatchFilterValue {
+						continue
+					}
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(candidate)})
+				}
+				return requests
+			}),
+			builder.WithPredicates(crpredicate.Funcs{
+				CreateFunc:  func(event.CreateEvent) bool { return false },
+				DeleteFunc:  func(event.DeleteEvent) bool { return false },
+				GenericFunc: func(event.GenericEvent) bool { return false },
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					oldMachine := e.ObjectOld.(*infrav1.NicoMachine)
+					newMachine := e.ObjectNew.(*infrav1.NicoMachine)
+					return isControlPlaneNicoMachine(newMachine) && oldMachine.Spec.ProviderID == "" && newMachine.Spec.ProviderID != ""
+				},
+			}),
+		).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
