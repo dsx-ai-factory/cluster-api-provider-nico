@@ -976,6 +976,44 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoMachine{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
+		// This ones a little weird, due to control plane nodes getting priority for scheduling we
+		// need to watch all other machines in a given cluster so that if/when a control plane node is scheduled
+		// any nodes that are waiting on a given control plane rereconcile and grab capacity if available
+		// instead of waiting the full nico poll time.
+		// The side effect of rereconciling all unprovisioned nodes on ALL changes to a capacity accepted node is
+		// acceptable as we should not have very many nodes waiting for capacity in normal operation.
+		Watches(
+			&infrav1.NicoMachine{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				scheduled := object.(*infrav1.NicoMachine)
+				if scheduled.Spec.ProviderID == "" {
+					return nil
+				}
+
+				clusterName := scheduled.Labels[clusterv1.ClusterNameLabel]
+				if clusterName == "" {
+					return nil
+				}
+
+				var machines infrav1.NicoMachineList
+				if err := r.List(ctx, &machines,
+					client.InNamespace(scheduled.Namespace),
+					client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName},
+				); err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoMachines for scheduled machine", "nicoMachine", client.ObjectKeyFromObject(scheduled))
+					return nil
+				}
+
+				requests := make([]reconcile.Request, 0, len(machines.Items))
+				for i := range machines.Items {
+					candidate := &machines.Items[i]
+					if candidate.Spec.ProviderID == "" {
+						requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(candidate)})
+					}
+				}
+				return requests
+			}),
+		).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("NicoMachine"))),
