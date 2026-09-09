@@ -67,8 +67,9 @@ the central promoter to act on, which has no equivalent here.
 1. **Preview the release notes** with `make changelog` if desired. The preview
    uses [git-cliff](https://git-cliff.org), configured in `cliff.toml`, and
    includes changes since the latest stable tag. GitHub generates the published
-   notes from merged pull requests when the release workflow runs, so the
-   preview is advisory and `CHANGELOG.md` is not updated for a release.
+   notes from merged pull requests since the preceding stable tag when the
+   release workflow runs. RC and final release notes are therefore cumulative
+   for the version. The preview is advisory and `CHANGELOG.md` is not updated.
    `git-cliff` must be installed and available on `PATH` to run the preview.
 
 2. **Update `metadata.yaml`** if the major or minor version is new, or if the

@@ -225,7 +225,8 @@ those releases.
 Write pull request titles and commit subjects for a reader. Maintainers can run
 `make changelog` to preview the commit history since the latest stable tag with
 [git-cliff](https://git-cliff.org), configured in `cliff.toml`. The preview is
-advisory; GitHub generates the published notes from pull request metadata.
+advisory; GitHub generates cumulative RC and final notes from pull request
+metadata since the preceding stable release.
 
 ## Code of Conduct
 

@@ -530,6 +530,27 @@ jobs:
           category: 'clamav-release'
           output_file: 'clamav-release.sarif'
 
+      # Keep every prerelease and the final release cumulative from the
+      # preceding stable version. In particular, promoting an RC on the same
+      # commit must not make GitHub compare the final tag with that RC tag.
+      - name: Select release notes base
+        id: release-notes-base
+        run: |
+          set -euo pipefail
+          previous_tag=""
+          while IFS= read -r tag; do
+            if [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              previous_tag="${tag}"
+              break
+            fi
+          done < <(git tag --merged HEAD^ --sort=-v:refname)
+          if [[ -z "${previous_tag}" ]]; then
+            echo "::error::No preceding stable release tag found"
+            exit 1
+          fi
+          echo "previous_tag=${previous_tag}" >> "${GITHUB_OUTPUT}"
+          echo "Generating release notes from ${previous_tag} to ${GITHUB_REF_NAME}"
+
       # GitHub generates the release notes from merged pull requests. The
       # explicit body is prepended to those notes, keeping the promoted image
       # references visible without maintaining a per-version changelog file.
@@ -587,6 +608,7 @@ jobs:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
+          previous_tag: ${{ steps.release-notes-base.outputs.previous_tag }}
           fail_on_unmatched_files: true
           files: |
             out/metadata.yaml
