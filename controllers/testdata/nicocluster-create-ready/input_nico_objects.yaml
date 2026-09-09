@@ -1,0 +1,40 @@
+machines:
+- org: org-1
+  resource:
+    id: machine-1
+    instanceTypeId: type-1
+    labels:
+      failure-domain: fd-z
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-2
+    instanceTypeId: type-1
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-3
+    instanceTypeId: type-1
+    labels:
+      failure-domain: fd-a
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-4
+    instanceTypeId: type-1
+    labels:
+      failure-domain: fd-z
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-without-instance-type
+    labels:
+      failure-domain: ignored
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-at-another-site
+    instanceTypeId: type-1
+    labels:
+      failure-domain: ignored
+    siteId: site-2

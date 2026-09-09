@@ -147,8 +147,9 @@ func isControlPlaneNicoMachine(nicoMachine *infrav1.NicoMachine) bool {
 // capacityWaitReasons are the MachineProvisioned-condition reasons that mean a control-plane
 // NicoMachine is waiting specifically on instance-type capacity
 var capacityWaitReasons = map[string]struct{}{
-	infrav1.InstanceTypeUnavailableReason: {},
-	infrav1.InstanceCreateFailedReason:    {},
+	infrav1.InstanceTypeUnavailableReason:  {},
+	infrav1.InstanceCreateFailedReason:     {},
+	infrav1.FailureDomainUnavailableReason: {},
 }
 
 // isWaitingForCapacity reports whether nicoMachine should receive capacity priority

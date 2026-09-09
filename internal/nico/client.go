@@ -38,6 +38,10 @@ type InstanceLookup struct {
 	Name   string
 	VPCID  string
 	SiteID string
+
+	// ExcludeTerminated skips released instance records, which NICo retains
+	// under their original name.
+	ExcludeTerminated bool
 }
 
 // NewClient builds a NICo API client from Secret-backed config.
@@ -143,8 +147,12 @@ func (c *Client) GetInstanceTypeWithAllocationStats(ctx context.Context, instanc
 	return instanceType, nil
 }
 
-// CreateInstance creates a NICo instance.
-func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateRequest) (*nicosdk.Instance, error) {
+// CreateInstance creates a NICo instance, optionally in a requested failure domain.
+func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateRequest, placement InstancePlacement) (*nicosdk.Instance, error) {
+	explicitMachine := req.GetMachineId() != ""
+	if err := applyInstancePlacement(&req, placement); err != nil {
+		return nil, err
+	}
 	authCtx, err := c.authCtx(ctx)
 	if err != nil {
 		return nil, err
@@ -154,9 +162,60 @@ func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateR
 		InstanceCreateRequest(req).
 		Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		normalized := normalizeError(resp, err)
+		if placement.FailureDomain != "" &&
+			((!explicitMachine && responseContains(resp, err, http.StatusForbidden,
+				"Tenant does not have capability to create Instances using Machine label selector")) ||
+				(explicitMachine && responseContains(resp, err, http.StatusForbidden,
+					"Tenant does not have capability to create Instances using specific Machine ID"))) {
+			return nil, fmt.Errorf("%w: %w", ErrFailureDomainCapabilityRequired, normalized)
+		}
+		if placement.FailureDomain != "" && !explicitMachine && responseContains(resp, err, http.StatusBadRequest,
+			"No Machines are available for specified Instance Type") {
+			return nil, fmt.Errorf("%w: %w", ErrFailureDomainUnavailable, normalized)
+		}
+		if placement.FailureDomain != "" && explicitMachine && responseContains(resp, err, http.StatusBadRequest,
+			"Machine specified in request does not match machineLabelSelector") {
+			return nil, fmt.Errorf("%w: %w", ErrFailureDomainMismatch, normalized)
+		}
+		if placement.FailureDomain != "" && explicitMachine && !errors.Is(normalized, ErrAlreadyExists) && targetedMachineAllocationRaced(resp, err) {
+			return nil, fmt.Errorf("%w: targeted machine allocation conflicted: %w", ErrFailureDomainUnavailable, normalized)
+		}
+		return nil, normalized
 	}
 	return instance, nil
+}
+
+func responseContains(resp *http.Response, err error, statusCode int, text string) bool {
+	if resp == nil || resp.StatusCode != statusCode {
+		return false
+	}
+	var apiErr openAPIError
+	return errors.As(err, &apiErr) && strings.Contains(string(apiErr.Body()), text)
+}
+
+func targetedMachineAllocationRaced(resp *http.Response, err error) bool {
+	if resp == nil {
+		return false
+	}
+	if resp.StatusCode == http.StatusConflict {
+		return true
+	}
+
+	var apiErr openAPIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	message := strings.ToLower(err.Error() + " " + string(apiErr.Body()))
+	switch resp.StatusCode {
+	case http.StatusBadRequest:
+		return strings.Contains(message, "is assigned to an instance")
+	case http.StatusInternalServerError:
+		return strings.Contains(message, "failed to lock machine") &&
+			strings.Contains(message, "instance creation")
+	default:
+		return false
+	}
 }
 
 // DeleteInstance deletes a NICo instance. When healthIssue is non-nil it is
@@ -246,25 +305,80 @@ func decodeTerminatedInstance(err error) (*nicosdk.Instance, bool) {
 	if err := json.Unmarshal(apiErr.Body(), &raw); err != nil {
 		return nil, false
 	}
-	var status string
-	if err := json.Unmarshal(raw["status"], &status); err != nil || !strings.EqualFold(status, InstanceStatusTerminated) {
+	if !hasTerminatedStatus(raw) {
+		return nil, false
+	}
+	instance, ok := decodeInstance(raw)
+	if !ok {
+		return nil, false
+	}
+	return &instance, true
+}
+
+// decodeTerminatedInstances recovers a list response the SDK rejected because it
+// carries the terminal status its enum omits. It reports false when the body is
+// not a list of instances or an element fails for any other reason.
+func decodeTerminatedInstances(err error) ([]nicosdk.Instance, bool) {
+	var apiErr openAPIError
+	if !errors.As(err, &apiErr) {
 		return nil, false
 	}
 
-	// Decode the complete response with an SDK-supported placeholder, then put
-	// the server's terminal value back. This preserves every other Instance
-	// field while containing the SDK/OpenAPI mismatch to the client boundary.
-	raw["status"] = json.RawMessage(`"Terminating"`)
+	var rawList []map[string]json.RawMessage
+	if err := json.Unmarshal(apiErr.Body(), &rawList); err != nil {
+		return nil, false
+	}
+	instances := make([]nicosdk.Instance, 0, len(rawList))
+	for _, raw := range rawList {
+		instance, ok := decodeInstance(raw)
+		if !ok {
+			return nil, false
+		}
+		instances = append(instances, instance)
+	}
+	return instances, true
+}
+
+func hasTerminatedStatus(raw map[string]json.RawMessage) bool {
+	var status string
+	return json.Unmarshal(raw["status"], &status) == nil && strings.EqualFold(status, InstanceStatusTerminated)
+}
+
+// decodeInstance decodes one raw instance, substituting an SDK-supported
+// placeholder for the terminal status the generated enum omits and restoring the
+// server's value afterwards. Every other field decodes normally, which contains
+// the SDK/OpenAPI mismatch to the client boundary.
+func decodeInstance(raw map[string]json.RawMessage) (nicosdk.Instance, bool) {
+	terminated := hasTerminatedStatus(raw)
+	if terminated {
+		raw["status"] = json.RawMessage(`"` + string(nicosdk.INSTANCESTATUS_TERMINATING) + `"`)
+	}
+
 	normalized, err := json.Marshal(raw)
 	if err != nil {
-		return nil, false
+		return nicosdk.Instance{}, false
 	}
 	var instance nicosdk.Instance
 	if err := json.Unmarshal(normalized, &instance); err != nil {
-		return nil, false
+		return nicosdk.Instance{}, false
 	}
-	instance.SetStatus(nicosdk.InstanceStatus(InstanceStatusTerminated))
-	return &instance, true
+	if terminated {
+		instance.SetStatus(nicosdk.InstanceStatus(InstanceStatusTerminated))
+	}
+	return instance, true
+}
+
+// GetMachine fetches a NICo machine by ID.
+func (c *Client) GetMachine(ctx context.Context, machineID string) (*nicosdk.Machine, error) {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	machine, resp, err := c.api.MachineAPI.GetMachine(authCtx, c.orgID, machineID).Execute()
+	if err != nil {
+		return nil, normalizeError(resp, err)
+	}
+	return machine, nil
 }
 
 // GetSite fetches a NICo site by ID.
@@ -310,7 +424,9 @@ func (c *Client) GetVPC(ctx context.Context, vpcID string) (*nicosdk.VPC, error)
 	return vpc, nil
 }
 
-// FindInstanceByName searches for a NICo instance by name and optional scoping fields.
+// FindInstanceByName returns the instance whose name equals lookup.Name within
+// the optional VPC and site scope, or ErrNotFound when none matches. Only an
+// exact name match is returned.
 func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) (*nicosdk.Instance, error) {
 	authCtx, err := c.authCtx(ctx)
 	if err != nil {
@@ -330,12 +446,24 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 
 	instances, resp, err := req.Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		// A retained Terminated record in the page fails the SDK's enum decode for
+		// the whole list, so recover it the same way GetInstance does.
+		recovered, ok := decodeTerminatedInstances(err)
+		if !ok || resp == nil || resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, normalizeError(resp, err)
+		}
+		instances = recovered
 	}
-	if len(instances) == 0 {
-		return nil, ErrNotFound
+	for i := range instances {
+		if instances[i].GetName() != lookup.Name {
+			continue
+		}
+		if lookup.ExcludeTerminated && IsTerminated(&instances[i]) {
+			continue
+		}
+		return &instances[i], nil
 	}
-	return &instances[0], nil
+	return nil, ErrNotFound
 }
 
 func ProviderID(instanceID string) string {

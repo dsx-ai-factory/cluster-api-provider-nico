@@ -37,6 +37,7 @@ const (
 	clusterReadyRequeue                  = 5 * time.Minute
 	clusterReadyJitterWindow             = 1 * time.Minute
 	clusterDeleteRequeue                 = 15 * time.Second
+	failureDomainRetryRequeue            = 30 * time.Second
 )
 
 var nicoClusterOwnedConditions = []string{
@@ -141,12 +142,37 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("failed to validate nico client readiness: %w", err)
 	}
 
+	requeue := clusterReadyRequeueAfter(nicoCluster)
+	domains, err := nicoClient.ListFailureDomains(ctx, nicoCluster.Spec.SiteID, nicoCluster.Spec.FailureDomainLabelKey)
+	switch {
+	case errors.Is(err, nico.ErrForbidden):
+		// Listing machines and placing against a machine label selector are gated by
+		// the same NICo capability, so an identity without it cannot request a domain.
+		// Only 403 means that; a 401 is a credential problem and falls through below,
+		// where the last known list survives.
+		log.V(1).Info("identity cannot list NICo machines; publishing no failure domains")
+		nicoCluster.Status.FailureDomains = nil
+	case err != nil:
+		// Preserve the last known domains: an empty list reads as "no spread required".
+		log.Error(err, "failed to list NICo failure domains; keeping last known list")
+		if !provisionedOnce(nicoCluster) {
+			setNicoReadyFalse(&nicoCluster, infrav1.FailureDomainDiscoveryFailedReason, err.Error())
+			return ctrl.Result{RequeueAfter: failureDomainRetryRequeue}, nil
+		}
+		requeue = failureDomainRetryRequeue
+	default:
+		nicoCluster.Status.FailureDomains = toFailureDomains(domains)
+		if published, offered := len(nicoCluster.Status.FailureDomains), len(domains); published < offered {
+			log.Info("dropped NICo failure domains that exceed the published limits", "offered", offered, "published", published)
+		}
+	}
+
 	provisioned := true
 	nicoCluster.Status.Initialization.Provisioned = &provisioned
 	setNicoReadyTrue(&nicoCluster, infrav1.InfrastructureReadyReason)
 
 	log.V(1).Info("reconciled NicoCluster")
-	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
+	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
 // reconcileDelete waits for the cluster's NicoMachines to be deleted before
@@ -214,6 +240,10 @@ func (r *NicoClusterReconciler) listNicoMachinesForCluster(ctx context.Context, 
 		return nil, fmt.Errorf("failed to list NicoMachines for cluster %q: %w", cluster.Name, err)
 	}
 	return nicoMachines.Items, nil
+}
+
+func provisionedOnce(nicoCluster infrav1.NicoCluster) bool {
+	return nicoCluster.Status.Initialization.Provisioned != nil && *nicoCluster.Status.Initialization.Provisioned
 }
 
 func setNicoReadyFalse(nicoCluster *infrav1.NicoCluster, reason, message string) {

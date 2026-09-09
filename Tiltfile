@@ -93,6 +93,7 @@ k8s_resource(
     objects=[
         CAPNICO_FAKE_NAMESPACE + ":namespace",
         "nico-credentials:secret",
+        "fake-nico-seed:configmap",
     ],
     labels=["fake-nico-api"],
     port_forwards=["8090:8090"],

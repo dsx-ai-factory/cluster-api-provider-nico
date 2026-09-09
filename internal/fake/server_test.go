@@ -5,6 +5,8 @@ package fake
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +25,8 @@ const (
 	testVPCID        = "vpc-1"
 	testInstanceType = "type-1"
 	testStaticToken  = "test-token"
+
+	testFailureDomainLabelKey = "failure_domain"
 )
 
 func TestClientLifecycleThroughHTTPFake(t *testing.T) {
@@ -59,7 +63,7 @@ func assertInstanceProvisioning(t *testing.T, client *nico.Client) *nicosdk.Inst
 	t.Helper()
 
 	request := testCreateRequest()
-	instance, err := client.CreateInstance(t.Context(), request)
+	instance, err := client.CreateInstance(t.Context(), request, nico.InstancePlacement{})
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
 	}
@@ -229,6 +233,260 @@ func TestReadOnlyRoutesAndSitePagination(t *testing.T) {
 	}
 }
 
+func TestFailureDomainDiscoveryThroughHTTPFake(t *testing.T) {
+	server, client := newSeededClient(t)
+	if err := server.SeedFromYAML(`
+machines:
+- org: org-1
+  resource:
+    id: machine-b
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-b
+- org: org-1
+  resource:
+    id: machine-a
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+- org: org-1
+  resource:
+    id: machine-a-duplicate
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+- org: org-1
+  resource:
+    id: machine-unracked
+    siteId: site-1
+    labels:
+      failure_domain: fd-c
+`); err != nil {
+		t.Fatalf("seed machines: %v", err)
+	}
+
+	domains, err := client.ListFailureDomains(t.Context(), testSiteID, testFailureDomainLabelKey)
+	if err != nil {
+		t.Fatalf("list failure domains: %v", err)
+	}
+	// fd-c is excluded: its only machine has no Instance Type, so no
+	// instanceTypeId placement could ever select it.
+	if len(domains) != 2 || domains[0].Name != "fd-a" || domains[1].Name != "fd-b" {
+		t.Fatalf("failure domains = %v, want fd-a and fd-b", domains)
+	}
+}
+
+func TestFailureDomainDiscoveryDisabledWithoutLabelKey(t *testing.T) {
+	server, client := newSeededClient(t)
+	if err := server.SeedFromYAML(`
+machines:
+- org: org-1
+  resource:
+    id: machine-a
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+`); err != nil {
+		t.Fatalf("seed machines: %v", err)
+	}
+
+	domains, err := client.ListFailureDomains(t.Context(), testSiteID, "")
+	if err != nil {
+		t.Fatalf("list failure domains: %v", err)
+	}
+	if len(domains) != 0 {
+		t.Fatalf("failure domains = %v, want none", domains)
+	}
+}
+
+func TestFailureDomainPlacementWithoutLabelKeyIsRejected(t *testing.T) {
+	_, client := newSeededClient(t)
+
+	_, err := client.CreateInstance(t.Context(), testCreateRequest(), nico.InstancePlacement{FailureDomain: "fd-a"})
+	if !errors.Is(err, nico.ErrPlacementLabelKeyUnset) {
+		t.Fatalf("create error = %v, want ErrPlacementLabelKeyUnset", err)
+	}
+}
+
+func TestTargetedInstanceCreationThroughHTTPFake(t *testing.T) {
+	server, client := newSeededClient(t)
+	if err := server.SeedFromYAML(`
+machines:
+- org: org-1
+  resource:
+    id: machine-b
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-b
+- org: org-1
+  resource:
+    id: machine-a
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+`); err != nil {
+		t.Fatalf("seed machines: %v", err)
+	}
+
+	request := testCreateRequest()
+	request.UnsetMachineId()
+	request.SetInstanceTypeId(testInstanceType)
+	instance, err := client.CreateInstance(t.Context(), request, nico.InstancePlacement{FailureDomain: "fd-a", LabelKey: testFailureDomainLabelKey})
+	if err != nil {
+		t.Fatalf("create targeted instance: %v", err)
+	}
+	if got, want := instance.GetMachineId(), "machine-a"; got != want {
+		t.Fatalf("assigned machine = %q, want %q", got, want)
+	}
+	if got, want := instance.GetInstanceTypeId(), testInstanceType; got != want {
+		t.Fatalf("instance type = %q, want %q", got, want)
+	}
+}
+
+func TestTargetedMachineIsReusableAfterInstanceTerminationThroughHTTPFake(t *testing.T) {
+	server, client := newSeededClient(t)
+	if err := server.SeedFromYAML(`
+machines:
+- org: org-1
+  resource:
+    id: machine-a
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+`); err != nil {
+		t.Fatalf("seed machine: %v", err)
+	}
+
+	request := testCreateRequest()
+	request.UnsetMachineId()
+	request.SetInstanceTypeId(testInstanceType)
+	first, err := client.CreateInstance(t.Context(), request, nico.InstancePlacement{FailureDomain: "fd-a", LabelKey: testFailureDomainLabelKey})
+	if err != nil {
+		t.Fatalf("create first targeted instance: %v", err)
+	}
+	if got, want := first.GetMachineId(), "machine-a"; got != want {
+		t.Fatalf("first assigned machine = %q, want %q", got, want)
+	}
+
+	if err := client.DeleteInstance(t.Context(), first.GetId(), nil); err != nil {
+		t.Fatalf("delete first targeted instance: %v", err)
+	}
+	var terminated *nicosdk.Instance
+	for range ReadyAfterPolls {
+		terminated, err = client.GetInstance(t.Context(), first.GetId())
+		if err != nil {
+			t.Fatalf("poll first targeted instance deletion: %v", err)
+		}
+	}
+	if !nico.IsTerminated(terminated) {
+		t.Fatalf("first targeted instance status = %q, want Terminated", terminated.GetStatus())
+	}
+
+	secondRequest := request
+	secondRequest.SetName("machine-2")
+	second, err := client.CreateInstance(t.Context(), secondRequest, nico.InstancePlacement{FailureDomain: "fd-a", LabelKey: testFailureDomainLabelKey})
+	if err != nil {
+		t.Fatalf("create second targeted instance: %v", err)
+	}
+	if got, want := second.GetMachineId(), "machine-a"; got != want {
+		t.Fatalf("second assigned machine = %q, want %q", got, want)
+	}
+}
+
+func TestTargetedInstanceCreationRequiresSelectorKeyPresence(t *testing.T) {
+	server := New()
+	if err := server.SeedFromYAML(`
+machines:
+- org: org-1
+  resource:
+    id: machine-without-label
+    siteId: site-1
+    instanceTypeId: type-1
+- org: org-1
+  resource:
+    id: machine-with-empty-label
+    siteId: site-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: ""
+`); err != nil {
+		t.Fatalf("seed machines: %v", err)
+	}
+	endpoint := httptest.NewServer(server.Handler())
+	t.Cleanup(endpoint.Close)
+
+	body := bytes.NewBufferString(`{
+		"name":"machine-1",
+		"tenantId":"tenant-1",
+		"vpcId":"vpc-1",
+		"instanceTypeId":"type-1",
+		"machineLabelSelector":{"failure_domain":""},
+		"interfaces":[{"subnetId":"subnet-1"}]
+	}`)
+	response, err := endpoint.Client().Post(endpoint.URL+"/v2/org/org-1/nico/instance", "application/json", body)
+	if err != nil {
+		t.Fatalf("create targeted instance: %v", err)
+	}
+	defer closeResponseBody(t, response)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", response.StatusCode, http.StatusCreated)
+	}
+	var instance nicosdk.Instance
+	if err := json.NewDecoder(response.Body).Decode(&instance); err != nil {
+		t.Fatalf("decode instance: %v", err)
+	}
+	if got, want := instance.GetMachineId(), "machine-with-empty-label"; got != want {
+		t.Fatalf("assigned machine = %q, want %q", got, want)
+	}
+}
+
+func TestExplicitMachineSelectorMismatchThroughHTTPFake(t *testing.T) {
+	server, client := newSeededClient(t)
+	if err := server.SeedFromYAML(`
+machines:
+- org: org-1
+  resource:
+    id: machine-id-1
+    siteId: site-1
+    labels:
+      failure_domain: fd-b
+`); err != nil {
+		t.Fatalf("seed machine: %v", err)
+	}
+
+	_, err := client.CreateInstance(t.Context(), testCreateRequest(), nico.InstancePlacement{FailureDomain: "fd-a", LabelKey: testFailureDomainLabelKey})
+	if !errors.Is(err, nico.ErrFailureDomainMismatch) {
+		t.Fatalf("create error = %v, want %v", err, nico.ErrFailureDomainMismatch)
+	}
+}
+
+func TestDuplicateNameWinsBeforeTargetedAllocation(t *testing.T) {
+	server, client := newSeededClient(t)
+	existing := nicosdk.NewInstance()
+	existing.SetId("existing-instance")
+	existing.SetName("machine-1")
+	existing.SetStatus(nicosdk.INSTANCESTATUS_READY)
+	server.SeedInstance(testOrgID, *existing)
+
+	request := testCreateRequest()
+	request.UnsetMachineId()
+	request.SetInstanceTypeId(testInstanceType)
+	_, err := client.CreateInstance(t.Context(), request, nico.InstancePlacement{FailureDomain: "fd-a", LabelKey: testFailureDomainLabelKey})
+	if !errors.Is(err, nico.ErrAlreadyExists) {
+		t.Fatalf("create error = %v, want %v", err, nico.ErrAlreadyExists)
+	}
+	if errors.Is(err, nico.ErrFailureDomainUnavailable) {
+		t.Fatalf("duplicate name was misclassified as unavailable: %v", err)
+	}
+}
+
 func TestSeedFromYAML(t *testing.T) {
 	server := New()
 	err := server.SeedFromYAML(`
@@ -287,20 +545,20 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 	client := newStaticClient(t, endpoint.URL, testStaticToken)
 	missingTarget := testCreateRequest()
 	missingTarget.UnsetMachineId()
-	if _, err := client.CreateInstance(t.Context(), missingTarget); err == nil {
+	if _, err := client.CreateInstance(t.Context(), missingTarget, nico.InstancePlacement{}); err == nil {
 		t.Fatal("create without instanceTypeId or machineId succeeded")
 	}
 
 	bothTargets := testCreateRequest()
 	bothTargets.SetInstanceTypeId(testInstanceType)
-	if _, err := client.CreateInstance(t.Context(), bothTargets); err == nil {
+	if _, err := client.CreateInstance(t.Context(), bothTargets, nico.InstancePlacement{}); err == nil {
 		t.Fatal("create with both instanceTypeId and machineId succeeded")
 	}
 
 	unknownType := testCreateRequest()
 	unknownType.UnsetMachineId()
 	unknownType.SetInstanceTypeId("missing-type")
-	if _, err := client.CreateInstance(t.Context(), unknownType); err == nil {
+	if _, err := client.CreateInstance(t.Context(), unknownType, nico.InstancePlacement{}); err == nil {
 		t.Fatal("create with an unknown instanceTypeId succeeded")
 	}
 }

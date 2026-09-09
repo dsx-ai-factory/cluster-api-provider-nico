@@ -64,6 +64,7 @@ var nicoMachineOwnedConditions = []string{
 	clusterv1.PausedCondition,
 	clusterv1.DeletingCondition,
 	infrav1.MachineProvisionedCondition,
+	infrav1.FailureDomainDriftedCondition,
 }
 
 // NicoMachineReconciler reconciles a NicoMachine object.
@@ -172,6 +173,25 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("failed to get nico client: %w", err)
 	}
 
+	// Adopt before the capacity check: a create can outlive a lost response or
+	// status patch, and the orphan's machine would fail that check forever.
+	if nicoMachine.Status.InstanceID == "" && nicoMachine.Spec.ProviderID == "" {
+		instance, err := nicoClient.FindInstanceByName(ctx, nico.InstanceLookup{
+			Name:              ownerMachine.Name,
+			VPCID:             nicoMachine.Spec.VPCID,
+			SiteID:            nicoCluster.Spec.SiteID,
+			ExcludeTerminated: true,
+		})
+		if err == nil {
+			log.Info("adopting existing NICo instance", "instanceID", instance.GetId())
+			nicoMachine.Status.InstanceID = instance.GetId()
+			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
+		} else if !errors.Is(err, nico.ErrNotFound) {
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
+			return ctrl.Result{}, fmt.Errorf("failed to find existing instance before create: %w", err)
+		}
+	}
+
 	// if we have not yet created a NICo instance for this nicoMachine CR and this is not an NICo instance import
 	if nicoMachine.Status.InstanceID == "" && nicoMachine.Spec.ProviderID == "" {
 		if ownerMachine.Spec.Bootstrap.DataSecretName == nil || *ownerMachine.Spec.Bootstrap.DataSecretName == "" {
@@ -242,8 +262,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
 		}
 
-		log.Info("creating NICo instance")
-		instance, err := nicoClient.CreateInstance(ctx, *createReq)
+		failureDomain := ownerMachine.Spec.FailureDomain
+		log.Info("creating NICo instance", "failureDomain", failureDomain)
+		instance, err := nicoClient.CreateInstance(ctx, *createReq, nico.InstancePlacement{
+			FailureDomain: failureDomain,
+			LabelKey:      nicoCluster.Spec.FailureDomainLabelKey,
+		})
 		if err != nil {
 			if errors.Is(err, nico.ErrAlreadyExists) {
 				log.Info("backing NICo instance already exists, find by name")
@@ -254,6 +278,13 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				})
 			}
 			if err != nil {
+				if reason, requeueAfter, ok := failureDomainPlacementFailure(err, failureDomain); ok {
+					setMachineProvisionedFalse(&nicoMachine, reason, fmt.Sprintf("failure domain %q: %s", failureDomain, err.Error()))
+					if requeueAfter > 0 {
+						return ctrl.Result{RequeueAfter: requeueAfter}, nil
+					}
+					return ctrl.Result{}, fmt.Errorf("failed to place instance in failure domain %q: %w", failureDomain, err)
+				}
 				setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
@@ -307,6 +338,13 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nicoMachine.Status.InstanceID = instance.GetId()
 	}
 
+	requestedDomain := ownerMachine.Spec.FailureDomain
+	observedDomain, err := observeFailureDomain(ctx, nicoClient, &nicoMachine, nicoCluster.Spec.FailureDomainLabelKey, instance, requestedDomain)
+	if err != nil {
+		setMachineProvisionedFalse(&nicoMachine, infrav1.FailureDomainVerificationFailedReason, err.Error())
+		return ctrl.Result{}, fmt.Errorf("failed to verify machine failure domain: %w", err)
+	}
+
 	var site *nicosdk.Site
 	if siteID := instance.GetSiteId(); siteID != "" {
 		var err error
@@ -326,7 +364,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Error(err, "failed to get NICo VPC for machine topology", "vpcID", vpcID)
 		}
 	}
-	setObservedTopology(&nicoMachine, instance, site, vpc)
+	setObservedTopology(&nicoMachine, instance, observedDomain, site, vpc)
+	setFailureDomainDrift(ctx, &nicoMachine, instance, nicoCluster.Spec.FailureDomainLabelKey, requestedDomain, observedDomain)
 	// Machine ID and normalized topology names are only known after NICo returns
 	// the instance, so apply them after the status observation step.
 	if err := applyObservedTopologyLabels(ctx, nicoClient, instanceID, instance, &nicoMachine); err != nil {
@@ -481,30 +520,65 @@ func (r *NicoMachineReconciler) machineHealthIssue(ctx context.Context, ownerMac
 	}
 	if err := json.Unmarshal([]byte(annotationValue), &parsed); err != nil {
 		// Annotation is a plain string (legacy format); treat as summary with a generic category.
-		details := ""
 		return nicosdk.NewMachineHealthIssue(
 			"Other",
 			*nicosdk.NewNullableString(&annotationValue),
-			*nicosdk.NewNullableString(&details),
+			*nicosdk.NewNullableString(nil),
 		)
 	}
 
-	summary := nicosdk.NewNullableString(&parsed.Summary)
-	details := ""
-	if parsed.Details != nil {
-		details = *parsed.Details
-	}
 	return nicosdk.NewMachineHealthIssue(
 		parsed.Category,
-		*summary,
-		*nicosdk.NewNullableString(&details),
+		*nicosdk.NewNullableString(&parsed.Summary),
+		*nicosdk.NewNullableString(parsed.Details),
 	)
 }
 
-func setObservedTopology(nicoMachine *infrav1.NicoMachine, instance *nicosdk.Instance, site *nicosdk.Site, vpc *nicosdk.VPC) {
+// observeFailureDomain returns the failure domain of the machine NICo assigned to
+// the instance, or the empty string when none is assigned or labelKey is unset.
+// NICo is queried only when the assignment changed or a requested domain is still
+// unconfirmed, so a steady-state reconcile does not read the machine again. A
+// non-nil error means a requested domain could not be verified.
+func observeFailureDomain(
+	ctx context.Context,
+	nicoClient nico.API,
+	nicoMachine *infrav1.NicoMachine,
+	labelKey string,
+	instance *nicosdk.Instance,
+	requestedDomain string,
+) (string, error) {
+	machineID := instance.GetMachineId()
+	if machineID == "" || labelKey == "" {
+		return "", nil
+	}
+
+	observed := nicoMachine.Status.FailureDomain
+	if machineID == nicoMachine.Status.MachineID && (requestedDomain == "" || observed == requestedDomain) {
+		return observed, nil
+	}
+
+	machine, err := nicoClient.GetMachine(ctx, machineID)
+	if err != nil {
+		if requestedDomain != "" {
+			return "", err
+		}
+		ctrl.LoggerFrom(ctx).Error(err, "failed to get NICo machine for topology", "machineID", machineID)
+		return observed, nil
+	}
+	return nico.MachineFailureDomain(machine, labelKey), nil
+}
+
+func setObservedTopology(
+	nicoMachine *infrav1.NicoMachine,
+	instance *nicosdk.Instance,
+	failureDomain string,
+	site *nicosdk.Site,
+	vpc *nicosdk.VPC,
+) {
 	nicoMachine.Status.MachineID = instance.GetMachineId()
 	nicoMachine.Status.SiteID = instance.GetSiteId()
 	nicoMachine.Status.VPCID = instance.GetVpcId()
+	nicoMachine.Status.FailureDomain = failureDomain
 	nicoMachine.Status.SiteName = ""
 	nicoMachine.Status.VPCName = ""
 

@@ -169,6 +169,64 @@ make run-fake   # serves the NICo API surface on :8090
 See [docs/development.md](docs/development.md) for the complete development
 workflow and test commands.
 
+### Failure domains
+
+CapNICo implements the Cluster API failure domain contract so control-plane
+machines can be spread across correlated-failure boundaries such as rack groups.
+
+* `NicoCluster.status.failureDomains` lists the domains NICo offers for the
+  cluster's site. Cluster API copies this to `Cluster.status.failureDomains`.
+* The control-plane provider selects a domain and sets `spec.failureDomain` on
+  each `Machine`.
+* CapNICo discovers domain names from the labels on the site's Machines that
+  have an Instance Type. For a requested domain, it sends
+  `machineLabelSelector: {"failure_domain":"<domain>"}` with the instance create
+  request. NICo selects and locks a matching Machine atomically. Automatic
+  placement retains `instanceTypeId`; an explicitly configured
+  `NicoMachine.spec.machineID` retains `machineId`, and NICo validates that
+  Machine against the same selector.
+* `NicoCluster.spec.failureDomainLabelKey` selects the Machine label key. It is
+  unset by default, which disables failure domains for the cluster; NICo defines
+  no canonical key, so set it to whatever the site stamps on its Machines.
+* CapNICo reads the assigned Machine after creation and reports its label as
+  `NicoMachine.status.failureDomain`; it never copies the requested value into
+  observed status without verification. A label that changes after placement is
+  reported on the `FailureDomainDrifted` condition and does not fail an
+  already-provisioned machine.
+
+Every published domain needs Machines of every Instance Type the cluster
+provisions. A control-plane machine assigned to a domain with none retries
+placement under `FailureDomainUnavailable` and never progresses, because Cluster
+API does not reassign an existing Machine's failure domain.
+
+Failure-domain placement requires a NICo server containing
+[NVIDIA/infra-controller#5484](https://github.com/NVIDIA/infra-controller/pull/5484),
+merged to `main` on August 28, 2026. The SDK module
+`rest-api/sdk/standard` carries no semver tags, so CapNICo pins the
+pseudo-version `v0.0.0-20260901235154-eafb6b962baf`. Older servers silently
+ignore unknown JSON fields and are not compatible with this CapNICo behavior.
+The JSON field is `machineLabelSelector`; the generated Go SDK exposes
+`MachineLabelSelector` (`map[string]string`) and `SetMachineLabelSelector`.
+
+A non-empty selector requires NICo's effective `targetedInstanceCreation`
+capability for the selected site, including automatic `instanceTypeId`
+placement. Explicit `machineId` placement also requires that capability. If no
+matching Machine is available, the `NicoMachine` reports
+`FailureDomainPlacementFailed` and retries without unconstrained placement.
+Missing capability and explicit-selector mismatch are reported as non-capacity
+placement failures. There is no client-side Machine-list/create race because
+matching and allocation happen in the create operation.
+
+The same capability gates listing Machines, so an identity without it publishes
+no failure domains and the cluster provisions as it did before failure-domain
+support. Failure domains are therefore opt-in per tenant and site, with no
+feature flag.
+
+Because CapNICo reconciles and creates each Cluster API Machine independently,
+it does not use NICo's batch allocation API, even though
+`machineLabelSelector` is supported there too. CapNICo still creates one
+`NicoMachine` at a time and does not yet provide grouped NVLink co-placement.
+
 ## Install
 
 Initialize the core Cluster API controllers and the kubeadm providers:

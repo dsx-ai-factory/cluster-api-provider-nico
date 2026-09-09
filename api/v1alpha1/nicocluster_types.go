@@ -7,6 +7,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // NicoClusterSpec defines the desired state of NicoCluster.
@@ -19,6 +21,17 @@ type NicoClusterSpec struct {
 
 	// SiteID is the site where this provider should create and look up instances.
 	SiteID string `json:"siteID"`
+
+	// FailureDomainLabelKey is the NICo Machine label key that carries the failure
+	// domain name. It is read to publish status.failureDomains and sent as the
+	// machine label selector key when placing an instance. Leaving it unset
+	// disables failure domain support for this cluster: no domains are published,
+	// and a Machine that requests one fails rather than being placed anywhere.
+	// Sites that follow the NICo convention set it to "failure_domain".
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	FailureDomainLabelKey string `json:"failureDomainLabelKey,omitempty"`
 }
 
 // NicoClusterInitializationStatus provides observations of the NicoCluster initialization process.
@@ -45,6 +58,14 @@ type NicoClusterStatus struct {
 	// Ready is true once the provider can reach NICo and resolve tenant context for this cluster.
 	// +optional
 	Ready bool `json:"ready,omitempty"`
+
+	// FailureDomains are the placement domains NICo exposes for this cluster's site.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	FailureDomains []clusterv1.FailureDomain `json:"failureDomains,omitempty"`
 }
 
 // +kubebuilder:object:root=true

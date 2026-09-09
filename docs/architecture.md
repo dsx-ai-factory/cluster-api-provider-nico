@@ -118,6 +118,109 @@ while `status.instanceID` may still refer to a live instance.
 `NicoMachine` remains in the same namespace carrying a matching
 `cluster.x-k8s.io/cluster-name` label.
 
+## Failure domains
+
+Topology comes from NICo Machine labels. Discovery, placement, and verification
+all read the same `machines.labels` records. The label key is
+`NicoCluster.spec.failureDomainLabelKey`. It has no default: leaving it unset
+disables failure domains for the cluster, so an existing cluster does not start
+constraining placement the moment its site's Machines happen to carry a
+`failure_domain` label. Sites following the NICo convention set it to
+`failure_domain`.
+
+```mermaid
+sequenceDiagram
+    participant NICo
+    participant NCC as NicoCluster controller
+    participant CAPI as Cluster API core
+    participant CP as Control-plane provider
+    participant NMC as NicoMachine controller
+
+    NCC->>NICo: List Machines(siteID)
+    NICo-->>NCC: machines with failure_domain labels
+    NCC->>NCC: deduplicate and sort labels
+    NCC->>NCC: set NicoCluster.status.failureDomains
+    CAPI->>CAPI: copy to Cluster.status.failureDomains
+    CP->>CAPI: create Machine with spec.failureDomain=fd-b
+    NMC->>NICo: CreateInstance(instanceTypeId, machineLabelSelector.failure_domain=fd-b)
+    NICo->>NICo: select and lock an exact label match atomically
+    NICo-->>NMC: created instance with assigned machineId
+    NMC->>NICo: Get Machine(instance.machineId)
+    NICo-->>NMC: assigned Machine and labels
+    NMC->>NMC: set NicoMachine.status.failureDomain
+```
+
+CapNICo never chooses the *domain*: it publishes the label-derived choices
+and honors the domain selected by Cluster API. It expresses that choice on the
+create request as JSON
+`machineLabelSelector: {"failure_domain":"fd-b"}`. The generated Go SDK names
+the `map[string]string` field `MachineLabelSelector` and provides
+`SetMachineLabelSelector`.
+
+With `instanceTypeId`, NICo chooses a matching free Machine and locks it as part
+of the create operation. CapNICo does not list or choose a concrete Machine, so
+there is no client-side list/create race. A non-empty selector requires NICo's
+effective `targetedInstanceCreation` capability for the selected site, including
+automatic `instanceTypeId` placement. An explicitly configured
+`NicoMachine.spec.machineID` is retained as `machineId` and validated atomically
+against the same selector; explicit placement also requires that capability.
+CapNICo never falls back to an unconstrained create.
+
+This behavior requires a NICo server containing
+[NVIDIA/infra-controller#5484](https://github.com/NVIDIA/infra-controller/pull/5484),
+merged to `main` on August 28, 2026. The SDK module `rest-api/sdk/standard`
+carries no semver tags, so CapNICo pins the pseudo-version
+`v0.0.0-20260901235154-eafb6b962baf`. Older servers silently ignore unknown JSON
+fields and are not compatible.
+
+NICo also supports `machineLabelSelector` on batch instance allocation. CapNICo
+does not use that API: it reconciles one deterministically named `NicoMachine`
+at a time and does not yet provide grouped NVLink co-placement. Supporting that
+guarantee would require a separate group-reconciliation design.
+
+Listing Machines is gated by the same `targetedInstanceCreation` capability as
+the selector, so an identity that cannot list them cannot request a domain
+either. NICo reports that as 403, and the cluster then publishes no domains and
+provisions normally. A 401 is a credential problem rather than a missing
+capability, and is handled as a discovery error instead.
+
+Any discovery error before the first successful publication keeps the
+`NicoCluster` unprovisioned, so control-plane machines are not created against
+an unknown domain list. Once published, a later refresh error preserves the
+previous list, because clearing it would read as *no spread required*.
+
+Discovery considers only Machines that have an Instance Type, since placement
+selects within one. It deliberately does not filter on Machine status or
+assignment: the published list feeds `Cluster.status.failureDomains`, and a
+domain that vanished while its Machines were busy would make Cluster API treat
+the control-plane machines already placed there as out of their failure domain.
+The consequence is an operational requirement -- every published domain needs
+Machines of every Instance Type the cluster provisions, or a control-plane
+machine assigned to a domain that has none will retry placement indefinitely
+under `FailureDomainUnavailable`.
+
+The published list is capped at the 100 domains the CRD allows; anything beyond
+that is dropped in sort order and logged.
+
+### Placement failures
+
+`FailureDomainUnavailable` means the domain has no free Machine of the Instance
+Type. It requeues, and it counts as an instance-type capacity wait, so a
+control-plane machine blocked on it still defers workers of that type.
+
+`FailureDomainPlacementFailed` covers the failures free capacity would not fix:
+a Machine label selector the tenant lacks the capability to send, an explicit
+`spec.machineID` that does not match the domain, or a requested domain on a
+cluster with no `failureDomainLabelKey`. The capability case retries on a long
+interval rather than terminally, because NICo grants that capability out of band
+and nothing this controller watches changes when it does.
+
+Drift found after a correct placement -- NICo enforces the selector inside the
+create transaction, so this means a label changed afterwards -- is reported on
+the `FailureDomainDrifted` condition and in `status.failureDomain`. It does not
+fail provisioning: the instance is running, and marking it unavailable would
+invite a `MachineHealthCheck` to delete a healthy node over a label edit.
+
 ## Provider ID and node matching
 
 The kubeadm templates read the instance ID from the NICo metadata service at

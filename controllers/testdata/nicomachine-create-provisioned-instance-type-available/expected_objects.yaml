@@ -15,6 +15,7 @@ items:
       name: cluster-1
       uid: 00000000-0000-0000-0000-000000000000
   spec:
+    failureDomainLabelKey: failure_domain
     identityRef:
       name: nico-creds
     siteID: site-1
@@ -56,6 +57,9 @@ items:
       reason: Synced
       status: "True"
       type: Synced
+    failureDomains:
+    - controlPlane: true
+      name: fd-a
     initialization:
       provisioned: true
     ready: true
@@ -104,6 +108,12 @@ items:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
       message: ""
       observedGeneration: 2
+      reason: FailureDomainStable
+      status: "False"
+      type: FailureDomainDrifted
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 2
       reason: InstanceReady
       status: "True"
       type: MachineProvisioned
@@ -125,9 +135,11 @@ items:
       reason: Synced
       status: "True"
       type: Synced
+    failureDomain: fd-a
     initialization:
       provisioned: true
     instanceID: instance-00000001
+    machineID: machine-a
     ready: true
     siteID: site-1
     siteName: fake-site

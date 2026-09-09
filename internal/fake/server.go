@@ -78,6 +78,11 @@ type instanceDump struct {
 	RebootCount int              `json:"reboot_count,omitempty"`
 }
 
+type machineDump struct {
+	Org      string          `json:"org"`
+	Resource nicosdk.Machine `json:"resource"`
+}
+
 type siteDump struct {
 	Org      string       `json:"org"`
 	Resource nicosdk.Site `json:"resource"`
@@ -92,6 +97,7 @@ type serverDump struct {
 	Tenants       []tenantDump       `json:"tenants"`
 	InstanceTypes []instanceTypeDump `json:"instance_types"`
 	Instances     []instanceDump     `json:"instances"`
+	Machines      []machineDump      `json:"machines,omitempty"`
 	Sites         []siteDump         `json:"sites"`
 	VPCs          []vpcDump          `json:"vpcs"`
 	Requests      []requestRecord    `json:"requests"`
@@ -115,6 +121,7 @@ type Server struct {
 	tenants       map[string]*nicosdk.Tenant
 	instanceTypes map[string]*nicosdk.InstanceType
 	instances     map[string]*instanceRecord
+	machines      map[string]*nicosdk.Machine
 	sites         map[string]*nicosdk.Site
 	vpcs          map[string]*nicosdk.VPC
 
@@ -129,6 +136,7 @@ func New() *Server {
 		tenants:       map[string]*nicosdk.Tenant{},
 		instanceTypes: map[string]*nicosdk.InstanceType{},
 		instances:     map[string]*instanceRecord{},
+		machines:      map[string]*nicosdk.Machine{},
 		sites:         map[string]*nicosdk.Site{},
 		vpcs:          map[string]*nicosdk.VPC{},
 	}
@@ -180,6 +188,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v2/org/{org}/nico/instance/{instanceID}", s.getInstance)
 	mux.HandleFunc("PATCH /v2/org/{org}/nico/instance/{instanceID}", s.updateInstance)
 	mux.HandleFunc("DELETE /v2/org/{org}/nico/instance/{instanceID}", s.deleteInstance)
+	mux.HandleFunc("GET /v2/org/{org}/nico/machine", s.listMachines)
+	mux.HandleFunc("GET /v2/org/{org}/nico/machine/{machineID}", s.getMachine)
 	mux.HandleFunc("GET /v2/org/{org}/nico/site", s.listSites)
 	mux.HandleFunc("GET /v2/org/{org}/nico/vpc/{vpcID}", s.getVPC)
 
@@ -214,6 +224,15 @@ func (s *Server) SeedInstance(org string, instance nicosdk.Instance) {
 
 	copy := cloneInstance(instance)
 	s.instances[resourceKey(org, copy.GetId())] = &instanceRecord{org: org, instance: copy}
+}
+
+// SeedMachine adds or replaces a machine visible to org.
+func (s *Server) SeedMachine(org string, machine nicosdk.Machine) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	copy := cloneMachine(machine)
+	s.machines[resourceKey(org, copy.GetId())] = &copy
 }
 
 // SeedSite adds or replaces a site visible to org.
@@ -271,6 +290,12 @@ func (s *Server) SeedFromYAML(input string) error {
 		}
 		s.SeedInstance(resource.Org, resource.Resource)
 	}
+	for _, resource := range seed.Machines {
+		if resource.Org == "" || resource.Resource.GetId() == "" {
+			return fmt.Errorf("seeded machine requires org and resource.id")
+		}
+		s.SeedMachine(resource.Org, resource.Resource)
+	}
 	for _, resource := range seed.Sites {
 		if resource.Org == "" || resource.Resource.GetId() == "" {
 			return fmt.Errorf("seeded site requires org and resource.id")
@@ -311,6 +336,7 @@ func (s *Server) Dump() (string, error) {
 		Tenants:       make([]tenantDump, 0, len(s.tenants)),
 		InstanceTypes: make([]instanceTypeDump, 0, len(s.instanceTypes)),
 		Instances:     make([]instanceDump, 0, len(s.instances)),
+		Machines:      make([]machineDump, 0, len(s.machines)),
 		Sites:         make([]siteDump, 0, len(s.sites)),
 		VPCs:          make([]vpcDump, 0, len(s.vpcs)),
 		Requests:      deduplicateRequests(s.requests),
@@ -323,6 +349,9 @@ func (s *Server) Dump() (string, error) {
 	}
 	for _, record := range s.instances {
 		dump.Instances = append(dump.Instances, instanceDump{Org: record.org, Resource: cloneInstance(record.instance), RebootCount: record.rebootCount})
+	}
+	for key, machine := range s.machines {
+		dump.Machines = append(dump.Machines, machineDump{Org: orgFromKey(key), Resource: cloneMachine(*machine)})
 	}
 	for key, site := range s.sites {
 		dump.Sites = append(dump.Sites, siteDump{Org: orgFromKey(key), Resource: *site})
@@ -340,6 +369,9 @@ func (s *Server) Dump() (string, error) {
 		return compareResource(a.Org, a.Resource.GetId(), b.Org, b.Resource.GetId())
 	})
 	slices.SortFunc(dump.Instances, func(a, b instanceDump) int {
+		return compareResource(a.Org, a.Resource.GetId(), b.Org, b.Resource.GetId())
+	})
+	slices.SortFunc(dump.Machines, func(a, b machineDump) int {
 		return compareResource(a.Org, a.Resource.GetId(), b.Org, b.Resource.GetId())
 	})
 	slices.SortFunc(dump.Sites, func(a, b siteDump) int { return compareResource(a.Org, a.Resource.GetId(), b.Org, b.Resource.GetId()) })
@@ -376,6 +408,28 @@ func (s *Server) getCurrentTenant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tenant)
 }
 
+func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
+	org := r.PathValue("org")
+	query := r.URL.Query()
+	s.mu.Lock()
+	machines := make([]nicosdk.Machine, 0, len(s.machines))
+	for key, machine := range s.machines {
+		if orgFromKey(key) != org || (query.Get("siteId") != "" && machine.GetSiteId() != query.Get("siteId")) {
+			continue
+		}
+		if query.Get("hasInstanceType") == "true" && machine.GetInstanceTypeId() == "" {
+			continue
+		}
+		machines = append(machines, cloneMachine(*machine))
+	}
+	s.mu.Unlock()
+	slices.SortFunc(machines, func(a, b nicosdk.Machine) int {
+		return strings.Compare(a.GetId(), b.GetId())
+	})
+	machines = paginate(machines, query.Get("pageNumber"), query.Get("pageSize"))
+	writeJSON(w, http.StatusOK, machines)
+}
+
 func (s *Server) getInstanceType(w http.ResponseWriter, r *http.Request) {
 	org, instanceTypeID := r.PathValue("org"), r.PathValue("instanceTypeID")
 	s.mu.Lock()
@@ -393,6 +447,51 @@ func (s *Server) getInstanceType(w http.ResponseWriter, r *http.Request) {
 		instanceType.AllocationStats = nil
 	}
 	writeJSON(w, http.StatusOK, instanceType)
+}
+
+type apiFailure struct {
+	status  int
+	message string
+}
+
+// selectMachineForSelector resolves the machine a machine label selector places
+// an instance on, mirroring NICo's rejection messages. It must be called with
+// s.mu held. A nil machine and nil failure mean the request carried no selector.
+func (s *Server) selectMachineForSelector(org string, request *nicosdk.InstanceCreateRequest, vpc *nicosdk.VPC) (*nicosdk.Machine, *apiFailure) {
+	selector := request.GetMachineLabelSelector()
+	if len(selector) == 0 {
+		return nil, nil
+	}
+
+	if request.HasMachineId() {
+		machine, ok := s.machines[resourceKey(org, request.GetMachineId())]
+		if !ok || !matchesLabels(machine.GetLabels(), selector) {
+			return nil, &apiFailure{http.StatusBadRequest, "Machine specified in request does not match machineLabelSelector"}
+		}
+		if machine.GetInstanceId() != "" {
+			return nil, &apiFailure{http.StatusBadRequest, "Machine is assigned to an Instance"}
+		}
+		return machine, nil
+	}
+
+	candidates := make([]*nicosdk.Machine, 0)
+	for key, machine := range s.machines {
+		if orgFromKey(key) != org ||
+			machine.GetSiteId() != vpc.GetSiteId() ||
+			machine.GetInstanceTypeId() != request.GetInstanceTypeId() ||
+			machine.GetInstanceId() != "" ||
+			!matchesLabels(machine.GetLabels(), selector) {
+			continue
+		}
+		candidates = append(candidates, machine)
+	}
+	if len(candidates) == 0 {
+		return nil, &apiFailure{http.StatusBadRequest, "No Machines are available for specified Instance Type"}
+	}
+	slices.SortFunc(candidates, func(a, b *nicosdk.Machine) int {
+		return strings.Compare(a.GetId(), b.GetId())
+	})
+	return candidates[0], nil
 }
 
 func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
@@ -439,6 +538,13 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	assignedMachine, failure := s.selectMachineForSelector(org, &request, vpc)
+	if failure != nil {
+		s.mu.Unlock()
+		writeError(w, failure.status, failure.message)
+		return
+	}
+
 	id := s.mintID("instance")
 	instance := nicosdk.NewInstance()
 	instance.SetId(id)
@@ -452,6 +558,10 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.HasMachineId() {
 		instance.SetMachineId(request.GetMachineId())
+	}
+	if assignedMachine != nil {
+		instance.SetMachineId(assignedMachine.GetId())
+		assignedMachine.SetInstanceId(id)
 	}
 	if request.HasLabels() {
 		instance.SetLabels(maps.Clone(request.GetLabels()))
@@ -510,6 +620,22 @@ func (s *Server) getInstance(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if !ok {
 		writeError(w, http.StatusNotFound, "instance not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, &response)
+}
+
+func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
+	org, machineID := r.PathValue("org"), r.PathValue("machineID")
+	s.mu.Lock()
+	machine, ok := s.machines[resourceKey(org, machineID)]
+	var response nicosdk.Machine
+	if ok {
+		response = cloneMachine(*machine)
+	}
+	s.mu.Unlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "machine not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, &response)
@@ -625,6 +751,10 @@ func (s *Server) advanceInstance(record *instanceRecord) {
 		if record.polls >= ReadyAfterPolls {
 			record.instance.SetStatus(nicosdk.InstanceStatus(statusTerminated))
 			clearInstanceAddresses(&record.instance)
+			if machine := s.machines[resourceKey(record.org, record.instance.GetMachineId())]; machine != nil &&
+				machine.GetInstanceId() == record.instance.GetId() {
+				machine.SetInstanceIdNil()
+			}
 		}
 	}
 }
@@ -658,6 +788,16 @@ func matchesInstanceQuery(instance *nicosdk.Instance, name, vpcID, siteID string
 	return (name == "" || instance.GetName() == name) &&
 		(vpcID == "" || instance.GetVpcId() == vpcID) &&
 		(siteID == "" || instance.GetSiteId() == siteID)
+}
+
+func matchesLabels(labels, selector map[string]string) bool {
+	for key, expected := range selector {
+		actual, ok := labels[key]
+		if !ok || actual != expected {
+			return false
+		}
+	}
+	return true
 }
 
 func instanceInterfaces(requests []nicosdk.InterfaceCreateRequest) ([]nicosdk.Interface, error) {
@@ -735,6 +875,16 @@ func cloneInstance(instance nicosdk.Instance) nicosdk.Instance {
 	copy.NvLinkInterfaces = slices.Clone(instance.NvLinkInterfaces)
 	copy.SecondaryVpcIds = slices.Clone(instance.SecondaryVpcIds)
 	copy.SshKeyGroupIds = slices.Clone(instance.SshKeyGroupIds)
+	return copy
+}
+
+func cloneMachine(machine nicosdk.Machine) nicosdk.Machine {
+	copy := machine
+	copy.Labels = maps.Clone(machine.Labels)
+	copy.MachineCapabilities = slices.Clone(machine.MachineCapabilities)
+	copy.MachineInterfaces = slices.Clone(machine.MachineInterfaces)
+	copy.AssociatedDpuMachineIds = slices.Clone(machine.AssociatedDpuMachineIds)
+	copy.StatusHistory = slices.Clone(machine.StatusHistory)
 	return copy
 }
 

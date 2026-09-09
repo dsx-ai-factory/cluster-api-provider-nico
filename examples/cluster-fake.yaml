@@ -72,6 +72,9 @@ metadata:
   namespace: default
 spec:
   siteID: site-1
+  # Opts this cluster into failure domains. Unset, no domains are published and
+  # the NicoMachines below provision unconstrained.
+  failureDomainLabelKey: failure_domain
 ---
 # Templates are the operator-authored inputs an orchestrator would clone into
 # the concrete NicoMachines below.
@@ -131,6 +134,10 @@ metadata:
 spec:
   clusterName: demo
   version: v1.35.0
+  # A control-plane provider normally picks this from
+  # Cluster.status.failureDomains. Set here so the demo shows placement without
+  # running one; the worker below omits it and is placed unconstrained.
+  failureDomain: rack-group-b
   bootstrap:
     dataSecretName: demo-cp-0-bootstrap-data
   infrastructureRef:
