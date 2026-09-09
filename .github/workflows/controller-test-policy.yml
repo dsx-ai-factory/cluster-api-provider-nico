@@ -11,7 +11,7 @@ permissions: {}
 
 jobs:
   controller-test-policy:
-    name: no new controller test code
+    name: Require envtest fixtures only
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
