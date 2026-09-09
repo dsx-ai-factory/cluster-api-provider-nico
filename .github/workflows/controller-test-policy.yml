@@ -4,8 +4,8 @@
 name: Controller Test Policy
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
+  workflow_dispatch:
 
 permissions: {}
 
@@ -30,39 +30,38 @@ jobs:
       - name: Install Ginkgo
         run: make ginkgo
 
-      - name: Reject new controller test code
+      - name: Reject non envtest fixture tests
         shell: bash
         run: |
           set -euo pipefail
           failed=0
 
-          check_ginkgo_specs() {
-            local file="$1"
-            local maximum="$2"
-            local actual
-
+          while IFS=$'\t' read -r file expected; do
             actual="$(
               ./bin/ginkgo outline --format csv "${file}" |
                 awk -F, 'NR > 1 && $5 == "true" { count++ } END { print count + 0 }'
             )"
 
-            if ((actual > maximum)); then
-              echo "::error file=${file}::Found ${actual} Ginkgo specs; the maximum is ${maximum}. Add a YAML fixture under controllers/testdata instead."
+            if ((actual != expected)); then
+              echo "::error file=${file}::Found ${actual} Ginkgo specs; expected ${expected}. Add a YAML fixture under controllers/testdata instead."
               failed=1
             fi
-          }
+          done < <(
+            jq -r '.ginkgoSpecs | to_entries[] | [.key, .value] | @tsv' .github/controller-test-policy.json
+          )
 
-          check_ginkgo_specs controllers/nicocluster_controller_test.go 7
-          check_ginkgo_specs controllers/nicomachine_controller_test.go 8
-
-          ordinary_tests="$(
+          expected_ordinary_tests="$(jq -r '.ordinaryGoTests[]' .github/controller-test-policy.json)"
+          actual_ordinary_tests="$(
             go test ./controllers -run '^$' -list '^(Test|Benchmark|Fuzz)' |
-              awk '/^(Test|Benchmark|Fuzz)[[:alnum:]_]*$/ { print }'
+              awk '/^(Test|Benchmark|Fuzz)[[:alnum:]_]*$/ { print }' |
+              sort
           )"
-          if [[ "${ordinary_tests}" != "TestControllers" ]]; then
-            echo "::error file=controllers::The controllers package may only define its Ginkgo suite entry point, TestControllers. Add a YAML fixture under controllers/testdata instead."
+          if [[ "${actual_ordinary_tests}" != "${expected_ordinary_tests}" ]]; then
+            echo "::error file=controllers::The ordinary Go test allowlist changed. Add controller coverage as YAML fixtures under controllers/testdata instead."
+            echo "Expected:"
+            printf '%s\n' "${expected_ordinary_tests:-<none>}"
             echo "Found:"
-            printf '%s\n' "${ordinary_tests:-<none>}"
+            printf '%s\n' "${actual_ordinary_tests:-<none>}"
             failed=1
           fi
 
