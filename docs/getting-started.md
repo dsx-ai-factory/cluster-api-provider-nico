@@ -665,8 +665,20 @@ same way, applied once `kubeadm init` has actually run:
 ```yaml
 postKubeadmCommands:
   - |
-    KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    curl -fsSL -o /tmp/kube-flannel.yml https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+    pod_cidr=$(kubectl get node "$(hostname)" -o jsonpath='{.spec.podCIDR}')
+    sed -i "s#10.244.0.0/16#${pod_cidr}#" /tmp/kube-flannel.yml
+    kubectl apply -f /tmp/kube-flannel.yml
 ```
+
+Flannel's manifest hardcodes `10.244.0.0/16` — if that doesn't match your
+`Cluster.spec.clusterNetwork.pods.cidrBlocks` (it won't, for
+`examples/kubeadm/cluster.yaml`'s own `192.168.0.0/16`), Flannel refuses to
+start at all: `subnet "10.244.0.0/16" ... doesn't contain "<real-cidr>"
+PodCIDR`. The `sed` above rewrites it to the node's real `podCIDR`, read
+straight off the `Node` object rather than assumed, so it self-corrects
+regardless of what CIDR your cluster actually uses.
 
 Flannel is just an example, not a recommendation — pin a version rather than
 `latest` for anything beyond a one-off test, and match whatever CNI your
