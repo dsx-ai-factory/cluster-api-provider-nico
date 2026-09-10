@@ -15,6 +15,7 @@ var (
 	ErrConflict      = errors.New("resource conflict")
 	ErrNotFound      = errors.New("resource not found")
 	ErrUnauthorized  = errors.New("request unauthorized")
+	ErrBadRequest    = errors.New("request invalid")
 
 	// ErrForbidden means NICo authenticated the identity and refused the action.
 	// A 403 also satisfies ErrUnauthorized; only ErrForbidden distinguishes a
@@ -62,6 +63,8 @@ func normalizeError(resp *http.Response, err error) error {
 		return fmt.Errorf("%w: %w: %s", ErrUnauthorized, ErrForbidden, message)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrNotFound, message)
+	case http.StatusBadRequest:
+		return fmt.Errorf("%w: %s", ErrBadRequest, message)
 	case http.StatusConflict:
 		// Typed ErrAlreadyExists, which is a special case of conflict error.
 		if strings.Contains(strings.ToLower(message), "already exists") {

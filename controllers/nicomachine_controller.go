@@ -285,7 +285,22 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					}
 					return ctrl.Result{}, fmt.Errorf("failed to place instance in failure domain %q: %w", failureDomain, err)
 				}
-				setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
+				reason := infrav1.InstanceCreateFailedReason
+				if errors.Is(err, nico.ErrBadRequest) {
+					// HTTP 400 is NICo's validation failure: unknown VPC, bad interfaces,
+					// and also "No Machines are available for specified Instance Type"
+					// (infra-controller folds that check into the same preflight).
+					// Stamp InstanceCreateRequestInvalid so a spec error is visible.
+					//
+					// unusedUsable is already checked above, but it does not drop until
+					// a create lands. Two machines can both see unusedUsable > 0; the
+					// second create then 400s because the last machine was taken. That is
+					// acceptable here: the next pass runs the capacity check again,
+					// and stamps InstanceTypeUnavailableReason if the type is still empty.
+					// NOTE: This reason is not in allowlisted in capacityWaitReasons that prioritize control-plane machines
+					reason = infrav1.InstanceCreateRequestInvalidReason
+				}
+				setMachineProvisionedFalse(&nicoMachine, reason, err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
 		}

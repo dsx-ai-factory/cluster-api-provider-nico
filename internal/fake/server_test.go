@@ -560,6 +560,21 @@ func TestRejectsMalformedCreateRequest(t *testing.T) {
 	unknownType.SetInstanceTypeId("missing-type")
 	if _, err := client.CreateInstance(t.Context(), unknownType, nico.InstancePlacement{}); err == nil {
 		t.Fatal("create with an unknown instanceTypeId succeeded")
+	} else if !errors.Is(err, nico.ErrBadRequest) {
+		t.Fatalf("unknown instanceTypeId error = %v, want wrapping %v", err, nico.ErrBadRequest)
+	}
+}
+
+func TestCreateUnknownVPCIsBadRequest(t *testing.T) {
+	_, client := newSeededClient(t)
+	request := testCreateRequest()
+	request.SetVpcId("vpc-does-not-exist")
+	_, err := client.CreateInstance(t.Context(), request, nico.InstancePlacement{})
+	if err == nil {
+		t.Fatal("create with unknown vpcId succeeded")
+	}
+	if !errors.Is(err, nico.ErrBadRequest) {
+		t.Fatalf("unknown vpcId error = %v, want wrapping %v", err, nico.ErrBadRequest)
 	}
 }
 
