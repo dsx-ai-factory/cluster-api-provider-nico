@@ -487,6 +487,14 @@ A node appearing means the whole chain worked: CAPNICo created the instance, it
 booted the iPXE image, cloud-init ran kubeadm, and kubelet picked up
 `providerID: nico://<instance-id>` from the metadata service.
 
+⚠️ **The `NICO_*_IPXE_SCRIPT` values above are placeholders** —
+`boot.example.com` does not exist. Replace them with your own site's real,
+working iPXE chain (boot-loader URL + image URL) before expecting a node to
+actually appear. CAPNICo will still create the instance and report
+`Provisioned` against a placeholder script — that step only proves CAPNICo's
+own job is done, not that anything booted. See "What has to be in the OS
+image" below for what that chain needs to deliver.
+
 #### Validating without the kubeadm providers
 
 The templates above need the kubeadm bootstrap and control-plane providers
@@ -607,6 +615,63 @@ Nothing here is a dependency — these are worked examples of the same contract.
 The usual shape is Image Builder for the Kubernetes layer, then a small
 provisioning step of your own for the datasource configuration and anything
 site-specific.
+
+### Installing kubeadm and a CNI at boot instead
+
+If your image doesn't have requirement 3 baked in yet, `preKubeadmCommands`
+can install it at boot instead of through Image Builder. Worked example,
+validated against a real site — plain kubeadm/kubelet/containerd from
+`pkgs.k8s.io`, no site-specific packaging:
+
+```yaml
+preKubeadmCommands:
+  - |
+    set -eux
+    cat <<MOD | tee /etc/modules-load.d/k8s.conf
+    overlay
+    br_netfilter
+    MOD
+    modprobe overlay
+    modprobe br_netfilter
+    cat <<SYSCTL | tee /etc/sysctl.d/k8s.conf
+    net.bridge.bridge-nf-call-iptables  = 1
+    net.bridge.bridge-nf-call-ip6tables = 1
+    net.ipv4.ip_forward                 = 1
+    SYSCTL
+    sysctl --system
+    apt-get update
+    apt-get install -y containerd
+    mkdir -p /etc/containerd
+    containerd config default | tee /etc/containerd/config.toml
+    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+    systemctl restart containerd
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.36/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.36/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+    apt-get update
+    apt-get install -y kubelet kubeadm kubectl
+    apt-mark hold kubelet kubeadm
+    systemctl enable --now kubelet
+```
+
+This needs real internet egress from the instance's VPC to reach
+`pkgs.k8s.io` — that's a site/VPC network-policy question, not something
+CAPNICo or this template controls. If `apt-get update` can't reach it, check
+with whoever manages your site's networking before assuming the image itself
+is broken.
+
+Requirement 6 (a CNI) can go in the control plane's `postKubeadmCommands` the
+same way, applied once `kubeadm init` has actually run:
+
+```yaml
+postKubeadmCommands:
+  - |
+    KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+```
+
+Flannel is just an example, not a recommendation — pin a version rather than
+`latest` for anything beyond a one-off test, and match whatever CNI your
+production images actually use. Until something applies a CNI, nodes join
+and stay `NotReady`, same as requirement 6 in the contract table above.
 
 ### Proving an image before you trust it
 
