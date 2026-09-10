@@ -4,6 +4,7 @@
 package controllers
 
 import (
+	"context"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -43,6 +44,11 @@ func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			server := fake.New()
 			caseFakes.Store(tc.Name, server)
 			gomega.Expect(seedFakeResources(tc, server)).To(gomega.Succeed())
+			if tc.HasInput("input_nico_objects.yaml") {
+				tc.AddGolden("expected_nico.yaml", func(context.Context) (string, error) {
+					return server.Dump()
+				})
+			}
 
 			endpoint := startFake(server)
 			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())

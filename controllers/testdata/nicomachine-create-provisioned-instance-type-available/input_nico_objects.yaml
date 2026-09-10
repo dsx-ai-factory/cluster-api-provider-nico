@@ -7,3 +7,11 @@ instance_types:
       unusedUsable: 1
       used: 0
     id: type-1
+machines:
+- org: org-1
+  resource:
+    id: machine-a
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+    siteId: site-1

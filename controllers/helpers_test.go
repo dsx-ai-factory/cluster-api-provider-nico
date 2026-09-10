@@ -15,7 +15,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

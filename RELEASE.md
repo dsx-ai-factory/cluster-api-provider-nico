@@ -64,39 +64,24 @@ the central promoter to act on, which has no equivalent here.
 
 ## Steps to release
 
-1. **Update `CHANGELOG.md`.** It is generated from commit subjects by
-   [git-cliff](https://git-cliff.org), configured in `cliff.toml`. **Do not
-   edit it by hand.**
-
-   ```bash
-   # 1. Drop the pending [Unreleased] section. Without this, --prepend leaves it
-   #    in place holding the same entries the new section just claimed, so the
-   #    file lists everything twice and keeps a stale [Unreleased] forever.
-   awk '/^## \[Unreleased\]/{s=1} /^## \[[0-9]/{s=0} !s' CHANGELOG.md > /tmp/cl && mv /tmp/cl CHANGELOG.md
-   
-   # 2. Prepend the new section. --prepend leaves published sections byte-identical;
-   #    regenerating the whole file re-derives their dates and rewrites history.
-   git-cliff --unreleased --tag v<VERSION> --prepend CHANGELOG.md
-   ```
-   
-   Run this in a **full clone**. On a shallow one git-cliff emits a near-empty
-   section and exits 0, so nothing fails.
-
-   The heading carries **no `v` prefix**, which is what the release workflow
-   expects when it reads the section back with `awk "/^## \[${VERSION}\]/"` —
-   and it falls back to a placeholder rather than failing, so a mismatch ships
-   empty notes.
+1. **Preview the release notes** with `make changelog` if desired. The preview
+   uses [git-cliff](https://git-cliff.org), configured in `cliff.toml`, and
+   includes changes since the latest stable tag. GitHub generates the published
+   notes from merged pull requests since the preceding stable tag when the
+   release workflow runs. RC and final release notes are therefore cumulative
+   for the version. The preview is advisory and `CHANGELOG.md` is not updated.
+   `git-cliff` must be installed and available on `PATH` to run the preview.
 
 2. **Update `metadata.yaml`** if the major or minor version is new, or if the
    Cluster API contract version supported by this release differs from the previous one.
 
-3. **Commit and open a PR** against `main`:
-   ```bash
-   git commit -s -m "chore: prepare release v<VERSION>"
-   ```
-   Merge after review.
+3. **Ensure the intended release commit is on `main`** and its required checks
+   have passed. If step 2 required a change, commit it and merge it through a
+   pull request before continuing.
 
-4. **Tag the release** on the merge commit:
+4. **Tag the release** on the merge commit. Normally this is the promotion of a
+   tested release candidate, as described below. To tag a final release
+   directly:
    ```bash
    git tag -s v<VERSION> -m "Release v<VERSION>"
    git push upstream v<VERSION>
@@ -121,9 +106,9 @@ the central promoter to act on, which has no equivalent here.
      `oci://ghcr.io/nvidia/cluster-api-provider-nico/charts`. It fails if the
      rendered manager still names an NVCR image, because that failure would
      otherwise surface only at install time.
-   - **Create GitHub Release** creates the release as a **draft** and attaches
-     notes extracted from `CHANGELOG.md`, the promoted digest, and the
-     clusterctl provider artifacts `metadata.yaml` and
+   - **Create GitHub Release** creates the release as a **draft**, asks GitHub
+     to generate notes from merged pull requests, and attaches the promoted
+     digest and the clusterctl provider artifacts `metadata.yaml` and
      `infrastructure-components.yaml`. **Publish the release** then checks both
      assets are present and publishes it. They run last so the release never
      advertises an image that has not landed yet.
@@ -165,18 +150,27 @@ the central promoter to act on, which has no equivalent here.
 
 ## Release candidates
 
-Tag a candidate on the commit you intend to release:
+Tag and push a candidate from the commit you intend to release:
 
 ```bash
-git tag -s v<VERSION>-rc.1 -m "Release candidate v<VERSION>-rc.1"
-git push upstream v<VERSION>-rc.1
+make release-rc VERSION=v0.1.0-rc.1
 ```
+
+The target is a small wrapper around `git tag -s` and `git push`. It pushes to
+`origin` by default; set `RELEASE_REMOTE` to use another Git remote.
 
 A candidate takes the identical path a release does — same digest promoted to the
 same registries, a public GitHub prerelease, and clusterctl artifacts you can
 `clusterctl init` from. Iterate with `-rc.2` and so on. When the candidate is
-good, tag the same commit as `v<VERSION>`, and the release is that same digest
-under a new name.
+good, promote it:
+
+```bash
+make promote-rc VERSION=v0.1.0-rc.1
+```
+
+This derives `v0.1.0`, tags the commit referenced by `v0.1.0-rc.1`, and pushes
+the final tag. The release is therefore the same digest under a new name even
+if the candidate commit is no longer checked out.
 
 Candidate tags are kept, not deleted, so `v<VERSION>-rc.1` and `v<VERSION>` both
 remain resolvable and, on the same commit, identical.

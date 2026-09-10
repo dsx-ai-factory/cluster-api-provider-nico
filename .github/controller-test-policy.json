@@ -1,0 +1,9 @@
+{
+  "ginkgoSpecs": {
+    "controllers/nicocluster_controller_test.go": 7,
+    "controllers/nicomachine_controller_test.go": 8
+  },
+  "ordinaryGoTests": [
+    "TestControllers"
+  ]
+}

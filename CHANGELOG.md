@@ -1,13 +1,47 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+Starting with the release following v0.0.44, release notes are generated from
+merged pull requests and published with
+[GitHub Releases](https://github.com/NVIDIA/cluster-api-provider-nico/releases).
+The existing entries below are retained as the historical changelog.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.0.44] - 2026-09-08
 
-**This file is generated — do not edit it by hand.** See `cliff.toml`.
+### Added
 
-## [Unreleased]
+- Expand InfiniBand and NVLink partition IDs across instance-type devices
+- *(api)* Validate machine network identifiers
+- *(helm)* Add a native provider chart
+- Give control-plane machines first claim on NICo capacity
+- Add local NICo fake development loop
+- Add controller scope flags
+
+### Fixed
+
+- Add initial log line for reconciliation
+- Ensure secrets ns is proprogated in error object
+- *(api)* Make provisioned NicoMachine spec immutable
+- *(api)* Make NicoMachineTemplate spec immutable
+- Treat omitted NicoMachine interface fields as wildcards on import
+- Removing cache for tenant readiness check
+- Add subwatch to ensure rereconcile when nico auth secret is changed
+
+### Documentation
+
+- Restore the Unreleased section to the changelog
+- Add a getting-started guide, and correct two stale claims
+- Fix Path C credcheck example and note kubeadm-provider-free validation
+
+### Maintenance
+
+- *(controllers)* Standardize fixture-based envtests
+- *(deps)* Bump github/codeql-action/upload-sarif from 4.37.7 to 4.37.8
+- *(deps)* Bump github/codeql-action/analyze from 4.37.7 to 4.37.8
+- *(deps)* Bump github/codeql-action/init from 4.37.7 to 4.37.8
+- *(deps)* Bump github.com/stretchr/testify from 1.11.1 to 1.12.1
+- Sign the commit the dependabot fixup makes
+- Use production JSON logging defaults
+- Some general cleanup items
 
 ## [0.0.43] - 2026-08-26
 
@@ -85,4 +119,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add govulncheck, CodeQL and Grype scans
 - Scan the commit history for secrets
-

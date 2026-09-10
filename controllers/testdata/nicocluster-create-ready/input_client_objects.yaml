@@ -31,6 +31,7 @@ metadata:
     name: cluster-1
     uid: 00000000-0000-0000-0000-000000000000
 spec:
+  failureDomainLabelKey: failure-domain
   siteID: site-1
   identityRef:
     name: nico-creds

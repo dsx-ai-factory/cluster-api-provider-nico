@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,10 +32,12 @@ import (
 )
 
 const (
-	nicoClusterFinalizer     = "infrastructure.cluster.x-k8s.io/nicocluster"
-	clusterReadyRequeue      = 5 * time.Minute
-	clusterReadyJitterWindow = 1 * time.Minute
-	clusterDeleteRequeue     = 15 * time.Second
+	nicoClusterFinalizer                 = "infrastructure.cluster.x-k8s.io/nicocluster"
+	nicoClusterCredentialsSecretRefIndex = "nicoClusterCredentialsSecretRef"
+	clusterReadyRequeue                  = 5 * time.Minute
+	clusterReadyJitterWindow             = 1 * time.Minute
+	clusterDeleteRequeue                 = 15 * time.Second
+	failureDomainRetryRequeue            = 30 * time.Second
 )
 
 var nicoClusterOwnedConditions = []string{
@@ -49,9 +52,10 @@ var nicoClusterOwnedConditions = []string{
 // NicoClusterReconciler reconciles a NicoCluster object.
 type NicoClusterReconciler struct {
 	client.Client
-	APIReader      client.Reader
-	Scheme         *runtime.Scheme
-	ProviderConfig nico.ProviderConfig
+	APIReader        client.Reader
+	Scheme           *runtime.Scheme
+	ProviderConfig   nico.ProviderConfig
+	WatchFilterValue string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch;update;patch
@@ -138,12 +142,37 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("failed to validate nico client readiness: %w", err)
 	}
 
+	requeue := clusterReadyRequeueAfter(nicoCluster)
+	domains, err := nicoClient.ListFailureDomains(ctx, nicoCluster.Spec.SiteID, nicoCluster.Spec.FailureDomainLabelKey)
+	switch {
+	case errors.Is(err, nico.ErrForbidden):
+		// Listing machines and placing against a machine label selector are gated by
+		// the same NICo capability, so an identity without it cannot request a domain.
+		// Only 403 means that; a 401 is a credential problem and falls through below,
+		// where the last known list survives.
+		log.V(1).Info("identity cannot list NICo machines; publishing no failure domains")
+		nicoCluster.Status.FailureDomains = nil
+	case err != nil:
+		// Preserve the last known domains: an empty list reads as "no spread required".
+		log.Error(err, "failed to list NICo failure domains; keeping last known list")
+		if !provisionedOnce(nicoCluster) {
+			setNicoReadyFalse(&nicoCluster, infrav1.FailureDomainDiscoveryFailedReason, err.Error())
+			return ctrl.Result{RequeueAfter: failureDomainRetryRequeue}, nil
+		}
+		requeue = failureDomainRetryRequeue
+	default:
+		nicoCluster.Status.FailureDomains = toFailureDomains(domains)
+		if published, offered := len(nicoCluster.Status.FailureDomains), len(domains); published < offered {
+			log.Info("dropped NICo failure domains that exceed the published limits", "offered", offered, "published", published)
+		}
+	}
+
 	provisioned := true
 	nicoCluster.Status.Initialization.Provisioned = &provisioned
 	setNicoReadyTrue(&nicoCluster, infrav1.InfrastructureReadyReason)
 
 	log.V(1).Info("reconciled NicoCluster")
-	return ctrl.Result{RequeueAfter: clusterReadyRequeueAfter(nicoCluster)}, nil
+	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
 // reconcileDelete waits for the cluster's NicoMachines to be deleted before
@@ -211,6 +240,10 @@ func (r *NicoClusterReconciler) listNicoMachinesForCluster(ctx context.Context, 
 		return nil, fmt.Errorf("failed to list NicoMachines for cluster %q: %w", cluster.Name, err)
 	}
 	return nicoMachines.Items, nil
+}
+
+func provisionedOnce(nicoCluster infrav1.NicoCluster) bool {
+	return nicoCluster.Status.Initialization.Provisioned != nil && *nicoCluster.Status.Initialization.Provisioned
 }
 
 func setNicoReadyFalse(nicoCluster *infrav1.NicoCluster, reason, message string) {
@@ -312,13 +345,49 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		r.APIReader = mgr.GetAPIReader()
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoClusterCredentialsSecretRefIndex, func(object client.Object) []string {
+		nicoCluster := object.(*infrav1.NicoCluster)
+		secretKey, ok := credentialsSecretKey(nicoCluster, r.ProviderConfig.Credentials)
+		if !ok {
+			return nil
+		}
+		return []string{secretKey.String()}
+	}); err != nil {
+		return fmt.Errorf("index NicoClusters by credentials Secret: %w", err)
+	}
+
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoCluster{}).
+		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue)).
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(ctx, infrav1.GroupVersion.WithKind("NicoCluster"), mgr.GetClient(), &infrav1.NicoCluster{})),
 			builder.WithPredicates(predicates.ClusterPausedTransitions(mgr.GetScheme(), predicateLog)),
+		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				secretKey := client.ObjectKeyFromObject(object)
+				listOptions := []client.ListOption{
+					client.MatchingFields{nicoClusterCredentialsSecretRefIndex: secretKey.String()},
+				}
+				if secretKey != r.ProviderConfig.Credentials {
+					listOptions = append(listOptions, client.InNamespace(secretKey.Namespace))
+				}
+
+				var nicoClusters infrav1.NicoClusterList
+				if err := r.List(ctx, &nicoClusters, listOptions...); err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
+					return nil
+				}
+
+				requests := make([]reconcile.Request, 0, len(nicoClusters.Items))
+				for i := range nicoClusters.Items {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&nicoClusters.Items[i])})
+				}
+				return requests
+			}),
 		).
 		Complete(r)
 }

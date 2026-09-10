@@ -5,12 +5,13 @@ package nicomachine
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
 	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 const (
@@ -87,8 +88,11 @@ func getActiveDeviceIDs(capability nicosdk.MachineCapability) []int32 {
 	inactiveDevices := capability.GetInactiveDevices()
 	active := make([]int32, 0, capability.GetCount())
 	for deviceID := range capability.GetCount() {
+		if deviceID > math.MaxInt32 {
+			break
+		}
 		if !slices.Contains(inactiveDevices, deviceID) {
-			active = append(active, deviceID)
+			active = append(active, int32(deviceID))
 		}
 	}
 	return active

@@ -219,6 +219,12 @@ type NicoMachineStatus struct {
 	// Addresses contains addresses observed on the backing instance.
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
+
+	// FailureDomain is the domain NICo reports the backing instance was placed in.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	FailureDomain string `json:"failureDomain,omitempty"`
 }
 
 // +kubebuilder:object:root=true

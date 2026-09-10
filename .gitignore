@@ -1,9 +1,9 @@
 .DS_Store
 .idea/
 .worktrees/
-.tiltbuild/
 bin/
 dist/
 out/
+charts/capi-provider-nico/files/infrastructure-components.yaml
 coverage.out
 cover.out

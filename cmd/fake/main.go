@@ -18,9 +18,21 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8090", "The address the fake endpoint binds to.")
+	seed := flag.String("seed", "", "Path to a YAML file of resources to seed into the endpoint.")
 	flag.Parse()
 
 	endpoint := fake.New()
+
+	if *seed != "" {
+		contents, err := os.ReadFile(*seed)
+		if err != nil {
+			log.Fatalf("read seed file: %v", err)
+		}
+		if err := endpoint.SeedFromYAML(string(contents)); err != nil {
+			log.Fatalf("seed from %s: %v", *seed, err)
+		}
+		log.Printf("seeded resources from %s", *seed)
+	}
 
 	clientID, clientSecret := os.Getenv("FAKE_CLIENT_ID"), os.Getenv("FAKE_CLIENT_SECRET")
 	switch {

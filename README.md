@@ -51,6 +51,10 @@ same objects, and this provider satisfies them with NICo hardware.
 
 ## Documentation
 
+- [docs/getting-started.md](docs/getting-started.md) — **start here.** First
+  cluster three ways: the in-repo fake, a local NICo, and a production site.
+  What must exist on the NICo side first, the credentials Secret, what the OS
+  image has to contain, and the traps.
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit: the CRDs and
   which fields live on which, credential resolution and client caching, machine
   reconciliation and what the finalizer guards, provider ID and node matching,
@@ -165,6 +169,64 @@ make run-fake   # serves the NICo API surface on :8090
 See [docs/development.md](docs/development.md) for the complete development
 workflow and test commands.
 
+### Failure domains
+
+CapNICo implements the Cluster API failure domain contract so control-plane
+machines can be spread across correlated-failure boundaries such as rack groups.
+
+* `NicoCluster.status.failureDomains` lists the domains NICo offers for the
+  cluster's site. Cluster API copies this to `Cluster.status.failureDomains`.
+* The control-plane provider selects a domain and sets `spec.failureDomain` on
+  each `Machine`.
+* CapNICo discovers domain names from the labels on the site's Machines that
+  have an Instance Type. For a requested domain, it sends
+  `machineLabelSelector: {"failure_domain":"<domain>"}` with the instance create
+  request. NICo selects and locks a matching Machine atomically. Automatic
+  placement retains `instanceTypeId`; an explicitly configured
+  `NicoMachine.spec.machineID` retains `machineId`, and NICo validates that
+  Machine against the same selector.
+* `NicoCluster.spec.failureDomainLabelKey` selects the Machine label key. It is
+  unset by default, which disables failure domains for the cluster; NICo defines
+  no canonical key, so set it to whatever the site stamps on its Machines.
+* CapNICo reads the assigned Machine after creation and reports its label as
+  `NicoMachine.status.failureDomain`; it never copies the requested value into
+  observed status without verification. A label that changes after placement is
+  reported on the `FailureDomainDrifted` condition and does not fail an
+  already-provisioned machine.
+
+Every published domain needs Machines of every Instance Type the cluster
+provisions. A control-plane machine assigned to a domain with none retries
+placement under `FailureDomainUnavailable` and never progresses, because Cluster
+API does not reassign an existing Machine's failure domain.
+
+Failure-domain placement requires a NICo server containing
+[NVIDIA/infra-controller#5484](https://github.com/NVIDIA/infra-controller/pull/5484),
+merged to `main` on August 28, 2026. The SDK module
+`rest-api/sdk/standard` carries no semver tags, so CapNICo pins the
+pseudo-version `v0.0.0-20260901235154-eafb6b962baf`. Older servers silently
+ignore unknown JSON fields and are not compatible with this CapNICo behavior.
+The JSON field is `machineLabelSelector`; the generated Go SDK exposes
+`MachineLabelSelector` (`map[string]string`) and `SetMachineLabelSelector`.
+
+A non-empty selector requires NICo's effective `targetedInstanceCreation`
+capability for the selected site, including automatic `instanceTypeId`
+placement. Explicit `machineId` placement also requires that capability. If no
+matching Machine is available, the `NicoMachine` reports
+`FailureDomainPlacementFailed` and retries without unconstrained placement.
+Missing capability and explicit-selector mismatch are reported as non-capacity
+placement failures. There is no client-side Machine-list/create race because
+matching and allocation happen in the create operation.
+
+The same capability gates listing Machines, so an identity without it publishes
+no failure domains and the cluster provisions as it did before failure-domain
+support. Failure domains are therefore opt-in per tenant and site, with no
+feature flag.
+
+Because CapNICo reconciles and creates each Cluster API Machine independently,
+it does not use NICo's batch allocation API, even though
+`machineLabelSelector` is supported there too. CapNICo still creates one
+`NicoMachine` at a time and does not yet provide grouped NVLink co-placement.
+
 ## Install
 
 Initialize the core Cluster API controllers and the kubeadm providers:
@@ -210,7 +272,7 @@ CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
 Generate the local artifacts with the controller image you want to publish:
 
 ```bash
-CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.8 \
+CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.43 \
 make release-manifests
 ```
 
@@ -237,14 +299,28 @@ does not specify one explicitly:
 providers:
   - name: nico
     type: InfrastructureProvider
-    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.10/infrastructure-components.yaml
+    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.43/infrastructure-components.yaml
 ```
 
 Then initialize the provider:
 
 ```bash
-clusterctl init --infrastructure nico:v0.0.10
+clusterctl init --infrastructure nico:v0.0.43
 ```
+
+### Controller scope
+
+The CAPNICo manager accepts the standard Cluster API provider scope flags:
+
+* `--namespace` limits reconciliation to Cluster API objects in one namespace.
+  The empty default watches all namespaces, which is the mode used by
+  `clusterctl` installations.
+* `--watch-filter` limits reconciliation to objects labeled
+  `cluster.x-k8s.io/watch-filter=<value>`. The empty default reconciles all
+  objects.
+
+Use both flags when running multiple CAPNICo manager instances in one
+management cluster.
 
 This release does not publish workload cluster templates yet. Use
 `clusterctl generate cluster --from <template-file-or-url>` with a local
@@ -478,12 +554,20 @@ machines stuck in deletion and require manual NICo cleanup.
 ## Machine Repair
 
 CAPNICo exposes repair as an annotation-driven contract on the owning CAPI
-`Machine`. A consumer requests that a NiCo instance be flagged for repair
-before deletion by setting the configured repair annotation on the `Machine`.
-CAPNICo treats annotation presence as the repair request; the annotation value
-is used as the health-issue summary forwarded to NiCo. When the annotation is
-present, CAPNICo forwards the health issue to the NiCo delete request as
-machine health context for the repair workflow.
+`Machine`. A consumer requests that a NICo instance be flagged for repair before
+deletion by setting the configured repair annotation on the `Machine`. CAPNICo
+treats a non-empty annotation value as the repair request and forwards the
+health issue to the NICo delete request as machine health context for the repair
+workflow.
+
+The value is parsed as JSON first:
+
+```json
+{"category": "Thermal", "summary": "over temperature", "details": "optional"}
+```
+
+A value that does not parse as JSON is treated as a legacy plain-string summary
+and assigned the category `Other`.
 
 The feature can be disabled by setting the flag to an empty string.
 
@@ -499,8 +583,9 @@ The key is configurable with a manager flag:
 
 CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
 `Machine`. A consumer requests a reboot by setting the configured reboot
-annotation on the `Machine`. CAPNICo treats annotation presence as the reboot
-request; the annotation value is consumer-owned metadata and is not interpreted.
+annotation on the `Machine`. CAPNICo treats a non-empty annotation value as the
+reboot request; the value itself is consumer-owned metadata and is not
+interpreted.
 CAPNICo triggers at most one NICo instance reboot for each observed annotation
 application. After NICo accepts the reboot trigger, CAPNICo removes the
 configured reboot annotation from the `Machine`.

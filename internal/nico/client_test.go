@@ -6,10 +6,14 @@ package nico
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
 )
@@ -96,4 +100,54 @@ func newStaticTokenClient(t *testing.T, endpoint string) *Client {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 	return client
+}
+
+func TestClientFindInstanceByNameRejectsPartialNameMatches(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":"instance-10","name":"machine-10"},
+			{"id":"instance-1","name":"machine-1"}
+		]`))
+	}))
+	defer server.Close()
+
+	instance, err := newStaticTokenClient(t, server.URL).FindInstanceByName(context.Background(), InstanceLookup{Name: "machine-1"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "instance-1", instance.GetId())
+}
+
+func TestClientFindInstanceByNameSkipsTerminatedRecordsWhenExcluded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":"instance-old","name":"machine-1","status":"Terminated"},
+			{"id":"instance-live","name":"machine-1","status":"Ready"}
+		]`))
+	}))
+	defer server.Close()
+
+	client := newStaticTokenClient(t, server.URL)
+
+	adopted, err := client.FindInstanceByName(context.Background(), InstanceLookup{Name: "machine-1", ExcludeTerminated: true})
+	require.NoError(t, err)
+	assert.Equal(t, "instance-live", adopted.GetId())
+
+	// The already-exists recovery path must still see whatever holds the name.
+	any, err := client.FindInstanceByName(context.Background(), InstanceLookup{Name: "machine-1"})
+	require.NoError(t, err)
+	assert.Equal(t, "instance-old", any.GetId())
+}
+
+func TestClientFindInstanceByNameReturnsNotFoundWhenOnlyTerminatedRemains(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"instance-old","name":"machine-1","status":"Terminated"}]`))
+	}))
+	defer server.Close()
+
+	_, err := newStaticTokenClient(t, server.URL).FindInstanceByName(context.Background(), InstanceLookup{Name: "machine-1", ExcludeTerminated: true})
+
+	assert.ErrorIs(t, err, ErrNotFound)
 }

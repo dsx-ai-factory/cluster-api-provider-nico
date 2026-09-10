@@ -3,49 +3,20 @@
 #
 # git-cliff configuration — https://git-cliff.org/docs/configuration
 #
-# CHANGELOG.md is generated from the commit history rather than hand-written.
-# Hand-maintaining it did not scale: every open pull request appended to the
-# same `### Added` list, so each conflicted with the next and whichever landed
-# first forced a rebase on all the others.
-#
-# Cutting a release drops the pending [Unreleased] section and prepends the new
-# one. Both steps matter — see RELEASE.md for the exact commands.
-#
-# `--prepend` alone leaves [Unreleased] in place holding the same entries the
-# new section just claimed, so the file lists everything twice and keeps a
-# stale [Unreleased] below the releases forever.
-#
-# Regenerating the whole file instead is not idempotent: git-cliff stamps a
-# `--tag` section with the generation date and later re-derives it from the tag
-# commit date, so a second release silently rewrites the first and the
-# published GitHub release stops matching the file.
-#
-# This file is identical in NVIDIA/nke, cluster-api-provider-nico,
-# cluster-api-provider-launchlayer and cluster-api-addon-provider-syscmp.
-# Change it in all four or in none.
+# `make changelog` uses this configuration to preview changes since the latest
+# stable tag. GitHub generates the published release notes from pull request
+# metadata, so the preview is advisory and may differ from the published notes.
 
 [changelog]
 header = """
-# Changelog
+# Release notes preview
 
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-**This file is generated — do not edit it by hand.** See `cliff.toml`.
+This preview is generated from commit history by git-cliff.
 
 """
 
-# Only the commit subject is rendered, never the body. A body reaches this file
-# verbatim otherwise, and a body line beginning "## " — the first line of every
-# one of our pull request templates — becomes a heading that truncates the
-# release notes the workflows extract with awk, silently and without failing.
-#
-# The version heading carries no `v` prefix, which is the Keep a Changelog
-# convention. The release workflows read this file back with
-# `awk "/^## \\[${VERSION}\\]/"`, so the heading and the workflow must agree on
-# the prefix or the release ships an empty body.
+# Only the commit subject is rendered, never the body, so pull request template
+# headings and commit trailers do not overwhelm the preview.
 body = """
 {% if version %}\
 ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
@@ -62,9 +33,7 @@ body = """
 {% endfor %}\n
 """
 
-# No footer. It would sit inside the oldest section, so the awk extraction
-# hands it to GitHub as part of the release body — and for a first release it
-# would be the entire body.
+# No footer is needed in the local preview.
 footer = ""
 
 trim = true

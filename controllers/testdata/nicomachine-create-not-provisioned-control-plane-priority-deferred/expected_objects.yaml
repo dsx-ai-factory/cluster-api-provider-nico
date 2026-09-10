@@ -1,0 +1,196 @@
+---
+items:
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoCluster
+  metadata:
+    creationTimestamp: null
+    finalizers:
+    - infrastructure.cluster.x-k8s.io/nicocluster
+    generation: 1
+    name: nico-1
+    namespace: default
+    ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta2
+      kind: Cluster
+      name: cluster-1
+      uid: 00000000-0000-0000-0000-000000000000
+  spec:
+    identityRef:
+      name: nico-creds
+    siteID: site-1
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Available
+      status: "True"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: InfrastructureReady
+      status: "True"
+      type: NicoReady
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotPaused
+      status: "False"
+      type: Paused
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Ready
+      status: "True"
+      type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Synced
+      status: "True"
+      type: Synced
+    initialization:
+      provisioned: true
+    ready: true
+metadata: {}
+---
+items:
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoMachine
+  metadata:
+    creationTimestamp: null
+    finalizers:
+    - infrastructure.cluster.x-k8s.io/nicomachine
+    generation: 1
+    labels:
+      cluster.x-k8s.io/cluster-name: cluster-1
+    name: nicomachine-1
+    namespace: default
+    ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta2
+      kind: Machine
+      name: machine-1
+      uid: 00000000-0000-0000-0000-000000000000
+  spec:
+    instanceTypeID: type-1
+    interfaces:
+    - subnetID: subnet-1
+    vpcID: vpc-1
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: '* MachineProvisioned: Deferring instance create: 1 control-plane NicoMachine(s)
+        (e.g. default/nicomachine-control-plane) are waiting on instance type "type-1"
+        with only 0 unused usable allocation(s)'
+      observedGeneration: 1
+      reason: NotAvailable
+      status: "False"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: 'Deferring instance create: 1 control-plane NicoMachine(s) (e.g. default/nicomachine-control-plane)
+        are waiting on instance type "type-1" with only 0 unused usable allocation(s)'
+      observedGeneration: 1
+      reason: ControlPlanePriorityDeferred
+      status: "False"
+      type: MachineProvisioned
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotPaused
+      status: "False"
+      type: Paused
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: |-
+        * Available:
+          * MachineProvisioned: Deferring instance create: 1 control-plane NicoMachine(s) (e.g. default/nicomachine-control-plane) are waiting on instance type "type-1" with only 0 unused usable allocation(s)
+      observedGeneration: 1
+      reason: NotReady
+      status: "False"
+      type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: '* MachineProvisioned: Deferring instance create: 1 control-plane NicoMachine(s)
+        (e.g. default/nicomachine-control-plane) are waiting on instance type "type-1"
+        with only 0 unused usable allocation(s)'
+      observedGeneration: 1
+      reason: NotSynced
+      status: "False"
+      type: Synced
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoMachine
+  metadata:
+    creationTimestamp: null
+    finalizers:
+    - infrastructure.cluster.x-k8s.io/nicomachine
+    generation: 1
+    labels:
+      cluster.x-k8s.io/cluster-name: cluster-1
+      cluster.x-k8s.io/control-plane: ""
+    name: nicomachine-control-plane
+    namespace: default
+    ownerReferences:
+    - apiVersion: cluster.x-k8s.io/v1beta2
+      kind: Machine
+      name: machine-control-plane
+      uid: 00000000-0000-0000-0000-000000000000
+  spec:
+    instanceTypeID: type-1
+    interfaces:
+    - subnetID: subnet-1
+    vpcID: vpc-1
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: '* MachineProvisioned: Instance type "type-1" has no unused usable
+        allocations (total=0 used=0 unused=0 unusedUsable=0)'
+      observedGeneration: 1
+      reason: NotAvailable
+      status: "False"
+      type: Available
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: Instance type "type-1" has no unused usable allocations (total=0 used=0
+        unused=0 unusedUsable=0)
+      observedGeneration: 1
+      reason: InstanceTypeUnavailable
+      status: "False"
+      type: MachineProvisioned
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotPaused
+      status: "False"
+      type: Paused
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: |-
+        * Available:
+          * MachineProvisioned: Instance type "type-1" has no unused usable allocations (total=0 used=0 unused=0 unusedUsable=0)
+      observedGeneration: 1
+      reason: NotReady
+      status: "False"
+      type: Ready
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: '* MachineProvisioned: Instance type "type-1" has no unused usable
+        allocations (total=0 used=0 unused=0 unusedUsable=0)'
+      observedGeneration: 1
+      reason: NotSynced
+      status: "False"
+      type: Synced
+metadata: {}

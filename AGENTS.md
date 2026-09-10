@@ -15,7 +15,7 @@ Read when the change calls for it:
   Read this before changing `api/v1alpha1/` or `metadata.yaml`.
 * [SECURITY.md](SECURITY.md) — vulnerability reporting and the out-of-scope list
 * [MAINTAINERS.md](MAINTAINERS.md) — the maintainer roster
-* [CHANGELOG.md](CHANGELOG.md) — where user-visible changes are recorded
+* [CHANGELOG.md](CHANGELOG.md) — historical entries and generated-notes pointer
 * [config/samples/](config/samples/) — one sample manifest per CRD
 * [examples/kubeadm/](examples/kubeadm/) — the `clusterctl` cluster templates
 * [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) — the

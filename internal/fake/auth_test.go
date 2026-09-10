@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
 )
@@ -202,5 +202,5 @@ func testTenant() nicosdk.Tenant {
 }
 
 func tenantPath(org string) string {
-	return "/v2/org/" + org + "/carbide/tenant/current"
+	return "/v2/org/" + org + "/nico/tenant/current"
 }

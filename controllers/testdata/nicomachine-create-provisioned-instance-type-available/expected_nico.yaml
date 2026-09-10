@@ -19,15 +19,26 @@ instances:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
+      nke.nvidia.com/machine-id: machine-a
       nke.nvidia.com/site-id: site-1
       nke.nvidia.com/site-name: fake-site
       nke.nvidia.com/vpc-id: vpc-1
       nke.nvidia.com/vpc-name: fake-vpc
+    machineId: machine-a
     name: machine-1
     siteId: site-1
     status: Ready
     tenantId: tenant-1
     vpcId: vpc-1
+machines:
+- org: org-1
+  resource:
+    id: machine-a
+    instanceId: instance-00000001
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+    siteId: site-1
 requests:
 - create:
     description: Managed by Cluster API
@@ -37,6 +48,8 @@ requests:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
+    machineLabelSelector:
+      failure_domain: fd-a
     name: machine-1
     tenantId: tenant-1
     userData: '#cloud-config'
@@ -51,6 +64,7 @@ requests:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
+      nke.nvidia.com/machine-id: machine-a
       nke.nvidia.com/site-id: site-1
       nke.nvidia.com/site-name: fake-site
       nke.nvidia.com/vpc-id: vpc-1

@@ -1,0 +1,70 @@
+instance_types:
+- org: org-1
+  resource:
+    allocationStats:
+      total: 1
+      unused: 1
+      unusedUsable: 1
+      used: 0
+    id: type-1
+instances: []
+machines:
+- org: org-1
+  resource:
+    id: machine-1
+    instanceTypeId: type-1
+    labels:
+      failure-domain: fd-z
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-2
+    instanceTypeId: type-1
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-3
+    instanceTypeId: type-1
+    labels:
+      failure-domain: fd-a
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-4
+    instanceTypeId: type-1
+    labels:
+      failure-domain: fd-z
+    siteId: site-1
+- org: org-1
+  resource:
+    id: machine-at-another-site
+    instanceTypeId: type-1
+    labels:
+      failure-domain: ignored
+    siteId: site-2
+- org: org-1
+  resource:
+    id: machine-without-instance-type
+    labels:
+      failure-domain: ignored
+    siteId: site-1
+requests: []
+sites:
+- org: org-1
+  resource:
+    id: site-1
+    name: fake-site
+    org: org-1
+tenants:
+- org: org-1
+  resource:
+    id: tenant-1
+    org: org-1
+vpcs:
+- org: org-1
+  resource:
+    id: vpc-1
+    name: fake-vpc
+    org: org-1
+    siteId: site-1
+    tenantId: tenant-1

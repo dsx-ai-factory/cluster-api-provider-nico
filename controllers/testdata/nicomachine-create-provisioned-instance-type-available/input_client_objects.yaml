@@ -41,6 +41,7 @@ metadata:
     name: cluster-1
     uid: 00000000-0000-0000-0000-000000000000
 spec:
+  failureDomainLabelKey: failure_domain
   siteID: site-1
   identityRef:
     name: nico-creds
@@ -54,6 +55,7 @@ metadata:
     cluster.x-k8s.io/cluster-name: cluster-1
 spec:
   clusterName: cluster-1
+  failureDomain: fd-a
   bootstrap:
     dataSecretName: bootstrap-1
   infrastructureRef:

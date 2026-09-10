@@ -5,7 +5,11 @@
 *                     @NVIDIA/nke-write
 
 # GitHub config and CI
-.github/              @NVIDIA/nke-write
+.github/                                      @NVIDIA/nke-write
+
+# Ensure the tests remain high quality
+.github/controller-test-policy.json             @Jay-Madden @zmadell523
+.github/workflows/controller-test-policy.yml    @Jay-Madden @zmadell523
 
 # Public API types and webhooks — changes here affect external consumers
 api/                  @NVIDIA/nke-write

@@ -15,6 +15,18 @@ var (
 	ErrConflict      = errors.New("resource conflict")
 	ErrNotFound      = errors.New("resource not found")
 	ErrUnauthorized  = errors.New("request unauthorized")
+
+	// ErrForbidden means NICo authenticated the identity and refused the action.
+	// A 403 also satisfies ErrUnauthorized; only ErrForbidden distinguishes a
+	// denied privilege from a credential NICo would not accept at all.
+	ErrForbidden = errors.New("request forbidden")
+
+	// ErrFailureDomainUnavailable means NICo rejected placement in the requested domain.
+	ErrFailureDomainUnavailable = errors.New("requested failure domain unavailable")
+	// ErrFailureDomainMismatch means a selected or assigned machine is in a different domain.
+	ErrFailureDomainMismatch = errors.New("machine failure domain does not match requested domain")
+	// ErrFailureDomainCapabilityRequired means NICo requires targeted instance creation for placement.
+	ErrFailureDomainCapabilityRequired = errors.New("requested failure domain requires targeted instance creation capability")
 )
 
 type openAPIError interface {
@@ -44,8 +56,10 @@ func normalizeError(resp *http.Response, err error) error {
 	}
 
 	switch statusCode {
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusUnauthorized:
 		return fmt.Errorf("%w: %s", ErrUnauthorized, message)
+	case http.StatusForbidden:
+		return fmt.Errorf("%w: %w: %s", ErrUnauthorized, ErrForbidden, message)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrNotFound, message)
 	case http.StatusConflict:

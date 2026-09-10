@@ -9,7 +9,6 @@ module github.com/NVIDIA/cluster-api-provider-nico
 go 1.26.6
 
 require (
-	github.com/NVIDIA/ncx-infra-controller-rest v1.3.0
 	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.43.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
@@ -25,8 +24,11 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
+require gopkg.in/validator.v2 v2.0.1 // indirect
+
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
+	github.com/NVIDIA/infra-controller/rest-api/sdk/standard v0.0.0-20260901235154-eafb6b962baf
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
