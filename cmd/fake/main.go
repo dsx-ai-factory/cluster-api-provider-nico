@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 )
 
 func main() {

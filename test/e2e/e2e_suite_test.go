@@ -15,7 +15,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/NVIDIA/cluster-api-provider-nico/test/utils"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/test/utils"
 )
 
 var (

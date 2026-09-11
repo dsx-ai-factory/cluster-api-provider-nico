@@ -21,7 +21,7 @@ Clone this repository — every path below runs `make` and reads files from the
 checkout.
 
 ```bash
-git clone https://github.com/NVIDIA/cluster-api-provider-nico
+git clone https://github.com/dsx-ai-factory/cluster-api-provider-nico
 cd cluster-api-provider-nico
 ```
 
@@ -200,7 +200,7 @@ clusterctl init --bootstrap kubeadm --control-plane kubeadm
 
 helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system --create-namespace \
-  --set manager.image.repository=ghcr.io/nvidia/cluster-api-provider-nico/controller \
+  --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
   --set manager.image.tag=v0.0.43 --wait
 ```
 

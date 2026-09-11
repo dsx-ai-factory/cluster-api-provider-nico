@@ -31,9 +31,9 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
-	nicomachine "github.com/NVIDIA/cluster-api-provider-nico/internal/nicomachine"
+	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
+	nicomachine "github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nicomachine"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )

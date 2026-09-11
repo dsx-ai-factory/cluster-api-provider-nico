@@ -1,4 +1,4 @@
-module github.com/NVIDIA/cluster-api-provider-nico
+module github.com/dsx-ai-factory/cluster-api-provider-nico
 
 // A patch release, not 1.26.0. This floor is what CI scans with: every workflow
 // here sets go-version-file: go.mod, and actions/setup-go pins

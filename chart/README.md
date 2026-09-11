@@ -11,7 +11,7 @@ manifest.
 helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system \
   --create-namespace \
-  --set manager.image.repository=ghcr.io/nvidia/cluster-api-provider-nico/controller \
+  --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
   --set manager.image.tag=v0.0.43 \
   --wait
 ```
@@ -26,7 +26,7 @@ Releases publish the same chart with registry-specific image defaults:
 
 | Variant | Chart location | Controller image |
 |---|---|---|
-| GHCR | `oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico` | Promoted GHCR image |
+| GHCR | `oci://ghcr.io/dsx-ai-factory/cluster-api-provider-nico/charts/capi-provider-nico` | Promoted GHCR image |
 | DSX NGC | `<DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico` | DSX NVCR image |
 | NKE | `oci://nvcr.io/j7sbcjl3qgta/capi-provider-nico` | NKE NVCR image |
 
@@ -34,7 +34,7 @@ For example:
 
 ```bash
 helm upgrade --install capi-provider-nico \
-  oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico \
+  oci://ghcr.io/dsx-ai-factory/cluster-api-provider-nico/charts/capi-provider-nico \
   --version <VERSION> \
   --namespace capnico-system \
   --create-namespace \

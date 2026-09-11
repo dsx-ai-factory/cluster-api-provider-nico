@@ -11,7 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 )
 
 func TestLoadSecretConfigStaticToken(t *testing.T) {

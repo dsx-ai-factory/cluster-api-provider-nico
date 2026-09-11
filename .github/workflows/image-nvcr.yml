@@ -43,7 +43,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Build ${{ matrix.dest.name }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     environment: nvcr
@@ -143,9 +143,9 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
   manifest:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Manifest ${{ matrix.dest.name }}
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [build]
     environment: nvcr
     timeout-minutes: 10

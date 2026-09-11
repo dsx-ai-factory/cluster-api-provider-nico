@@ -36,7 +36,7 @@ jobs:
       contents: read
     name: e2e
     runs-on: linux-amd64-cpu16
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     env:
       IMG: controller:latest
     steps:

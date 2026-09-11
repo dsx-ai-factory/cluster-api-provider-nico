@@ -1,4 +1,4 @@
-module github.com/NVIDIA/cluster-api-provider-nico/hack/kubebuilder/plugins/capnico-layout/v1
+module github.com/dsx-ai-factory/cluster-api-provider-nico/hack/kubebuilder/plugins/capnico-layout/v1
 
 // Independent of the root go.mod's exact-patch pin (see its comment there):
 // this module is a local scaffolding tool with no Dockerfile and no

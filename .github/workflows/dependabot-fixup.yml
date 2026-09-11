@@ -73,7 +73,7 @@ jobs:
   fixup:
     name: Regenerate THIRD_PARTY_NOTICES.md
     if: >
-      github.repository == 'NVIDIA/cluster-api-provider-nico' &&
+      github.repository == 'dsx-ai-factory/cluster-api-provider-nico' &&
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.event.pull_request.head.ref, 'dependabot/go_modules/')
@@ -267,7 +267,7 @@ jobs:
   # fixup on it. No file content touched here.
   refresh:
     name: Refresh open Dependabot branches
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico' && github.event_name == 'push'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

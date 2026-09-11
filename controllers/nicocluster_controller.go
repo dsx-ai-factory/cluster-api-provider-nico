@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
+	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 )
 
 const (
