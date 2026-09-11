@@ -6,7 +6,7 @@ This file lists the active maintainers of `cluster-api-provider-nico`.
 
 | Name | GitHub | Affiliation | Areas |
 |------|--------|-------------|-------|
-| Zack Madell | [@zmadell](https://github.com/zmadell) | NVIDIA | All |
+| Zach Madell | [@zmadell523](https://github.com/zmadell523) | NVIDIA | All |
 
 ## Responsibilities
 
