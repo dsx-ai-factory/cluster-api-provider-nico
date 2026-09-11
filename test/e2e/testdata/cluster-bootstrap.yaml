@@ -6,18 +6,23 @@
 # prove CAPNico's controllers work with the kubeadm bootstrap and control-plane
 # providers end to end -- not just that CAPNico calls the NICo API correctly.
 #
-# Two differences from examples/kubeadm/cluster-kube-vip.yaml, both because
-# this runs against fake containers rather than real NICo hardware:
+# Two differences from examples/kubeadm/cluster.yaml, both because this runs
+# against fake containers rather than real NICo hardware:
 #
-#  1. kube-vip runs in ARP mode, not BGP. BGP needs a real peer router; ARP
-#     mode just announces the floating IP on the local network segment, which
-#     a plain Docker bridge network (`kind`) supports.
+#  1. No kube-vip. Real deployments need it (or an external LB) because
+#     Cluster.spec.controlPlaneEndpoint must exist before any control-plane
+#     machine does, and kube-vip lets that address float between multiple
+#     control-plane replicas on failover. This cluster has exactly one
+#     control-plane replica, so there's no floating-IP scenario to test: the
+#     docker backend (internal/fake/docker/backend.go) just gives that one
+#     container a fixed address up front and controlPlaneEndpoint points
+#     directly at it.
 #
 #  2. The provider ID comes from a NICO_INSTANCE_ID environment variable the
-#     docker backend sets on the container (internal/fake/docker/backend.go),
-#     not from curling the metadata service at 169.254.169.254:7777. On real
-#     NICo hardware that service is served by the DPU agent (see
-#     docs/getting-started.md); fake containers have nothing to serve it.
+#     docker backend sets on the container, not from curling the metadata
+#     service at 169.254.169.254:7777. On real NICo hardware that service is
+#     served by the DPU agent (see docs/getting-started.md); fake containers
+#     have nothing to serve it.
 ---
 apiVersion: v1
 kind: Namespace
@@ -57,6 +62,11 @@ spec:
       instanceTypeID: type-1
       interfaces:
       - vpcPrefixID: prefix-1
+      # Not a real NICo/CAPI convention -- read by the docker backend
+      # (internal/fake/docker/backend.go) to give only this instance the
+      # fixed IP Cluster.spec.controlPlaneEndpoint points at below.
+      labels:
+        capnico-fake/control-plane: "true"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoMachineTemplate
@@ -76,8 +86,13 @@ kind: Cluster
 metadata:
   name: capnico-e2e
   namespace: capnico-e2e
+  labels:
+    cni: kindnet
 spec:
   controlPlaneEndpoint:
+    # The docker backend gives the control-plane container this exact
+    # address (see the NicoMachineTemplate above and backend.go); no VIP, no
+    # DNS involved.
     host: 172.18.255.250
     port: 6443
   clusterNetwork:
@@ -117,80 +132,23 @@ spec:
         certSANs:
           - 172.18.255.250
     initConfiguration:
+      # kubeadm's SystemVerification preflight check tries to `modprobe
+      # configs` to read /proc/config.gz. That kernel module is a property of
+      # the host kernel, not something a container can load regardless of
+      # privilege -- the same class of check kind itself works around inside
+      # its own node containers.
+      nodeRegistration:
+        ignorePreflightErrors:
+          - SystemVerification
       patches:
         directory: /etc/kubernetes/patches
     joinConfiguration:
+      nodeRegistration:
+        ignorePreflightErrors:
+          - SystemVerification
       patches:
         directory: /etc/kubernetes/patches
-    files:
-      - path: /usr/local/bin/configure-kube-vip.sh
-        owner: root:root
-        permissions: "0755"
-        content: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p /etc/kubernetes/manifests
-          cat > /etc/kubernetes/manifests/kube-vip.yaml <<EOF
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: kube-vip
-            namespace: kube-system
-            annotations:
-              scheduler.alpha.kubernetes.io/critical-pod: ""
-            labels:
-              component: kube-vip
-              tier: control-plane
-          spec:
-            containers:
-              - name: kube-vip
-                image: ghcr.io/kube-vip/kube-vip:v0.8.9
-                imagePullPolicy: IfNotPresent
-                args:
-                  - manager
-                env:
-                  - name: address
-                    value: "172.18.255.250"
-                  - name: cp_enable
-                    value: "true"
-                  - name: cp_namespace
-                    value: kube-system
-                  - name: vip_arp
-                    value: "true"
-                  - name: vip_interface
-                    value: eth0
-                  - name: vip_cidr
-                    value: "32"
-                  - name: port
-                    value: "6443"
-                  - name: svc_enable
-                    value: "false"
-                  - name: dns_mode
-                    value: first
-                  - name: vip_nodename
-                    valueFrom:
-                      fieldRef:
-                        fieldPath: spec.nodeName
-                securityContext:
-                  capabilities:
-                    add:
-                      - NET_ADMIN
-                      - NET_RAW
-                volumeMounts:
-                  - mountPath: /etc/kubernetes/admin.conf
-                    name: kubeconfig
-            hostAliases:
-              - hostnames:
-                  - kubernetes
-                ip: 127.0.0.1
-            hostNetwork: true
-            volumes:
-              - hostPath:
-                  path: /etc/kubernetes/admin.conf
-                name: kubeconfig
-          EOF
     preKubeadmCommands:
-      - /usr/local/bin/configure-kube-vip.sh
       - |
         mkdir -p /etc/kubernetes/patches
         printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$NICO_INSTANCE_ID" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
@@ -204,6 +162,9 @@ spec:
   template:
     spec:
       joinConfiguration:
+        nodeRegistration:
+          ignorePreflightErrors:
+            - SystemVerification
         patches:
           directory: /etc/kubernetes/patches
       preKubeadmCommands:
@@ -234,3 +195,21 @@ spec:
         apiGroup: infrastructure.cluster.x-k8s.io
         kind: NicoMachineTemplate
         name: capnico-e2e-workers
+---
+# Installs kindnet once the cluster matches this selector. The referenced
+# ConfigMap (cni-kindnet) isn't in this file -- bootstrap_test.go creates it
+# directly from the vendored test/e2e/testdata/kindnet.yaml, so that file
+# stays the single copy instead of being duplicated into this manifest too.
+apiVersion: addons.cluster.x-k8s.io/v1beta2
+kind: ClusterResourceSet
+metadata:
+  name: capnico-e2e-kindnet
+  namespace: capnico-e2e
+spec:
+  clusterSelector:
+    matchLabels:
+      cni: kindnet
+  resources:
+    - name: cni-kindnet
+      kind: ConfigMap
+  strategy: ApplyOnce

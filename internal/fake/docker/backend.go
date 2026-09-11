@@ -11,11 +11,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net/netip"
 	"path/filepath"
 	"strings"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	"sigs.k8s.io/yaml"
 )
@@ -23,6 +26,17 @@ import (
 const (
 	defaultImage   = "kindest/node:v1.31.0"
 	defaultNetwork = "kind"
+
+	// controlPlaneLabel marks the create request for the single control-plane
+	// instance, set via NicoMachineTemplate.spec.template.spec.labels in the
+	// test manifest -- not a real CAPI or NICo convention.
+	controlPlaneLabel = "capnico-fake/control-plane"
+
+	// controlPlaneIP is a fixed address on the kind network. With only one
+	// control-plane replica there's no floating-IP/failover scenario to
+	// test, so the control-plane container gets this address directly
+	// instead of standing up kube-vip for it.
+	controlPlaneIP = "172.18.255.250"
 )
 
 // Backend runs instances as containers on a Docker network shared with a kind
@@ -63,18 +77,26 @@ func (b *Backend) network() string {
 	return defaultNetwork
 }
 
-func (b *Backend) Create(ctx context.Context, instanceID, userData string) error {
+func (b *Backend) Create(ctx context.Context, instanceID, userData string, labels map[string]string) error {
 	name := containerName(instanceID)
 
-	created, err := b.Client.ContainerCreate(ctx, client.ContainerCreateOptions{
+	options := client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{
 			Hostname: name,
 			Image:    b.image(),
-			// Real NICo instances learn their own ID from a metadata service
-			// preKubeadmCommands curl; this container has no such service, so
-			// the ID is injected directly for the same providerID patch.
-			Env: []string{"NICO_INSTANCE_ID=" + instanceID},
+			Env: []string{
+				// Real NICo instances learn their own ID from a metadata
+				// service preKubeadmCommands curl; this container has no such
+				// service, so the ID is injected directly for the same
+				// providerID patch.
+				"NICO_INSTANCE_ID=" + instanceID,
+				// containerd's default overlayfs snapshotter fails to mount
+				// when it's already running on top of another overlayfs (the
+				// host's own storage driver, e.g. Docker Desktop). kindest/node
+				// ships fuse-overlayfs for exactly this nested case.
+				"KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs",
+			},
 		},
 		HostConfig: &container.HostConfig{
 			Privileged:  true,
@@ -83,7 +105,21 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string) error
 			NetworkMode: container.NetworkMode(b.network()),
 			Binds:       []string{"/lib/modules:/lib/modules:ro"},
 		},
-	})
+	}
+
+	if labels[controlPlaneLabel] == "true" {
+		options.NetworkingConfig = &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				b.network(): {
+					IPAMConfig: &network.EndpointIPAMConfig{
+						IPv4Address: netip.MustParseAddr(controlPlaneIP),
+					},
+				},
+			},
+		}
+	}
+
+	created, err := b.Client.ContainerCreate(ctx, options)
 	if err != nil {
 		return fmt.Errorf("create node container: %w", err)
 	}
@@ -91,10 +127,18 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string) error
 		return fmt.Errorf("start node container: %w", err)
 	}
 
-	if err := b.applyCloudConfig(ctx, created.ID, userData); err != nil {
-		_, _ = b.Client.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true})
-		return err
-	}
+	// Real hardware's create-instance call returns once the machine is
+	// powered on; cloud-init (including any kubeadm command in it) runs
+	// afterward, on its own timeline, and can fail without un-creating the
+	// instance. Applying it synchronously here would make Create() block on -
+	// and fail on - kubeadm succeeding, defeating Ready() reporting readiness
+	// independent of bootstrap state.
+	go func() {
+		if err := b.applyCloudConfig(context.WithoutCancel(ctx), created.ID, userData); err != nil {
+			log.Printf("fake/docker: apply cloud-config for %s: %v", name, err)
+		}
+	}()
+
 	return nil
 }
 
