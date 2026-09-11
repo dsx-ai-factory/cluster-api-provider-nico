@@ -4,12 +4,12 @@
 
 | Channel | When to use |
 |---|---|
-| [GitHub Issues](https://github.com/NVIDIA/cluster-api-provider-nico/issues) | Bug reports, feature requests, and documentation gaps |
-| [GitHub Discussions](https://github.com/NVIDIA/cluster-api-provider-nico/discussions/categories/q-a) | Questions, design proposals, and general Q&A |
+| [GitHub Issues](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues) | Bug reports, feature requests, and documentation gaps |
+| [GitHub Discussions](https://github.com/dsx-ai-factory/cluster-api-provider-nico/discussions/categories/q-a) | Questions, design proposals, and general Q&A |
 
 ## Before opening an issue
 
-1. Search [existing issues](https://github.com/NVIDIA/cluster-api-provider-nico/issues) to avoid duplicates.
+1. Search [existing issues](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues) to avoid duplicates.
 2. Read the [documentation](docs/) and the [README](README.md).
 3. Reproduce the problem on the latest commit of `main`.
 

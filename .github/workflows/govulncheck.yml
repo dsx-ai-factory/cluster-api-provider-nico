@@ -63,7 +63,7 @@ jobs:
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     timeout-minutes: 20
     permissions:
       contents: read

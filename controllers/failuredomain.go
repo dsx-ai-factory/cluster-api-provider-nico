@@ -17,8 +17,8 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 
-	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
+	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )

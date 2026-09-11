@@ -1,9 +1,9 @@
 # cluster-api-provider-nico
 
-[![Test](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/test.yml/badge.svg)](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/test.yml)
-[![Lint](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/lint.yml/badge.svg)](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/lint.yml)
-[![License](https://img.shields.io/github/license/NVIDIA/cluster-api-provider-nico)](LICENSE)
-[![Latest Release](https://img.shields.io/github/v/release/NVIDIA/cluster-api-provider-nico?include_prereleases)](https://github.com/NVIDIA/cluster-api-provider-nico/releases)
+[![Test](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/test.yml/badge.svg)](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/test.yml)
+[![Lint](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/lint.yml/badge.svg)](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/lint.yml)
+[![License](https://img.shields.io/github/license/dsx-ai-factory/cluster-api-provider-nico)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/dsx-ai-factory/cluster-api-provider-nico?include_prereleases)](https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases)
 
 Kubernetes Cluster API (CAPI) infrastructure provider to provision bare metal nodes in [NVIDIA Infra Controller (NICo)](https://github.com/NVIDIA/infra-controller).
 
@@ -69,10 +69,10 @@ same objects, and this provider satisfies them with NICo hardware.
 ## Community and support
 
 - **Questions and discussion** — ask in
-  [GitHub Discussions](https://github.com/NVIDIA/cluster-api-provider-nico/discussions/categories/q-a),
+  [GitHub Discussions](https://github.com/dsx-ai-factory/cluster-api-provider-nico/discussions/categories/q-a),
   where an answer can be marked as the accepted one.
 - **Bug reports and feature requests** — open a
-  [GitHub issue](https://github.com/NVIDIA/cluster-api-provider-nico/issues).
+  [GitHub issue](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues).
 - **Code of Conduct** — everyone taking part is expected to follow the
   [Code of Conduct](CODE_OF_CONDUCT.md).
 - **Security** — report vulnerabilities as described in [SECURITY.md](SECURITY.md).
@@ -272,7 +272,7 @@ CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
 Generate the local artifacts with the controller image you want to publish:
 
 ```bash
-CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.43 \
+CONTROLLER_IMG=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller:v0.0.43 \
 make release-manifests
 ```
 
@@ -299,7 +299,7 @@ does not specify one explicitly:
 providers:
   - name: nico
     type: InfrastructureProvider
-    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.43/infrastructure-components.yaml
+    url: https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases/download/v0.0.43/infrastructure-components.yaml
 ```
 
 Then initialize the provider:

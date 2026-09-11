@@ -12,7 +12,7 @@ keywords:
   - nico
 
 sources:
-  - https://github.com/NVIDIA/cluster-api-provider-nico
+  - https://github.com/dsx-ai-factory/cluster-api-provider-nico
 
 annotations:
   kubebuilder.io/generated-by: kubebuilder

@@ -5,7 +5,7 @@ blank_issues_enabled: true
 
 contact_links:
   - name: Ask a question
-    url: https://github.com/NVIDIA/cluster-api-provider-nico/discussions/categories/q-a
+    url: https://github.com/dsx-ai-factory/cluster-api-provider-nico/discussions/categories/q-a
     about: For usage questions and anything that is not a bug or a feature request.
   - name: Security vulnerability report
     url: https://www.nvidia.com/en-us/security/

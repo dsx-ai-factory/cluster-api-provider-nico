@@ -40,7 +40,7 @@ jobs:
   # Both NVCR orgs are on nvcr.io but take different NGC keys, and a Docker
   # config holds one credential per host, so they cannot share a job.
   promote-nvcr:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Tag NVCR (${{ matrix.dest.name }})
     runs-on: linux-amd64-cpu4
     environment: nvcr
@@ -101,7 +101,7 @@ jobs:
   # Cross-host, so this is the one promotion that can hold both credentials at
   # once: NKE to read, GHCR to write.
   promote-ghcr:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Promote to GHCR
     runs-on: linux-amd64-cpu4
     needs: [promote-nvcr]
@@ -280,7 +280,7 @@ jobs:
   # can reach. The native chart is identical apart from image defaults and the
   # NKE package's pull secret.
   chart-ngc:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (NGC)
     runs-on: linux-amd64-cpu8
     needs: [promote-nvcr]
@@ -374,7 +374,7 @@ jobs:
           fi
 
   chart-nke:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (NKE)
     runs-on: linux-amd64-cpu8
     needs: [promote-nvcr]
@@ -465,7 +465,7 @@ jobs:
   # NVIDIA. This job needs neither the nvcr environment nor promote-nvcr; it
   # takes the already-promoted GHCR image from promote-ghcr.
   chart-ghcr:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (GHCR)
     runs-on: linux-amd64-cpu8
     needs: [promote-ghcr]

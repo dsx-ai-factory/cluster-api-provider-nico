@@ -13,7 +13,7 @@ import (
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 )
 
 func TestStaticTokenAuthentication(t *testing.T) {

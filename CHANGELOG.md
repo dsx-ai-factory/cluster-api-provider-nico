@@ -2,7 +2,7 @@
 
 Starting with the release following v0.0.44, release notes are generated from
 merged pull requests and published with
-[GitHub Releases](https://github.com/NVIDIA/cluster-api-provider-nico/releases).
+[GitHub Releases](https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases).
 The existing entries below are retained as the historical changelog.
 
 ## [0.0.44] - 2026-09-08

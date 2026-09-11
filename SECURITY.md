@@ -93,7 +93,7 @@ advisory is published.
 ## Supported versions
 
 Releases are tagged from `main`; see
-[Releases](https://github.com/NVIDIA/cluster-api-provider-nico/releases) for
+[Releases](https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases) for
 the current list. Per [RELEASE.md](RELEASE.md)'s backport policy, only
 critical-severity fixes are backported to an older release — everything else
 targets `main` and ships in the next release.

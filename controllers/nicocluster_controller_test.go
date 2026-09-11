@@ -16,9 +16,9 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/test/fixtures"
+	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/fixtures"
 )
 
 const testCluster = "nico-1"
