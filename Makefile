@@ -424,7 +424,19 @@ $(KUBEBUILDER): $(LOCALBIN)
 .PHONY: crane
 crane: $(CRANE) ## Download crane locally if necessary.
 $(CRANE): $(LOCALBIN)
-	$(call go-install-tool,$(CRANE),github.com/google/go-containerregistry/cmd/crane,$(CRANE_VERSION))
+	@set -eu; \
+	arch="$$(uname -m)"; \
+	case "$$arch" in aarch64) arch=arm64 ;; esac; \
+	archive="go-containerregistry_$$(uname -s)_$${arch}.tar.gz"; \
+	base="https://github.com/google/go-containerregistry/releases/download/$(CRANE_VERSION)"; \
+	tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	curl -fsSL -o "$$tmp/$$archive" "$$base/$$archive"; \
+	curl -fsSL -o "$$tmp/checksums.txt" "$$base/checksums.txt"; \
+	(cd "$$tmp" && grep " $$archive\$$" checksums.txt | sha256sum -c); \
+	tar -xzf "$$tmp/$$archive" -C "$$tmp" crane; \
+	chmod +x "$$tmp/crane"; \
+	mv "$$tmp/crane" "$(CRANE)"
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
