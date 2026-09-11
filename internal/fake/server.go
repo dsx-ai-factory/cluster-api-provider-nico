@@ -58,7 +58,7 @@ type instanceRecord struct {
 // Backend provisions real compute for a created instance. Nil is valid and
 // preserves the default poll-counted state machine in advanceInstance.
 type Backend interface {
-	Create(ctx context.Context, instanceID, userData string) error
+	Create(ctx context.Context, instanceID, userData string, labels map[string]string) error
 	Ready(ctx context.Context, instanceID string) (bool, error)
 	Delete(ctx context.Context, instanceID string) error
 }
@@ -604,7 +604,7 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if s.backend != nil {
-		if err := s.backend.Create(r.Context(), id, request.GetUserData()); err != nil {
+		if err := s.backend.Create(r.Context(), id, request.GetUserData(), request.GetLabels()); err != nil {
 			log.Printf("fake: backend create %s: %v", id, err)
 		}
 	}
