@@ -7,12 +7,16 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
+	"io"
 	"path/filepath"
 	"strings"
 
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -24,6 +28,8 @@ const (
 // Backend runs instances as containers on a Docker network shared with a kind
 // management cluster's nodes.
 type Backend struct {
+	Client *client.Client
+
 	// Image is the node image to run. Defaults to defaultImage.
 	Image string
 	// Network is the Docker network the container joins. Defaults to
@@ -59,25 +65,30 @@ func (b *Backend) network() string {
 
 func (b *Backend) Create(ctx context.Context, instanceID, userData string) error {
 	name := containerName(instanceID)
-	args := []string{
-		"run", "-d",
-		"--name", name,
-		"--hostname", name,
-		"--privileged",
-		"--security-opt", "seccomp=unconfined",
-		"--security-opt", "apparmor=unconfined",
-		"--tmpfs", "/tmp",
-		"--tmpfs", "/run",
-		"--network", b.network(),
-		"--volume", "/lib/modules:/lib/modules:ro",
-		b.image(),
-	}
-	if _, err := runDocker(ctx, args...); err != nil {
+
+	created, err := b.Client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: name,
+		Config: &container.Config{
+			Hostname: name,
+			Image:    b.image(),
+		},
+		HostConfig: &container.HostConfig{
+			Privileged:  true,
+			SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
+			Tmpfs:       map[string]string{"/tmp": "", "/run": ""},
+			NetworkMode: container.NetworkMode(b.network()),
+			Binds:       []string{"/lib/modules:/lib/modules:ro"},
+		},
+	})
+	if err != nil {
 		return fmt.Errorf("create node container: %w", err)
 	}
+	if _, err := b.Client.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("start node container: %w", err)
+	}
 
-	if err := applyCloudConfig(ctx, name, userData); err != nil {
-		_, _ = runDocker(context.WithoutCancel(ctx), "rm", "--force", name)
+	if err := b.applyCloudConfig(ctx, created.ID, userData); err != nil {
+		_, _ = b.Client.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true})
 		return err
 	}
 	return nil
@@ -87,18 +98,18 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string) error
 // READY once the machine exists, independent of whether kubeadm has joined it
 // to a cluster yet. KubeadmControlPlane observes bootstrap success separately.
 func (b *Backend) Ready(ctx context.Context, instanceID string) (bool, error) {
-	name := containerName(instanceID)
-	running, err := runDocker(ctx, "inspect", "-f", "{{.State.Running}}", name)
+	result, err := b.Client.ContainerInspect(ctx, containerName(instanceID), client.ContainerInspectOptions{})
 	if err != nil {
 		return false, nil
 	}
-	return running == "true", nil
+	return result.Container.State != nil && result.Container.State.Running, nil
 }
 
 func (b *Backend) Delete(ctx context.Context, instanceID string) error {
 	name := containerName(instanceID)
-	_, _ = runDocker(ctx, "stop", "--time", "10", name)
-	if _, err := runDocker(ctx, "rm", "--force", name); err != nil {
+	timeout := 10
+	_, _ = b.Client.ContainerStop(ctx, name, client.ContainerStopOptions{Timeout: &timeout})
+	if _, err := b.Client.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true}); err != nil {
 		return fmt.Errorf("remove node container: %w", err)
 	}
 	return nil
@@ -110,7 +121,7 @@ func containerName(instanceID string) string {
 
 // applyCloudConfig supports the write_files/runcmd subset of cloud-config,
 // same as CWE's nico-mock.
-func applyCloudConfig(ctx context.Context, containerName, userData string) error {
+func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData string) error {
 	userData = strings.TrimSpace(userData)
 	if userData == "" {
 		return nil
@@ -127,19 +138,19 @@ func applyCloudConfig(ctx context.Context, containerName, userData string) error
 		if strings.TrimSpace(file.Path) == "" {
 			continue
 		}
-		if err := execIn(ctx, containerName, "mkdir", "-p", filepath.Dir(file.Path)); err != nil {
+		if err := b.execIn(ctx, containerID, nil, "mkdir", "-p", filepath.Dir(file.Path)); err != nil {
 			return fmt.Errorf("create directory for %s: %w", file.Path, err)
 		}
-		if err := writeFile(ctx, containerName, file.Path, file.Content); err != nil {
+		if err := b.execIn(ctx, containerID, strings.NewReader(file.Content), "sh", "-c", "cat > "+singleQuote(file.Path)); err != nil {
 			return fmt.Errorf("write %s: %w", file.Path, err)
 		}
 		if perms := strings.TrimSpace(file.Permissions); perms != "" {
-			if err := execIn(ctx, containerName, "chmod", perms, file.Path); err != nil {
+			if err := b.execIn(ctx, containerID, nil, "chmod", perms, file.Path); err != nil {
 				return fmt.Errorf("chmod %s: %w", file.Path, err)
 			}
 		}
 		if owner := strings.TrimSpace(file.Owner); owner != "" {
-			if err := execIn(ctx, containerName, "chown", owner, file.Path); err != nil {
+			if err := b.execIn(ctx, containerID, nil, "chown", owner, file.Path); err != nil {
 				return fmt.Errorf("chown %s: %w", file.Path, err)
 			}
 		}
@@ -149,48 +160,55 @@ func applyCloudConfig(ctx context.Context, containerName, userData string) error
 		if strings.TrimSpace(command) == "" {
 			continue
 		}
-		if err := execIn(ctx, containerName, "sh", "-lc", command); err != nil {
+		if err := b.execIn(ctx, containerID, nil, "sh", "-lc", command); err != nil {
 			return fmt.Errorf("run cloud-config command %q: %w", command, err)
 		}
 	}
 	return nil
 }
 
-// writeFile uses `docker exec` + stdin rather than `docker cp`, which cannot
-// write into the tmpfs mounts (/run, /tmp) CABPK writes files under.
-func writeFile(ctx context.Context, containerName, targetPath, content string) error {
-	cmd := exec.CommandContext(ctx, "docker", "exec", "-i", containerName, "sh", "-c", "cat > "+singleQuote(targetPath))
-	cmd.Stdin = strings.NewReader(content)
-	output, err := cmd.CombinedOutput()
+// execIn runs a command in containerID, optionally feeding it stdin. It fails
+// on a nonzero exit code, same as shelling out to `docker exec` would.
+func (b *Backend) execIn(ctx context.Context, containerID string, stdin io.Reader, cmd ...string) error {
+	created, err := b.Client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
+		Cmd:          cmd,
+		AttachStdin:  stdin != nil,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
 	if err != nil {
-		trimmed := strings.TrimSpace(string(output))
-		if trimmed == "" {
-			trimmed = err.Error()
-		}
-		return fmt.Errorf("write file into container: %s", trimmed)
+		return fmt.Errorf("create exec: %w", err)
+	}
+
+	attached, err := b.Client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
+	if err != nil {
+		return fmt.Errorf("attach exec: %w", err)
+	}
+	defer attached.Close()
+
+	if stdin != nil {
+		go func() {
+			_, _ = io.Copy(attached.Conn, stdin)
+			_ = attached.CloseWrite()
+		}()
+	}
+
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
+		return fmt.Errorf("read exec output: %w", err)
+	}
+
+	inspected, err := b.Client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("inspect exec: %w", err)
+	}
+	if inspected.ExitCode != 0 {
+		output := strings.TrimSpace(stdout.String() + stderr.String())
+		return fmt.Errorf("exec %q exited %d: %s", cmd, inspected.ExitCode, output)
 	}
 	return nil
 }
 
 func singleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func execIn(ctx context.Context, containerName string, args ...string) error {
-	full := append([]string{"exec", containerName}, args...)
-	_, err := runDocker(ctx, full...)
-	return err
-}
-
-func runDocker(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	output, err := cmd.CombinedOutput()
-	trimmed := strings.TrimSpace(string(output))
-	if err != nil {
-		if trimmed == "" {
-			trimmed = err.Error()
-		}
-		return "", fmt.Errorf("docker %s: %s", strings.Join(args, " "), trimmed)
-	}
-	return trimmed, nil
 }
