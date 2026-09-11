@@ -92,17 +92,18 @@ advisory is published.
 
 ## Supported versions
 
-cluster-api-provider-nico has not yet published a release. Until it does,
-`main` is the only branch that receives security fixes.
+Releases are tagged from `main`; see
+[Releases](https://github.com/NVIDIA/cluster-api-provider-nico/releases) for
+the current list. Per [RELEASE.md](RELEASE.md)'s backport policy, only
+critical-severity fixes are backported to an older release — everything else
+targets `main` and ships in the next release.
 
 | Version | Supported |
 |---|---|
+| Latest release | ✅ Receives security fixes |
 | `main` | ✅ Receives security fixes |
-| Pre-release commits and forks | ❌ Not supported |
-
-Once releases begin, this table will name the release lines that receive
-backports, and the policy will be to support the latest minor release only
-until the project reaches 1.0.
+| Older releases | ⚠️ Critical-severity backports only |
+| Release candidates and forks | ❌ Not supported |
 
 ## Reporter credit
 
@@ -115,17 +116,15 @@ issues resolved under our coordinated vulnerability disclosure policy.
 
 ## Artifact integrity
 
-**This project has published no releases, so there is no signed artifact to
-verify today. Treat any binary or image claiming to come from this project as
-unverified.**
+Every release artifact ships with a SHA-256 checksum file (`checksums.txt`,
+attached to the GitHub Release) to verify a download against.
 
-When releases begin, every release artifact will be published with a SHA-256
-checksum file, and container images will be signed with
-[cosign](https://docs.sigstore.dev/) keyless signing, with verification
-instructions published alongside the first signed release. Third-party
-dependency licenses are recorded in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), regenerated and verified in
-CI on every push.
+**Container images are not yet signed.** Cosign keyless signing is planned
+but not implemented. Until it is, verify an image by digest instead of by
+tag: compare `bin/crane digest` for the published tag against the digest
+recorded in the release body. Third-party dependency licenses are recorded
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), regenerated and
+verified in CI on every push.
 
 ## Out of scope
 
