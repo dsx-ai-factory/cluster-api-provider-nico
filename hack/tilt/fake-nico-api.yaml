@@ -29,6 +29,7 @@ spec:
       containers:
       - name: api
         image: fake-nico-api-server
+        imagePullPolicy: IfNotPresent
         args:
         - --addr=:8090
         - --seed=/etc/fake-nico/seed.yaml
