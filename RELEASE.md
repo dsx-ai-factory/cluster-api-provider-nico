@@ -72,8 +72,12 @@ the central promoter to act on, which has no equivalent here.
    for the version. The preview is advisory and `CHANGELOG.md` is not updated.
    `git-cliff` must be installed and available on `PATH` to run the preview.
 
-2. **Update `metadata.yaml`** if the major or minor version is new, or if the
-   Cluster API contract version supported by this release differs from the previous one.
+2. **Check for a breaking change, then update `metadata.yaml` if needed.**
+   Diff `api/v1alpha1/` and `config/crd/bases/` against the previous stable
+   tag. A field removed, renamed, or changed in meaning is breaking under
+   **Versioning** above and needs a MAJOR bump. Update `metadata.yaml` if the
+   major or minor version is new, or if the Cluster API contract version
+   supported by this release differs from the previous one.
 
 3. **Ensure the intended release commit is on `main`** and its required checks
    have passed. If step 2 required a change, commit it and merge it through a
