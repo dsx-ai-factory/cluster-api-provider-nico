@@ -483,7 +483,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: linux-amd64-cpu4
-    needs: [promote-ghcr, chart-ghcr]
+    needs: [promote-ghcr, chart-ghcr, sbom]
     timeout-minutes: 15
     permissions:
       contents: write
@@ -512,6 +512,17 @@ jobs:
           KUSTOMIZE="$(pwd)/bin/kustomize" \
           CONTROLLER_IMG="${IMAGE}:${GITHUB_REF_NAME}" \
             make release-manifests
+
+      # The sbom job stays independent and keeps upload-release-assets: false --
+      # it runs alongside this job, not after it, so sbom-action could not find
+      # a release to attach to yet. Pulling the artifacts here instead lets them
+      # ride the same attach-before-publish path as the other release files.
+      - name: Download SBOMs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: cluster-api-provider-nico-sbom-linux-*
+          path: out
+          merge-multiple: true
 
       # Scans what is about to be attached, before the release exists. Scanning
       # after the upload would mean withdrawing a release rather than never
@@ -589,7 +600,7 @@ jobs:
       - name: Checksum the release assets
         run: |
           set -euo pipefail
-          ( cd out && sha256sum -- *.yaml > checksums.txt )
+          ( cd out && sha256sum -- *.yaml *.spdx.json > checksums.txt )
           echo "checksums.txt:"
           sed 's/^/    /' out/checksums.txt
 
@@ -608,6 +619,8 @@ jobs:
             out/metadata.yaml
             out/infrastructure-components.yaml
             out/checksums.txt
+            out/cluster-api-provider-nico-sbom-linux-amd64.spdx.json
+            out/cluster-api-provider-nico-sbom-linux-arm64.spdx.json
 
       # The assets are checked before the release is published, because
       # publishing it is what seals it.
@@ -626,7 +639,7 @@ jobs:
           retries: 3
           script: |
             const release_id = Number(process.env.RELEASE_ID);
-            const expected = ['infrastructure-components.yaml', 'metadata.yaml', 'checksums.txt'].sort();
+            const expected = ['infrastructure-components.yaml', 'metadata.yaml', 'checksums.txt', 'cluster-api-provider-nico-sbom-linux-amd64.spdx.json', 'cluster-api-provider-nico-sbom-linux-arm64.spdx.json'].sort();
 
             // The asset list can lag behind an upload that has already
             // succeeded, so a short list is read again before it is treated as
