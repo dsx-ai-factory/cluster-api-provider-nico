@@ -1,0 +1,215 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# A real KubeadmControlPlane + MachineDeployment/KubeadmConfigTemplate cluster,
+# backed by the docker-backed fake NICo API (see fake-nico-api-docker.yaml), to
+# prove CAPNico's controllers work with the kubeadm bootstrap and control-plane
+# providers end to end -- not just that CAPNico calls the NICo API correctly.
+#
+# Two differences from examples/kubeadm/cluster.yaml, both because this runs
+# against fake containers rather than real NICo hardware:
+#
+#  1. No kube-vip. Real deployments need it (or an external LB) because
+#     Cluster.spec.controlPlaneEndpoint must exist before any control-plane
+#     machine does, and kube-vip lets that address float between multiple
+#     control-plane replicas on failover. This cluster has exactly one
+#     control-plane replica, so there's no floating-IP scenario to test: the
+#     docker backend (internal/fake/docker/backend.go) just gives that one
+#     container a fixed address up front and controlPlaneEndpoint points
+#     directly at it.
+#
+#  2. The provider ID comes from a NICO_INSTANCE_ID environment variable the
+#     docker backend sets on the container, not from curling the metadata
+#     service at 169.254.169.254:7777. On real NICo hardware that service is
+#     served by the DPU agent (see docs/getting-started.md); fake containers
+#     have nothing to serve it.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capnico-e2e
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nico-credentials
+  namespace: capnico-system
+type: Opaque
+stringData:
+  endpoint: http://fake-nico-api.fake-nico-api.svc.cluster.local:8090
+  orgID: org-1
+  tokenURL: http://fake-nico-api.fake-nico-api.svc.cluster.local:8090/token
+  clientID: fake-client
+  clientSecret: fake-secret
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: capnico-e2e
+  namespace: capnico-e2e
+spec:
+  siteID: site-1
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: capnico-e2e-control-plane
+  namespace: capnico-e2e
+spec:
+  template:
+    spec:
+      vpcID: vpc-1
+      instanceTypeID: type-1
+      interfaces:
+      - vpcPrefixID: prefix-1
+      # Not a real NICo/CAPI convention -- read by the docker backend
+      # (internal/fake/docker/backend.go) to give only this instance the
+      # fixed IP Cluster.spec.controlPlaneEndpoint points at below.
+      labels:
+        capnico-fake/control-plane: "true"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: capnico-e2e-workers
+  namespace: capnico-e2e
+spec:
+  template:
+    spec:
+      vpcID: vpc-1
+      instanceTypeID: type-1
+      interfaces:
+      - vpcPrefixID: prefix-1
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: capnico-e2e
+  namespace: capnico-e2e
+  labels:
+    cni: kindnet
+spec:
+  controlPlaneEndpoint:
+    # The docker backend gives the control-plane container this exact
+    # address (see the NicoMachineTemplate above and backend.go); no VIP, no
+    # DNS involved.
+    host: 172.18.255.250
+    port: 6443
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 192.168.0.0/16
+    services:
+      cidrBlocks:
+        - 10.128.0.0/12
+    serviceDomain: cluster.local
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: capnico-e2e-control-plane
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: NicoCluster
+    name: capnico-e2e
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: capnico-e2e-control-plane
+  namespace: capnico-e2e
+spec:
+  replicas: 1
+  version: v1.31.0
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: NicoMachineTemplate
+        name: capnico-e2e-control-plane
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      apiServer:
+        certSANs:
+          - 172.18.255.250
+    initConfiguration:
+      # kubeadm's SystemVerification preflight check tries to `modprobe
+      # configs` to read /proc/config.gz. That kernel module is a property of
+      # the host kernel, not something a container can load regardless of
+      # privilege -- the same class of check kind itself works around inside
+      # its own node containers.
+      nodeRegistration:
+        ignorePreflightErrors:
+          - SystemVerification
+      patches:
+        directory: /etc/kubernetes/patches
+    joinConfiguration:
+      nodeRegistration:
+        ignorePreflightErrors:
+          - SystemVerification
+      patches:
+        directory: /etc/kubernetes/patches
+    preKubeadmCommands:
+      - |
+        mkdir -p /etc/kubernetes/patches
+        printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$NICO_INSTANCE_ID" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: capnico-e2e-workers
+  namespace: capnico-e2e
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          ignorePreflightErrors:
+            - SystemVerification
+        patches:
+          directory: /etc/kubernetes/patches
+      preKubeadmCommands:
+        - |
+          mkdir -p /etc/kubernetes/patches
+          printf "apiVersion: kubelet.config.k8s.io/v1beta1\nkind: KubeletConfiguration\nproviderID: nico://%s\n" "$NICO_INSTANCE_ID" > /etc/kubernetes/patches/kubeletconfiguration0-provider-id.yaml
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: capnico-e2e-workers
+  namespace: capnico-e2e
+spec:
+  clusterName: capnico-e2e
+  replicas: 1
+  selector:
+    matchLabels: {}
+  template:
+    spec:
+      clusterName: capnico-e2e
+      version: v1.31.0
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+          name: capnico-e2e-workers
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: NicoMachineTemplate
+        name: capnico-e2e-workers
+---
+# Installs kindnet once the cluster matches this selector. The referenced
+# ConfigMap (cni-kindnet) isn't in this file -- bootstrap_test.go creates it
+# directly from the vendored test/e2e/testdata/kindnet.yaml, so that file
+# stays the single copy instead of being duplicated into this manifest too.
+apiVersion: addons.cluster.x-k8s.io/v1beta2
+kind: ClusterResourceSet
+metadata:
+  name: capnico-e2e-kindnet
+  namespace: capnico-e2e
+spec:
+  clusterSelector:
+    matchLabels:
+      cni: kindnet
+  resources:
+    - name: cni-kindnet
+      kind: ConfigMap
+  strategy: ApplyOnce

@@ -13,15 +13,32 @@ import (
 	"os"
 	"time"
 
+	"github.com/moby/moby/client"
+
 	"github.com/NVIDIA/cluster-api-provider-nico/internal/fake"
+	fakedocker "github.com/NVIDIA/cluster-api-provider-nico/internal/fake/docker"
 )
 
 func main() {
 	addr := flag.String("addr", ":8090", "The address the fake endpoint binds to.")
 	seed := flag.String("seed", "", "Path to a YAML file of resources to seed into the endpoint.")
+	backend := flag.String("backend", "", `Instance backend: "" (in-memory, default) or "docker".`)
 	flag.Parse()
 
 	endpoint := fake.New()
+
+	switch *backend {
+	case "":
+	case "docker":
+		dockerClient, err := client.New(client.FromEnv)
+		if err != nil {
+			log.Fatalf("create docker client: %v", err)
+		}
+		endpoint.SetBackend(&fakedocker.Backend{Client: dockerClient})
+		log.Print("using the docker backend: instances run as real containers")
+	default:
+		log.Fatalf("unknown backend %q", *backend)
+	}
 
 	if *seed != "" {
 		contents, err := os.ReadFile(*seed)

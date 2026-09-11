@@ -10,9 +10,11 @@
 package fake
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net/http"
 	"reflect"
@@ -51,6 +53,14 @@ type instanceRecord struct {
 	instance    nicosdk.Instance
 	polls       int
 	rebootCount int
+}
+
+// Backend provisions real compute for a created instance. Nil is valid and
+// preserves the default poll-counted state machine in advanceInstance.
+type Backend interface {
+	Create(ctx context.Context, instanceID, userData string, labels map[string]string) error
+	Ready(ctx context.Context, instanceID string) (bool, error)
+	Delete(ctx context.Context, instanceID string) error
 }
 
 type requestRecord struct {
@@ -128,6 +138,8 @@ type Server struct {
 	requests []requestRecord
 
 	nextID int
+
+	backend Backend
 }
 
 // New returns a Server seeded with the resources needed by the worked example.
@@ -171,6 +183,11 @@ func New() *Server {
 	s.SeedVPC(defaultOrgID, *vpc)
 
 	return s
+}
+
+// SetBackend must be called before Handler serves any traffic.
+func (s *Server) SetBackend(b Backend) {
+	s.backend = b
 }
 
 // Handler returns the HTTP surface used by controller envtests.
@@ -586,6 +603,12 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	response := cloneInstance(record.instance)
 	s.mu.Unlock()
 
+	if s.backend != nil {
+		if err := s.backend.Create(r.Context(), id, request.GetUserData(), request.GetLabels()); err != nil {
+			log.Printf("fake: backend create %s: %v", id, err)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, &response)
 }
 
@@ -611,7 +634,7 @@ func (s *Server) getInstance(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	record, ok := s.instances[resourceKey(org, instanceID)]
 	if ok {
-		s.advanceInstance(record)
+		s.advanceInstance(r.Context(), record)
 	}
 	var response nicosdk.Instance
 	if ok {
@@ -703,6 +726,12 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 	})
 	s.mu.Unlock()
 
+	if s.backend != nil {
+		if err := s.backend.Delete(r.Context(), instanceID); err != nil {
+			log.Printf("fake: backend delete %s: %v", instanceID, err)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -737,10 +766,22 @@ func (s *Server) getVPC(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, vpc)
 }
 
-func (s *Server) advanceInstance(record *instanceRecord) {
+func (s *Server) advanceInstance(ctx context.Context, record *instanceRecord) {
 	status := record.instance.GetStatus()
 	switch {
 	case statusEqual(status, string(nicosdk.INSTANCESTATUS_PENDING)):
+		if s.backend != nil {
+			ready, err := s.backend.Ready(ctx, record.instance.GetId())
+			if err != nil {
+				log.Printf("fake: backend ready %s: %v", record.instance.GetId(), err)
+				return
+			}
+			if ready {
+				record.instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
+				assignInstanceAddresses(&record.instance, defaultIPAddress)
+			}
+			return
+		}
 		record.polls++
 		if record.polls >= ReadyAfterPolls {
 			record.instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
