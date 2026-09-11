@@ -21,6 +21,35 @@ import (
 
 const fakeDockerImage = "fake-nico-api-server"
 
+// dockerSocketPatch layers Docker socket access onto hack/tilt/fake-nico-api.yaml
+// (the in-memory-backend manifest the Tilt dev loop also uses), rather than
+// duplicating that whole Deployment into a second file for the one thing this
+// test needs that Tilt doesn't.
+const dockerSocketPatch = `
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false
+      containers:
+      - name: api
+        securityContext:
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        env:
+        - name: DOCKER_HOST
+          value: unix:///var/run/docker.sock
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+`
+
 // kindContext returns the kubeconfig context `kind create cluster` sets for
 // KIND_CLUSTER, so kubectl calls here never depend on whatever context
 // happens to be ambient.
@@ -52,6 +81,22 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to install Cluster API")
 
+		// capi-init returns once its objects are created, not once their
+		// webhook pods are actually serving -- applying a KubeadmControlPlane
+		// too soon hits "connection refused" from its still-starting
+		// mutating webhook.
+		By("waiting for the Cluster API webhooks to be ready")
+		for _, deployment := range []struct{ namespace, name string }{
+			{"capi-system", "capi-controller-manager"},
+			{"capi-kubeadm-bootstrap-system", "capi-kubeadm-bootstrap-controller-manager"},
+			{"capi-kubeadm-control-plane-system", "capi-kubeadm-control-plane-controller-manager"},
+		} {
+			cmd = exec.Command("kubectl", "--context", kindContext(), "wait", "deployment/"+deployment.name,
+				"-n", deployment.namespace, "--for", "condition=Available", "--timeout", "2m")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("%s did not become available", deployment.name))
+		}
+
 		By("installing CRDs")
 		cmd = exec.Command("make", "install")
 		_, err = utils.Run(cmd)
@@ -62,11 +107,23 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
-		By("deploying the docker-backed fake NICo API")
-		cmd = exec.Command("kubectl", "--context", kindContext(),
-			"apply", "-f", "test/e2e/testdata/fake-nico-api-docker.yaml")
+		By("deploying the fake NICo API")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "apply", "-f", "hack/tilt/fake-nico-api.yaml")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the fake NICo API")
+
+		By("switching the fake NICo API to the docker backend")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "patch", "deployment", "fake-nico-api",
+			"-n", "fake-nico-api", "--type=json",
+			"-p", `[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--backend=docker"}]`)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to switch the fake NICo API to the docker backend")
+
+		By("giving the fake NICo API access to the host's Docker socket")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "patch", "deployment", "fake-nico-api",
+			"-n", "fake-nico-api", "--type=strategic", "-p", dockerSocketPatch)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to mount the Docker socket into the fake NICo API")
 
 		By("waiting for the fake NICo API to be available")
 		cmd = exec.Command("kubectl", "--context", kindContext(), "wait", "deployment/fake-nico-api",
@@ -107,9 +164,9 @@ var _ = Describe("Bootstrap", Ordered, func() {
 			"--ignore-not-found", "--wait=true", "--timeout=1m")
 		_, _ = utils.Run(cmd)
 
-		By("deleting the docker-backed fake NICo API")
+		By("deleting the fake NICo API")
 		cmd = exec.Command("kubectl", "--context", kindContext(),
-			"delete", "-f", "test/e2e/testdata/fake-nico-api-docker.yaml", "--ignore-not-found")
+			"delete", "-f", "hack/tilt/fake-nico-api.yaml", "--ignore-not-found")
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
