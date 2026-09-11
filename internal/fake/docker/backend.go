@@ -71,6 +71,10 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string) error
 		Config: &container.Config{
 			Hostname: name,
 			Image:    b.image(),
+			// Real NICo instances learn their own ID from a metadata service
+			// preKubeadmCommands curl; this container has no such service, so
+			// the ID is injected directly for the same providerID patch.
+			Env: []string{"NICO_INSTANCE_ID=" + instanceID},
 		},
 		HostConfig: &container.HostConfig{
 			Privileged:  true,
