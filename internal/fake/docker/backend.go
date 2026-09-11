@@ -83,16 +83,16 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string) error
 	return nil
 }
 
+// Ready reports whether the container is up, matching NICo: an instance is
+// READY once the machine exists, independent of whether kubeadm has joined it
+// to a cluster yet. KubeadmControlPlane observes bootstrap success separately.
 func (b *Backend) Ready(ctx context.Context, instanceID string) (bool, error) {
 	name := containerName(instanceID)
 	running, err := runDocker(ctx, "inspect", "-f", "{{.State.Running}}", name)
-	if err != nil || running != "true" {
+	if err != nil {
 		return false, nil
 	}
-	if err := execIn(ctx, name, "systemctl", "is-active", "--quiet", "kubelet"); err != nil {
-		return false, nil
-	}
-	return true, nil
+	return running == "true", nil
 }
 
 func (b *Backend) Delete(ctx context.Context, instanceID string) error {
