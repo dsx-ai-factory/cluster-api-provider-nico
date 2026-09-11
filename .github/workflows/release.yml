@@ -42,7 +42,7 @@ jobs:
   promote-nvcr:
     if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Tag NVCR (${{ matrix.dest.name }})
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu16
     environment: nvcr
     timeout-minutes: 15
     permissions:
@@ -103,7 +103,7 @@ jobs:
   promote-ghcr:
     if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Promote to GHCR
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu16
     needs: [promote-nvcr]
     environment: nvcr
     timeout-minutes: 15
@@ -189,7 +189,7 @@ jobs:
 
   sbom:
     name: SBOM (${{ matrix.arch }})
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-ghcr]
     timeout-minutes: 15
     permissions:
@@ -282,7 +282,7 @@ jobs:
   chart-ngc:
     if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (NGC)
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-nvcr]
     environment: nvcr
     timeout-minutes: 15
@@ -376,7 +376,7 @@ jobs:
   chart-nke:
     if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (NKE)
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-nvcr]
     environment: nvcr
     timeout-minutes: 15
@@ -467,7 +467,7 @@ jobs:
   chart-ghcr:
     if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (GHCR)
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-ghcr]
     timeout-minutes: 15
     permissions:
@@ -541,7 +541,7 @@ jobs:
   # never touch NGC.
   release:
     name: Create GitHub Release
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu16
     needs: [promote-ghcr, chart-ghcr, sbom]
     timeout-minutes: 15
     permissions:

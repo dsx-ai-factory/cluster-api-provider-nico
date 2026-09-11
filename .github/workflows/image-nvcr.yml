@@ -145,7 +145,7 @@ jobs:
   manifest:
     if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Manifest ${{ matrix.dest.name }}
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [build]
     environment: nvcr
     timeout-minutes: 10
