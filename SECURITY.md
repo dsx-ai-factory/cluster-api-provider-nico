@@ -59,6 +59,25 @@ to once a report is confirmed; PSIRT owns the disclosure date.
 Dependency vulnerabilities are picked up by Dependabot and follow the same
 targets, measured from the date a fixed upstream version becomes available.
 
+## Vulnerability exceptions
+
+Not every finding from Dependabot, govulncheck, or Grype can be fixed by the
+target above. When one genuinely cannot — no fixed version exists yet, or
+fixing it needs a breaking change out of step with this project's release
+cadence — record an exception instead of leaving the finding silently
+unaddressed. An exception names:
+
+- The advisory or CVE ID.
+- Why it cannot be fixed now.
+- An owner.
+- An expiry or re-review trigger (a date, or "when `<dependency>` ships a
+  fix").
+
+[Grype's `ignore` list](https://github.com/anchore/grype#specifying-matches-to-ignore)
+(a `.grype.yaml` in the repository root) is the mechanism once the first
+exception is needed; add it with the fields above, not a bare vulnerability
+ID. There is no open exception today.
+
 ## Embargo and coordinated disclosure
 
 Confirmed vulnerabilities are handled under embargo. PSIRT manages the
