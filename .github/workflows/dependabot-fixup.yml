@@ -55,13 +55,16 @@ on:
     types: [opened, synchronize, reopened]
     branches:
       - main
+  push:
+    branches:
+      - main
 
 concurrency:
   # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
   # expression is the CALLER's name, so every workflow the gate calls would
   # compute the same group and cancel each other. NVIDIA/nke#160 lost 8 of 9
   # calls to exactly that, reported as failures with no jobs and no error.
-  group: Dependabot Fixup-${{ github.event.pull_request.number }}
+  group: Dependabot Fixup-${{ github.event.pull_request.number || 'refresh' }}
   cancel-in-progress: true
 
 permissions: {}
@@ -80,13 +83,14 @@ jobs:
       contents: write
       pull-requests: read
     steps:
-      # GUARD 1 of 2, before running anything.
+      # GUARD 1 of 2. Allow list must match Guard 2's (go.mod/go.sum plus the
+      # derived notices), not just go.mod/go.sum.
       #
-      # Dependabot writes only go.mod and go.sum for a gomod update. Anything
-      # else means the branch is not what it claims to be, and no generator
-      # should run over it. Deliberately NARROWER than the guard after the run:
-      # this describes what Dependabot may have written, not what we may write.
-      - name: Guard — the branch must contain only Go module changes
+      # Fix 2026-09-11: the old allow-list was go.mod/go.sum only, so a PR's
+      # second run saw its own first-run notices commit as an unexpected file
+      # and skipped, permanently. Confirmed on #151 (skip on second run) and
+      # as the cause of #143's conflict (never re-synced with main).
+      - name: Guard — the branch must contain only Go module and derived-notice changes
         id: dependency-only
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
@@ -98,12 +102,16 @@ jobs:
               per_page: 100,
             });
 
+            // Kept identical to Guard 2's allow-list on purpose: whatever this
+            // job is permitted to commit is also permitted to already be on
+            // the branch from a previous run of itself.
+            const allowed = /(^|\/)go\.(mod|sum)$|^THIRD_PARTY_NOTICES\.md$|^chart\/(LICENSE|NOTICE|THIRD_PARTY_NOTICES\.md)$/;
             const disallowed = files
               .map((file) => file.filename)
-              .filter((name) => !/(^|\/)go\.(mod|sum)$/.test(name));
+              .filter((name) => !allowed.test(name));
 
             if (disallowed.length > 0) {
-              core.notice(`Skipping fixup: this pull request changes non-module files: ${disallowed.join(', ')}`);
+              core.notice(`Skipping fixup: this pull request changes files outside go.mod/go.sum and the derived notices: ${disallowed.join(', ')}`);
               core.setOutput('skip', 'true');
               return;
             }
@@ -253,3 +261,39 @@ jobs:
             );
 
             core.info(`Committed ${createCommitOnBranch.commit.oid}.`);
+
+  # main moved, so open Dependabot branches may now be behind. Updating each
+  # merges main in and pushes, which fires `synchronize` above and reruns
+  # fixup on it. No file content touched here.
+  refresh:
+    name: Refresh open Dependabot branches
+    if: github.repository == 'NVIDIA/cluster-api-provider-nico' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              base: 'main',
+              per_page: 100,
+            });
+            for (const pr of prs) {
+              if (!pr.head.ref.startsWith('dependabot/go_modules/')) continue;
+              try {
+                await github.rest.pulls.updateBranch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                });
+                core.info(`updated #${pr.number}`);
+              } catch (e) {
+                core.warning(`#${pr.number}: ${e.message}`);
+              }
+            }
