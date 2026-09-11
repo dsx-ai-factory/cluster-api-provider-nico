@@ -62,7 +62,7 @@ commands are not listed, because they are not distributed.
 | [go.yaml.in/yaml/v3](https://github.com/yaml/go-yaml/blob/v3.0.5/LICENSE) | MIT | go.yaml.in/yaml/v3@v3.0.5 |
 | [go.yaml.in/yaml/v4](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.6/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v4@v4.0.0-rc.6 |
 | [golang.org/x/net](https://cs.opensource.google/go/x/net/+/v0.56.0:LICENSE) | BSD-3-Clause | — |
-| [golang.org/x/oauth2](https://cs.opensource.google/go/x/oauth2/+/v0.36.0:LICENSE) | BSD-3-Clause | golang.org/x/oauth2@v0.36.0 |
+| [golang.org/x/oauth2](https://cs.opensource.google/go/x/oauth2/+/v0.37.0:LICENSE) | BSD-3-Clause | golang.org/x/oauth2@v0.37.0 |
 | [golang.org/x/sync/errgroup](https://cs.opensource.google/go/x/sync/+/v0.21.0:LICENSE) | BSD-3-Clause | golang.org/x/sync@v0.21.0 |
 | [golang.org/x/sys/unix](https://cs.opensource.google/go/x/sys/+/v0.46.0:LICENSE) | BSD-3-Clause | golang.org/x/sys@v0.46.0 |
 | [golang.org/x/term](https://cs.opensource.google/go/x/term/+/v0.44.0:LICENSE) | BSD-3-Clause | golang.org/x/term@v0.44.0 |
