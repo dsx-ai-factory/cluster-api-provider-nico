@@ -2,30 +2,30 @@
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default — all files not matched below
-*                     @NVIDIA/nke-write
+*                     @dsx-ai-factory/nke-write
 
 # GitHub config and CI
-.github/                                      @NVIDIA/nke-write
+.github/                                      @dsx-ai-factory/nke-write
 
 # Ensure the tests remain high quality
 .github/controller-test-policy.json             @Jay-Madden @zmadell523
 .github/workflows/controller-test-policy.yml    @Jay-Madden @zmadell523
 
 # Public API types and webhooks — changes here affect external consumers
-api/                  @NVIDIA/nke-write
+api/                  @dsx-ai-factory/nke-write
 
 # Core controllers
-controllers/          @NVIDIA/nke-write
+controllers/          @dsx-ai-factory/nke-write
 
 # Internal provider logic (NICo SDK integration, client caching)
-internal/             @NVIDIA/nke-write
+internal/             @dsx-ai-factory/nke-write
 
 # CRD and RBAC config
-config/               @NVIDIA/nke-write
+config/               @dsx-ai-factory/nke-write
 
 # clusterctl templates — user-facing cluster creation workflows
-examples/             @NVIDIA/nke-write
+examples/             @dsx-ai-factory/nke-write
 
 # Build and release
-Dockerfile            @NVIDIA/nke-write
-Makefile              @NVIDIA/nke-write
+Dockerfile            @dsx-ai-factory/nke-write
+Makefile              @dsx-ai-factory/nke-write
