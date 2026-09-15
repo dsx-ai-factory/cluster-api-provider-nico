@@ -272,6 +272,10 @@ Configurable with `--reboot-annotation`.
 
 - [README.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md) — installation, the credentials Secret, and the
   worked `clusterctl` examples
+- [api-reference.md](api-reference): field-by-field reference for all
+  four CRDs
+- [troubleshooting.md](troubleshooting): symptom, cause, and fix, beyond
+  getting-started.md's stall-reason table
 - [CONTRIBUTING.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md) — development setup and the
   pull-request flow
 - [AGENTS.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/AGENTS.md) — the conventions this codebase holds to

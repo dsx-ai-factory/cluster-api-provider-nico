@@ -651,4 +651,5 @@ ignore an empty value.
 - [architecture.md](architecture) — read before changing controller behaviour
 - [development.md](development) — the local Kind, Tilt, Helm and fake-NICo loop
 - [README.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md) — install, the Secret layout, the full worked examples
+- [troubleshooting.md](troubleshooting): symptom lookup beyond the stall table above
 - [NICo documentation](https://docs.nvidia.com/infra-controller/)

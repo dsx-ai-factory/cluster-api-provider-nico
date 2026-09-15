@@ -26,3 +26,29 @@ states. Envtest cases are snapshots of that state, not workflow scripts.
   writes `spec.providerID`.
 - An unprovisioned `NicoMachine` create case stays at generation 1.
 - A provisioned `NicoMachine` spec update reaches generation 3.
+
+## Extending the fake NICo backend
+
+`internal/fake`'s `Server` is a self-contained stand-in for the NICo API.
+Tests run the production client against `Server.Handler()`, so no real NICo
+deployment is needed. The package rule: extend this HTTP surface instead of
+bypassing serialization with an injected Go client.
+
+**Add an endpoint.** Register the route in `Handler()`, following the
+existing method-and-path-to-handler pattern (for example, `GET
+/v2/org/{org}/nico/instance/{instanceID}` maps to `s.getInstance`). Write the
+handler as a method on `*Server`: lock `s.mu`, read or mutate state, unlock,
+then respond with `writeJSON` or `writeError`.
+
+**Add seedable state.** Add a `Seed<Thing>(org string, thing
+nicosdk.<Thing>)` method next to `SeedTenant`, `SeedInstanceType`,
+`SeedInstance`, `SeedMachine`, `SeedSite`, and `SeedVPC`. Each one locks,
+clones the input, and stores it in a map keyed by `resourceKey(org, id)`.
+Add the matching map field to `Server`. If fixtures should seed it from
+YAML, add a slice to `serverDump` and a case in `SeedFromYAML`.
+
+**Golden state.** `Server.Dump()` marshals every resource map, plus
+deduplicated write requests, to YAML, which is what `expected_nico.yaml`
+compares against. Read polling is left out on purpose, so it cannot make
+goldens flap. A new resource type needs a case in `Dump()` too, or it never
+appears in the golden.

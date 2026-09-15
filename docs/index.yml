@@ -11,6 +11,10 @@ navigation:
     path: getting-started.md
   - page: Architecture
     path: architecture.md
+  - page: API Reference
+    path: api-reference.md
+  - page: Troubleshooting
+    path: troubleshooting.md
   - page: Development
     path: development.md
   - page: Writing Tests
