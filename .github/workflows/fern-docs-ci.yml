@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Validates Fern docs configuration on pull requests that touch docs/ or fern/.
+#
+# `fern check` validates docs.yml/nav configuration -- it does not parse MDX,
+# so a construct that is valid CommonMark but aborts `fern generate --docs` at
+# publish time will not be caught here. This is an advisory check, not a
+# required merge-gate job.
+
+name: Fern Docs CI
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - '.github/workflows/fern-docs-ci.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fern-check:
+    name: Fern Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI
+        run: npm install -g "fern-api@$(jq -r .version fern/fern.config.json)"
+
+      - name: Check MDX safety
+        # Intentionally inline -- a composite action would add indirection without benefit for a single grep.
+        run: |
+          BAD=$(grep -rn '<img\b[^>]*[^/]>\|<img>' docs/ fern/ --include="*.md" --include="*.mdx" || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Non-self-closing <img> tags found (MDX requires <img ... />):"
+            echo "$BAD"
+            exit 1
+          fi
+
+      - name: Fern check
+        run: fern check
+
+      - name: Check for broken links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --offline --no-progress 'docs/**/*.md'
+          fail: true
