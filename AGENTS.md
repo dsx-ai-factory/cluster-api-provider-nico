@@ -1,6 +1,6 @@
 # AGENTS.md
 
-## See also
+## Related Information
 
 Read before your first change here:
 
@@ -165,6 +165,7 @@ log.Info("reconciling")
 ```go
 fmt.Println("reconciling " + req.Name)
 ```
+
 ## Writing Style Guide
 
 Apply these rules to documentation, examples, headings, UI text, and release notes that you create or edit.

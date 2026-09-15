@@ -17,5 +17,5 @@ navigation:
     path: troubleshooting.md
   - page: Development
     path: development.md
-  - page: Writing Tests
+  - page: Writing Controller Tests
     path: writing-tests.md

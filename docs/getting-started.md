@@ -34,7 +34,7 @@ and `helm` directly and does not install them for you.
 | [ctlptl](https://github.com/tilt-dev/ctlptl) | Creates the kind cluster and its local registry. |
 | [tilt](https://docs.tilt.dev/install.html) | Runs the development loop. |
 | [helm](https://helm.sh/docs/intro/install/) | Installs the provider chart. |
-| `kubectl` | Everything. |
+| `kubectl` | Applies manifests and inspects cluster resources. |
 | [Go](https://go.dev/dl/) | Builds the manager and the codegen tools. |
 | [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Paths B and C only. |
 | [devspace](https://www.devspace.sh) | Path B only, where it deploys the local NICo stack. |
@@ -111,10 +111,15 @@ in [Seed Test Resources](#seed-test-resources) below.
 
 [NVIDIA/infra-controller](https://github.com/NVIDIA/infra-controller) runs
 locally with mock hosts, which is enough to exercise CAPNICo against the real
-REST API. `bootstrap-prereqs.sh` operates on whatever kube context is current,
-so point `KUBECONFIG` at a dedicated local kind cluster first. Do not use the
-Path A cluster, and do not use a shared or remote one. From that repository, run
-the following two commands:
+REST API.
+
+<Warning>
+`bootstrap-prereqs.sh` operates on the current Kubernetes context. Set
+`KUBECONFIG` to a dedicated local kind cluster before you run the script. Do not
+use the Path A cluster or a shared or remote cluster.
+</Warning>
+
+From that repository, run the following two commands:
 
 ```bash
 dev/deployment/devspace/bootstrap-prereqs.sh   # cert-manager, PostgreSQL, Vault, Temporal, Keycloak
@@ -323,9 +328,9 @@ creates the site itself.
 
 ### 3. Get a Machine-Usable Credential
 
-CAPNICo supports the client-credentials grant only. A token minted by an
-interactive password grant works until it expires, and then the provider stops
-provisioning. For anything lasting, ask for an OAuth client.
+CAPNICo supports a static `token` or OAuth client credentials. A token minted by
+an interactive password grant works until it expires. For long-lived production
+access, use OAuth client credentials.
 
 ```bash
 kubectl create namespace capnico-system --dry-run=client -o yaml | kubectl apply -f -
@@ -346,8 +351,8 @@ Never set `token` alongside the OAuth keys, because supplying both is rejected.
 If your site's API uses a private CA, pass `ca.crt`. Prefer that over
 `insecureSkipTLSVerify`.
 
-The management cluster must be able to do three things, and all three fail
-somewhere other than where you look.
+The management cluster must reach both service endpoints and pull the controller
+image.
 
 - Reach `endpoint`. Resolve and route it from a pod, not from your laptop.
 - Pull the controller image from a registry it has credentials for. Build and
@@ -463,8 +468,7 @@ cannot parse, and `TenantResolutionFailed` for everything else, which step 7
 covers.
 
 Fix this before you create a single Machine, then clean up. Delete the `Cluster`
-first, the same way [Things That Will Bite You](#things-that-will-bite-you)
-below describes:
+first, as described in [Common Pitfalls](#common-pitfalls) below:
 
 ```bash
 kubectl -n demo delete cluster credcheck
@@ -646,7 +650,7 @@ Then, after it has joined, run
 `kubectl get node <name> -o jsonpath='{.spec.providerID}'`. It must print
 `nico://<instance-id>`. An empty value means requirement 5 failed silently.
 
-## Things That Will Bite You
+## Common Pitfalls
 
 ### The Spec Freezes After the Provider ID Is Set
 
@@ -673,15 +677,15 @@ Both annotations in the following table ignore an empty value.
 
 The support level for this provider is Experimental.
 
-## See Also
+## Related Information
 
-- [Architecture](architecture) is what to read before you change controller
+- [Architecture](architecture.md) is what to read before you change controller
   behavior.
-- [Development](development) walks through the local kind, Tilt, Helm, and
+- [Development](development.md) walks through the local kind, Tilt, Helm, and
   fake-NICo loop.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the install steps, the Secret layout, and the full worked examples.
-- [Troubleshooting](troubleshooting) handles symptom lookup beyond the stall
+- [Troubleshooting](troubleshooting.md) handles symptom lookup beyond the stall
   table above.
 - The [NICo documentation](https://docs.nvidia.com/infra-controller/) describes
   the platform itself.

@@ -2,8 +2,8 @@
 
 The following sections document every field of the four CRDs in
 `infrastructure.cluster.x-k8s.io/v1alpha1`, one section per kind. Read
-[Architecture](architecture) for why these fields exist and how they interact.
-Read [Getting Started](getting-started) for how to use them.
+[Architecture](architecture.md) for why these fields exist and how they interact.
+Read [Getting Started](getting-started.md) for how to use them.
 
 The field descriptions mirror the Go doc comments in `api/v1alpha1/`. If they
 ever drift, the Go source is authoritative.
@@ -40,10 +40,12 @@ For a minimal manifest, refer to
 
 ## NicoClusterTemplate
 
-> This type is scaffolded but not consumed. The type exists and generates a CRD.
-> Nothing in this repository consumes it yet. There is no ClusterClass or
-> topology handling, and no example references it. Do not treat it as a
-> supported templating path.
+<Note>
+`NicoClusterTemplate` is scaffolded but not consumed. The type exists and
+generates a CRD. Nothing in this repository consumes it yet. There is no
+ClusterClass or topology handling, and no example references it. Do not treat
+it as a supported templating path.
+</Note>
 
 `NicoClusterTemplate` is namespaced and uses the short name `nicoct`. It has no
 status subresource and no controller.
@@ -71,7 +73,7 @@ After the controller assigns `spec.providerID`, the entire spec is immutable,
 and CEL validation rules reject any edit to it. Metadata and status updates
 remain allowed. The controller uses these fields only to build the NICo instance
 create request, and it never reapplies them to a live instance. Refer to
-[machine reconciliation](architecture#machine-reconciliation) for why.
+[machine reconciliation](architecture.md#machine-reconciliation) for why.
 
 ### Spec
 
@@ -154,8 +156,8 @@ The two reconcilers publish four condition types.
 
 The following table lists every reason, grouped by theme. A "Yes" in the stall
 table column means the reason also appears in
-[Getting Started](getting-started#7-when-it-stalls), which tells you what to do
-about it. [Troubleshooting](troubleshooting) covers the rest.
+[Getting Started](getting-started.md#7-when-it-stalls), which tells you what to
+do about it. [Troubleshooting](troubleshooting.md) covers the rest.
 
 | Reason | In stall table | Meaning |
 |---|---|---|
@@ -188,13 +190,13 @@ about it. [Troubleshooting](troubleshooting) covers the rest.
 | `FailureDomainDrifted` | | The assigned machine's failure domain no longer matches the one requested at create. |
 | `FailureDomainStable` | | The assigned machine is still in the requested failure domain, or none was requested. |
 
-## See Also
+## Related Information
 
-- [Architecture](architecture) explains how these fields interact, how
+- [Architecture](architecture.md) explains how these fields interact, how
   credentials resolve, and how the failure-domain mechanism works.
-- [Getting Started](getting-started) walks through using these CRDs to stand up
+- [Getting Started](getting-started.md) walks through using these CRDs to stand up
   a cluster.
-- [Troubleshooting](troubleshooting) tells you what to do about a given
+- [Troubleshooting](troubleshooting.md) tells you what to do about a given
   condition reason.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps and the credentials Secret.

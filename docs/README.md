@@ -3,7 +3,7 @@
 `cluster-api-provider-nico` (CAPNICo) is a
 [Cluster API](https://cluster-api.sigs.k8s.io/) infrastructure provider. It
 turns a `Cluster` and a `MachineDeployment` into bare-metal machines on
-[NVIDIA Infra Controller (NICo)](https://github.com/NVIDIA/infra-controller).
+[NVIDIA Infra Controller (NICo)](https://github.com/dsx-ai-factory/infra-controller).
 It does not install Kubernetes or join nodes because the kubeadm bootstrap and
 control-plane providers do that.
 
@@ -23,21 +23,21 @@ The following table shows what you find on each one.
 
 | Document | Contents |
 |---|---|
-| [Getting Started](getting-started) | Your first cluster, two ways: the in-repo fake NICo and a real NICo deployment. It also sets out what must exist on the NICo side first, the credentials Secret, and common pitfalls. |
-| [Architecture](architecture) | Where this provider sits in Cluster API, the four CRDs and which fields belong to each, how credentials resolve and cache, machine reconciliation and what the finalizer guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts. |
-| [API Reference](api-reference) | A field-by-field reference for all four CRDs, including the one that is scaffolded but unconsumed, and every condition and reason. |
-| [Troubleshooting](troubleshooting) | The symptom, cause, and fix for problems beyond the stall-reason table in Getting Started. |
-| [Development](development) | The local kind, Tilt, Helm, and fake-NICo development loop. |
-| [Writing Tests](writing-tests) | The controller envtest boundary, fixture inputs, Kubernetes and NICo goldens, and how to extend the HTTP fake. |
+| [Getting Started](getting-started.md) | Your first cluster, two ways: the in-repo fake NICo and a real NICo deployment. It also sets out what must exist on the NICo side first, the credentials Secret, and common pitfalls. |
+| [Architecture](architecture.md) | Where this provider sits in Cluster API, the four CRDs and which fields belong to each, how credentials resolve and cache, machine reconciliation and what the finalizer guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts. |
+| [API Reference](api-reference.md) | A field-by-field reference for all four CRDs, including the one that is scaffolded but unconsumed, and every condition and reason. |
+| [Troubleshooting](troubleshooting.md) | The symptom, cause, and fix for problems beyond the stall-reason table in Getting Started. |
+| [Development](development.md) | The local kind, Tilt, Helm, and fake-NICo development loop. |
+| [Writing Controller Tests](writing-tests.md) | The controller envtest boundary, fixture inputs, Kubernetes and NICo goldens, and how to extend the HTTP fake. |
 
-If this is your first visit, start with [Getting Started](getting-started). The
+If this is your first visit, start with [Getting Started](getting-started.md). The
 [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
 has the installation reference, the credentials Secret layout, and the full
 worked `clusterctl` examples. Before you change controller behavior, read
-[Architecture](architecture), and before you add or change controller envtests,
-read [Writing Tests](writing-tests). When something is not converging, check
-[Troubleshooting](troubleshooting), and for the full field list of each CRD,
-check [API Reference](api-reference).
+[Architecture](architecture.md), and before you add or change controller
+envtests, read [Writing Controller Tests](writing-tests.md). When something is
+not converging, check [Troubleshooting](troubleshooting.md), and for the full
+field list of each CRD, check [API Reference](api-reference.md).
 
 Other reference material lives next to the code it describes.
 

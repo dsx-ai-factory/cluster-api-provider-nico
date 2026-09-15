@@ -52,8 +52,9 @@ then respond with `writeJSON` or `writeError`.
 
 To add seedable state, add a `Seed<Thing>(org string, thing nicosdk.<Thing>)`
 method next to `SeedTenant`, `SeedInstanceType`, `SeedInstance`, `SeedMachine`,
-`SeedSite`, and `SeedVPC`. Each one locks, clones the input, and stores it in a
-map keyed by `resourceKey(org, id)`. Add the matching map field to `Server`. If
+`SeedSite`, and `SeedVPC`. Each method locks and clones the input. `SeedTenant`
+stores tenants under `s.tenants[org]`. The other seed methods store resources in
+maps keyed by `resourceKey(org, id)`. Add the matching map field to `Server`. If
 fixtures should seed it from YAML, add a slice to `serverDump` and a case in
 `SeedFromYAML`.
 

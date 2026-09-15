@@ -44,7 +44,7 @@ holds.
 
 | Kind | Holds |
 |---|---|
-| `NicoCluster` | `spec.siteID`, and optionally `spec.identityRef` naming a per-cluster credentials Secret. **Those are its only two fields.** |
+| `NicoCluster` | `spec.siteID`, optional `spec.identityRef`, and optional `spec.failureDomainLabelKey`, which enables failure-domain discovery and instance placement. |
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
@@ -283,13 +283,13 @@ value itself is consumer-owned and is not otherwise interpreted. After NICo
 accepts the trigger, the provider removes the annotation, so one reboot happens
 per application. Configure the key with `--reboot-annotation`.
 
-## See Also
+## Related Information
 
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps, the credentials Secret, and the worked
   `clusterctl` examples.
-- The [API Reference](api-reference) documents all four CRDs, field by field.
-- [Troubleshooting](troubleshooting) gives the symptom, cause, and fix for
+- The [API Reference](api-reference.md) documents all four CRDs, field by field.
+- [Troubleshooting](troubleshooting.md) gives the symptom, cause, and fix for
   problems beyond the stall-reason table in Getting Started.
 - The [contributing guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md)
   describes the development setup and the pull request flow.
