@@ -122,7 +122,15 @@ jobs:
             echo "page_links=" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Post preview URL (no PR to comment on)
+        if: steps.metadata.outputs.pr_number == ''
+        env:
+          PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
+        run: |
+          echo "### Preview: [$PREVIEW_URL]($PREVIEW_URL)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Post or update PR comment
+        if: steps.metadata.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
