@@ -281,7 +281,7 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 	}
 	instance, resp, err := c.api.InstanceAPI.GetInstance(authCtx, c.orgID, instanceID).Execute()
 	if err != nil {
-		// NICo retains released instance records with status Terminated, but the
+		// nolint: NICo retains released instance records with status Terminated, but the
 		// v1.3.0 generated SDK omits that server status from its enum. Normalize
 		// the successful response at this boundary so callers see the same state
 		// model exposed by the API.

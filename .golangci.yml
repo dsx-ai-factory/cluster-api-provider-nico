@@ -26,8 +26,12 @@ linters:
     - unparam
     - unused
     - logcheck
+    - commentpolicy
   settings:
     custom:
+      commentpolicy:
+        type: "module"
+        description: Limits inline comment block size.
       logcheck:
         type: "module"
         description: Checks Go logging calls for Kubernetes logging conventions.

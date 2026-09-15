@@ -106,6 +106,10 @@ make build
 - Follow the existing Go style and package layout (`controllers/`,
   `internal/nico/`, `api/`).
 
+### Comments
+
+- Explain non-obvious constraints or reasons only.
+
 ### Branch naming
 
 Use a short descriptive branch name, for example:

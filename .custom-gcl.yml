@@ -8,6 +8,9 @@
 # See: https://golangci-lint.run/plugins/module-plugins/
 version: v2.12.2
 plugins:
+  - module: "github.com/dsx-ai-factory/cluster-api-provider-nico"
+    import: "github.com/dsx-ai-factory/cluster-api-provider-nico/tools/commentpolicy"
+    path: .
   # logcheck validates structured logging calls and parameters (e.g., balanced key-value pairs)
   - module: "sigs.k8s.io/logtools"
     import: "sigs.k8s.io/logtools/logcheck/gclplugin"
