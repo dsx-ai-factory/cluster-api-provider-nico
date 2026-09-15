@@ -93,7 +93,6 @@ The spec describes one NICo instance, from its placement to its boot script.
 | `sshKeyGroupIDs` | list | The allowed SSH key group IDs for Serial-over-LAN access. |
 | `ipxeScript` | string | The iPXE script used to boot this instance. This field is mutually exclusive with `operatingSystemID`. |
 | `operatingSystemID` | string | The ID of a registered NICo operating system used to boot this instance. This field is mutually exclusive with `ipxeScript`. |
-| `cloudInitInjectHostname` | bool | Prepends hostname directives to the bootstrap cloud-config. |
 | `labels` | map | Labels applied to the instance. |
 | `allowUnhealthyMachine` | bool | Allows targeted instance creation on a machine in Error status. |
 | `providerID` | string | Set by the controller to `nico://<instance-id>` after the NICo instance is created. |
