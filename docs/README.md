@@ -17,13 +17,13 @@ consumed.
   the VPC.
 - `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
 
-These pages cover everything beyond the
+These pages cover the CAPNICo documentation topics beyond the
 [repository README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md).
 The following table shows what you find on each one.
 
 | Document | Contents |
 |---|---|
-| [Getting Started](getting-started) | Your first cluster, two ways: the in-repo fake NICo and a real NICo deployment. It also sets out what must exist on the NICo side first, the credentials Secret, and the traps. |
+| [Getting Started](getting-started) | Your first cluster, two ways: the in-repo fake NICo and a real NICo deployment. It also sets out what must exist on the NICo side first, the credentials Secret, and common pitfalls. |
 | [Architecture](architecture) | Where this provider sits in Cluster API, the four CRDs and which fields belong to each, how credentials resolve and cache, machine reconciliation and what the finalizer guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts. |
 | [API Reference](api-reference) | A field-by-field reference for all four CRDs, including the one that is scaffolded but unconsumed, and every condition and reason. |
 | [Troubleshooting](troubleshooting) | The symptom, cause, and fix for problems beyond the stall-reason table in Getting Started. |

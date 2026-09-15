@@ -44,8 +44,7 @@ holds.
 
 | Kind | Holds |
 |---|---|
-| `NicoCluster` | `spec.siteID`, and optionally `spec.identityRef` naming a per-cluster credentials Secret. **Those are 
-its only two fields.** |
+| `NicoCluster` | `spec.siteID`, and optionally `spec.identityRef` naming a per-cluster credentials Secret. **Those are its only two fields.** |
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
