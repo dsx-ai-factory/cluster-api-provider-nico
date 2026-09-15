@@ -1,7 +1,21 @@
 # docs
 
-Documentation for `cluster-api-provider-nico` beyond the
-[README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md).
+`cluster-api-provider-nico` (CAPNICo) is a [Cluster API](https://cluster-api.sigs.k8s.io/)
+**infrastructure provider**: it turns a `Cluster` and `MachineDeployment` into
+bare-metal machines on
+[NVIDIA Infra Controller (NICo)](https://github.com/NVIDIA/infra-controller).
+It does not install Kubernetes or join nodes — the kubeadm bootstrap and
+control-plane providers do that.
+
+* `NicoCluster` holds the target site, and may optionally reference a
+  per-cluster credentials Secret.
+* `NicoMachine` represents one NICo instance managed by Cluster API, and
+  carries the VPC.
+* `NicoMachineTemplate` supports `KubeadmControlPlane` and
+  `MachineDeployment`.
+
+This section covers everything beyond the
+[repository README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md).
 
 | Document | What it covers |
 |---|---|
