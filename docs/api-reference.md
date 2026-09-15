@@ -75,7 +75,6 @@ and it never reapplies them to a live instance. See architecture.md's
 | `nvLinkLogicalPartitionID` | string | Attaches this logical partition to every active NVLink device the instance type exposes. Use instead of `nvLinkInterfaces` when every device should share one partition. Requires `instanceTypeID`. |
 | `sshKeyGroupIDs` | list | Allowed SSH key group IDs for Serial-over-LAN access. |
 | `ipxeScript` | string | The iPXE script used to boot this instance. |
-| `cloudInitInjectHostname` | bool | Prepends hostname directives to the bootstrap cloud-config. |
 | `labels` | map | Applied to the instance. |
 | `allowUnhealthyMachine` | bool | Allows targeted instance creation on a machine in Error status. |
 | `providerID` | string | Set by the controller to `nico://<instance-id>` once the NICo instance is created. |

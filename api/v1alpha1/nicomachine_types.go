@@ -138,10 +138,6 @@ type NicoMachineSpec struct {
 	// +optional
 	IpxeScript string `json:"ipxeScript,omitempty"`
 
-	// CloudInitInjectHostname prepends hostname directives to the bootstrap cloud-config.
-	// +optional
-	CloudInitInjectHostname bool `json:"cloudInitInjectHostname,omitempty"`
-
 	// Labels are applied to the instance.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
@@ -239,7 +235,6 @@ type NicoMachineStatus struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.nvLinkLogicalPartitionID) == has(oldSelf.spec.nvLinkLogicalPartitionID) && (!has(self.spec.nvLinkLogicalPartitionID) || self.spec.nvLinkLogicalPartitionID == oldSelf.spec.nvLinkLogicalPartitionID))",message="spec.nvLinkLogicalPartitionID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.sshKeyGroupIDs) == has(oldSelf.spec.sshKeyGroupIDs) && (!has(self.spec.sshKeyGroupIDs) || self.spec.sshKeyGroupIDs == oldSelf.spec.sshKeyGroupIDs))",message="spec.sshKeyGroupIDs is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.ipxeScript) == has(oldSelf.spec.ipxeScript) && (!has(self.spec.ipxeScript) || self.spec.ipxeScript == oldSelf.spec.ipxeScript))",message="spec.ipxeScript is immutable after providerID is set"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.cloudInitInjectHostname) == has(oldSelf.spec.cloudInitInjectHostname) && (!has(self.spec.cloudInitInjectHostname) || self.spec.cloudInitInjectHostname == oldSelf.spec.cloudInitInjectHostname))",message="spec.cloudInitInjectHostname is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.labels) == has(oldSelf.spec.labels) && (!has(self.spec.labels) || self.spec.labels == oldSelf.spec.labels))",message="spec.labels is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.machineID) == has(oldSelf.spec.machineID) && (!has(self.spec.machineID) || self.spec.machineID == oldSelf.spec.machineID))",message="spec.machineID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.allowUnhealthyMachine) == has(oldSelf.spec.allowUnhealthyMachine) && (!has(self.spec.allowUnhealthyMachine) || self.spec.allowUnhealthyMachine == oldSelf.spec.allowUnhealthyMachine))",message="spec.allowUnhealthyMachine is immutable after providerID is set"

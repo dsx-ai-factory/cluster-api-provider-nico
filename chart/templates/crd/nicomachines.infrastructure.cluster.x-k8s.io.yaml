@@ -75,10 +75,6 @@ spec:
                 description: AllowUnhealthyMachine allows targeted instance creation
                   on a machine in Error status.
                 type: boolean
-              cloudInitInjectHostname:
-                description: CloudInitInjectHostname prepends hostname directives
-                  to the bootstrap cloud-config.
-                type: boolean
               infinibandInterfaces:
                 description: |-
                   InfinibandInterfaces requests that one or more InfiniBand Partitions be attached
@@ -426,10 +422,6 @@ spec:
         - message: spec.ipxeScript is immutable after providerID is set
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.ipxeScript) == has(oldSelf.spec.ipxeScript)
             && (!has(self.spec.ipxeScript) || self.spec.ipxeScript == oldSelf.spec.ipxeScript))'
-        - message: spec.cloudInitInjectHostname is immutable after providerID is set
-          rule: '!has(oldSelf.spec.providerID) || (has(self.spec.cloudInitInjectHostname)
-            == has(oldSelf.spec.cloudInitInjectHostname) && (!has(self.spec.cloudInitInjectHostname)
-            || self.spec.cloudInitInjectHostname == oldSelf.spec.cloudInitInjectHostname))'
         - message: spec.labels is immutable after providerID is set
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.labels) == has(oldSelf.spec.labels)
             && (!has(self.spec.labels) || self.spec.labels == oldSelf.spec.labels))'

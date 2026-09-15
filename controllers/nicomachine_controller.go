@@ -216,14 +216,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			setMachineProvisionedFalse(&nicoMachine, infrav1.BootstrapDataInvalidReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to get bootstrap cloud config: %w", err)
 		}
-		if nicoMachine.Spec.CloudInitInjectHostname {
-			bootstrapCloudConfig, err = nico.InjectHostnameCloudConfig(bootstrapCloudConfig, ownerMachine.Name)
-			if err != nil {
-				setMachineProvisionedFalse(&nicoMachine, infrav1.BootstrapDataInvalidReason, err.Error())
-				return ctrl.Result{}, fmt.Errorf("failed to inject hostname cloud config: %w", err)
-			}
-		}
-
 		tenantID, err := nicoClient.ResolveTenantID(ctx)
 		if err != nil {
 			setMachineProvisionedFalse(&nicoMachine, infrav1.TenantResolutionFailedReason, err.Error())
