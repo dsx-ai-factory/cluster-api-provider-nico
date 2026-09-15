@@ -15,8 +15,8 @@
 #
 # Pre-release tags (e.g. v0.0.43-rc.1) trigger publish but skip version registration.
 #
-# Uses the FERN_TOKEN org secret already available to every dsx-ai-factory
-# repo (see nv-rms, nv-config-manager) -- no per-repo provisioning needed.
+# FERN_TOKEN is the dsx-ai-factory org secret (already provisioned org-wide;
+# this repo's aicr/nvsentinel analogue calls it DOCS_FERN_TOKEN instead).
 
 name: Publish Fern Docs
 

@@ -8,8 +8,8 @@
 # posts a stable comment on the PR. This workflow never checks out the PR
 # branch directly, keeping secrets isolated from untrusted code.
 #
-# Uses the FERN_TOKEN org secret already available to every dsx-ai-factory
-# repo (see nv-rms, nv-config-manager) -- no per-repo provisioning needed.
+# FERN_TOKEN is the dsx-ai-factory org secret (already provisioned org-wide;
+# this repo's aicr/nvsentinel analogue calls it DOCS_FERN_TOKEN instead).
 
 name: "Preview Fern Docs: Comment"
 
