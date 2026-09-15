@@ -198,6 +198,20 @@ jobs:
             fi
           done
 
+      # The "latest" version entry always reads ../docs/index.yml (the live
+      # top-level docs/), but the checkout above is `main`. Without this,
+      # publishing an older tag (e.g. a manual dispatch to re-publish a past
+      # release) would still render main's current docs/ and label it with
+      # that older tag's "Latest" stamp. Overlay the resolved tag's docs/ so
+      # Latest always matches the tag actually being published.
+      - name: Overlay resolved tag's docs/ for Latest
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -eo pipefail
+          rm -rf docs
+          git archive "${TAG}" -- docs/ | tar -x
+
       - name: Stamp version in docs.yml
         env:
           TAG: ${{ steps.resolve.outputs.tag }}

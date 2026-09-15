@@ -39,16 +39,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # No pr_number here: the comment workflow resolves the target PR itself
+      # from the trusted workflow_run head SHA, since this metadata is written
+      # by a (possibly fork-controlled) workflow run and can't be trusted for
+      # picking which PR to comment on.
       - name: Save PR metadata
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref || github.ref_name }}
           BASE_REF: ${{ github.base_ref }}
         run: |
           mkdir -p preview-metadata
-          echo "$PR_NUMBER" > preview-metadata/pr_number
           echo "$HEAD_REF" > preview-metadata/head_ref
-          git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.md' > preview-metadata/changed_md_files 2>/dev/null || true
+          git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.md' '*.mdx' > preview-metadata/changed_md_files 2>/dev/null || true
 
       - name: Checkout frozen version content
         run: |

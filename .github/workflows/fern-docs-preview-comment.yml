@@ -44,8 +44,21 @@ jobs:
       - name: Read PR metadata
         id: metadata
         run: |
-          echo "pr_number=$(cat preview-metadata/pr_number)" >> "$GITHUB_OUTPUT"
           echo "head_ref=$(cat preview-metadata/head_ref)" >> "$GITHUB_OUTPUT"
+
+      # pr_number comes from the trusted workflow_run head SHA, not from the
+      # artifact: a fork can edit the build workflow to put any value in
+      # preview-metadata/pr_number, and this job runs with pull-requests:
+      # write, so trusting that value would let a fork PR comment on an
+      # arbitrary other PR (CWE-862).
+      - name: Resolve trusted PR number
+        id: resolve-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          PR_NUMBER=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" --jq '.[0].number // empty')
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       # Check out the BASE repo (trusted default branch) so the fern-api CLI
       # version is pinned from committed config, never from the fork-controlled
@@ -123,17 +136,17 @@ jobs:
           fi
 
       - name: Post preview URL (no PR to comment on)
-        if: steps.metadata.outputs.pr_number == ''
+        if: steps.resolve-pr.outputs.pr_number == ''
         env:
           PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
         run: |
           echo "### Preview: [$PREVIEW_URL]($PREVIEW_URL)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post or update PR comment
-        if: steps.metadata.outputs.pr_number != ''
+        if: steps.resolve-pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
+          PR_NUMBER: ${{ steps.resolve-pr.outputs.pr_number }}
           PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
           PAGE_LINKS: ${{ steps.page-links.outputs.page_links }}
         run: |
