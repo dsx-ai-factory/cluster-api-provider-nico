@@ -94,5 +94,5 @@ regeneration can leave the release artifacts stale.
 ## Commit requirements
 
 Commits follow Conventional Commits and must satisfy the repository's DCO and
-signature policy. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
+signature policy. See [CONTRIBUTING.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md) for the full
 contribution workflow.

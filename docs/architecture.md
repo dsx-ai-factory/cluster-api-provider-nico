@@ -270,9 +270,9 @@ Configurable with `--reboot-annotation`.
 
 ## See also
 
-- [../README.md](../README.md) — installation, the credentials Secret, and the
+- [README.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md) — installation, the credentials Secret, and the
   worked `clusterctl` examples
-- [../CONTRIBUTING.md](../CONTRIBUTING.md) — development setup and the
+- [CONTRIBUTING.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md) — development setup and the
   pull-request flow
-- [../AGENTS.md](../AGENTS.md) — the conventions this codebase holds to
-- [../RELEASE.md](../RELEASE.md) — versioning and the Cluster API contract
+- [AGENTS.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/AGENTS.md) — the conventions this codebase holds to
+- [RELEASE.md](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/RELEASE.md) — versioning and the Cluster API contract
