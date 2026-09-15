@@ -68,7 +68,7 @@ func checkFile(pass *analysis.Pass, file *ast.File) {
 				if lines > maxLines || chars > maxChars {
 					pass.Reportf(group.Pos(),
 						"inline comment has %d lines / %d characters (limit %d / %d); "+
-							"remove narration and extended rationale, ensure that any obscure contraints are succintly and shortly noted",
+							"remove narration and extended rationale, ensure that any obscure constraints are succintly and shortly noted",
 						lines, chars, maxLines, maxChars)
 				}
 				break
