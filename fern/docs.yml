@@ -3,7 +3,7 @@
 
 # yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
 
-# TODO: get DOCS_FERN_TOKEN and confirm this slug via #cdd-fern (Andrew Schilling) before publishing.
+# TODO: confirm this slug via #cdd-fern (Andrew Schilling) before publishing.
 instances:
   - url: cluster-api-provider-nico.docs.buildwithfern.com/cluster-api-provider-nico
     custom-domain: docs.nvidia.com/cluster-api-provider-nico

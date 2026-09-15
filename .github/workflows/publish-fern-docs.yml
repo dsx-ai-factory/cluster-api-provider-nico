@@ -15,8 +15,8 @@
 #
 # Pre-release tags (e.g. v0.0.43-rc.1) trigger publish but skip version registration.
 #
-# Required configuration:
-# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
+# Uses the FERN_TOKEN org secret already available to every dsx-ai-factory
+# repo (see nv-rms, nv-config-manager) -- no per-repo provisioning needed.
 
 name: Publish Fern Docs
 
@@ -218,7 +218,7 @@ jobs:
 
       - name: Publish docs
         env:
-          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
         working-directory: ./fern
         run: |
           set -o pipefail

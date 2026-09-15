@@ -4,12 +4,12 @@
 # Workflow 2 of 2 for Fern doc previews.
 #
 # Triggered by workflow_run after "Preview Fern Docs: Build" completes.
-# Downloads the fern/ artifact, builds a preview with DOCS_FERN_TOKEN, and
+# Downloads the fern/ artifact, builds a preview with FERN_TOKEN, and
 # posts a stable comment on the PR. This workflow never checks out the PR
 # branch directly, keeping secrets isolated from untrusted code.
 #
-# Required configuration:
-# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
+# Uses the FERN_TOKEN org secret already available to every dsx-ai-factory
+# repo (see nv-rms, nv-config-manager) -- no per-repo provisioning needed.
 
 name: "Preview Fern Docs: Comment"
 
@@ -78,7 +78,7 @@ jobs:
       - name: Generate preview URL
         id: generate-docs
         env:
-          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
           HEAD_REF: ${{ steps.metadata.outputs.head_ref }}
         working-directory: ./fern
         run: |
@@ -94,7 +94,7 @@ jobs:
       - name: Build page links for changed files
         id: page-links
         env:
-          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
           PREVIEW_URL: ${{ steps.generate-docs.outputs.preview_url }}
         run: |
           CHANGED_FILES=""

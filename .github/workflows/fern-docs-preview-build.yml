@@ -8,7 +8,7 @@
 # safe to run on fork PRs via the regular pull_request trigger.
 #
 # The companion workflow (fern-docs-preview-comment.yml) picks up the artifact,
-# builds the preview with DOCS_FERN_TOKEN, and posts the PR comment.
+# builds the preview with FERN_TOKEN, and posts the PR comment.
 
 name: "Preview Fern Docs: Build"
 
