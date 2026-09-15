@@ -52,7 +52,11 @@ jobs:
         run: fern check
 
       - name: Check for broken links
+        # --fallback-extensions md: internal links drop the .md suffix to
+        # match Fern's published routes (see PR #171); lychee checks the raw
+        # markdown source, so without this every such link 404s here even
+        # though it resolves fine on the actual site.
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --offline --no-progress 'docs/**/*.md'
+          args: --offline --no-progress --fallback-extensions md 'docs/**/*.md'
           fail: true
