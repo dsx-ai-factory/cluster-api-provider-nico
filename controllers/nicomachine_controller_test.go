@@ -9,8 +9,10 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -20,8 +22,9 @@ import (
 )
 
 const (
-	timeout     = 60 * time.Second
-	testMachine = "nicomachine-1"
+	timeout          = 60 * time.Second
+	testMachine      = "nicomachine-1"
+	testOwnerMachine = "machine-1"
 )
 
 func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
@@ -40,6 +43,9 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
+			if tc.HasInput("input_workload_client_objects.yaml") {
+				gomega.Expect(createWorkloadKubeconfigSecret(ctx, tc)).To(gomega.Succeed())
+			}
 			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
 
 			server := fake.New()
@@ -73,10 +79,72 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
 				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 1))
 				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
+
+				if tc.HasInput("input_workload_client_objects.yaml") {
+					nodes := &corev1.NodeList{}
+					g.Expect(tc.Client.List(ctx, nodes)).To(gomega.Succeed())
+					g.Expect(nodes.Items).To(gomega.HaveLen(1))
+					g.Expect(nodes.Items[0].Spec.ProviderID).To(gomega.Equal(nicoMachine.Spec.ProviderID))
+				}
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
+
+			if tc.HasInput("input_workload_client_objects.yaml") {
+				assertNodeProviderIDReconciliation(ctx, tc)
+			}
 		})
 	},
 ))
+
+func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Case) {
+	ginkgo.By("leaving an already matching providerID unchanged")
+	machine := &clusterv1.Machine{}
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testOwnerMachine}, machine)).To(gomega.Succeed())
+	cluster := &clusterv1.Cluster{}
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testWorkloadCluster}, cluster)).To(gomega.Succeed())
+	nicoMachine := &infrav1.NicoMachine{}
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
+
+	reconciler := &NicoMachineReconciler{Client: tc.Client}
+	node := &corev1.Node{}
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	matchingResourceVersion := node.ResourceVersion
+
+	result, err := reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(node.ResourceVersion).To(gomega.Equal(matchingResourceVersion))
+
+	ginkgo.By("waiting when the workload Node has not registered")
+	gomega.Expect(tc.Client.Delete(ctx, node)).To(gomega.Succeed())
+	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(result.RequeueAfter).To(gomega.Equal(machineRequeueFast))
+
+	ginkgo.By("preserving a providerID owned by another controller")
+	conflictingProviderID := "external://machine-1"
+	node = &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: machine.Name},
+		Spec:       corev1.NodeSpec{ProviderID: conflictingProviderID},
+	}
+	gomega.Expect(tc.Client.Create(ctx, node)).To(gomega.Succeed())
+	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
+	gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("has providerID")))
+	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
+
+	ginkgo.By("leaving providerID ownership to an external CCM when opted out")
+	if cluster.Annotations == nil {
+		cluster.Annotations = map[string]string{}
+	}
+	cluster.Annotations[skipNodeProviderIDReconciliationAnnotation] = "true"
+	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
+}
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.

@@ -21,6 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -36,7 +38,8 @@ import (
 
 const (
 	// testNamespace is where every case's objects live.
-	testNamespace = "default"
+	testNamespace       = "default"
+	testWorkloadCluster = "cluster-1"
 )
 
 // caseFakes keeps each case's fake reachable from its assertions. Cases run in
@@ -215,6 +218,36 @@ func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint st
 	secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
 
 	return c.Update(ctx, secret)
+}
+
+func createWorkloadKubeconfigSecret(ctx context.Context, tc *fixtures.Case) error {
+	const contextName = "envtest"
+	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			contextName: {
+				Server:                   tc.Config.Host,
+				CertificateAuthorityData: tc.Config.CAData,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			contextName: {
+				ClientCertificateData: tc.Config.CertData,
+				ClientKeyData:         tc.Config.KeyData,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {Cluster: contextName, AuthInfo: contextName},
+		},
+		CurrentContext: contextName,
+	})
+	if err != nil {
+		return fmt.Errorf("build workload kubeconfig: %w", err)
+	}
+
+	return tc.Client.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testWorkloadCluster + "-kubeconfig"},
+		Data:       map[string][]byte{workloadKubeconfigDataKey: kubeconfig},
+	})
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
