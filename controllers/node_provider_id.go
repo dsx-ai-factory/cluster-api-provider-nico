@@ -39,6 +39,9 @@ func newWorkloadClusterClient(ctx context.Context, managementClient client.Clien
 	if err != nil {
 		return nil, fmt.Errorf("parse workload cluster kubeconfig: %w", err)
 	}
+	if restConfig.ExecProvider != nil {
+		return nil, fmt.Errorf("workload cluster kubeconfig must not use an exec credential plugin")
+	}
 	restConfig.Timeout = 10 * time.Second
 
 	workloadClient, err := client.New(restConfig, client.Options{Scheme: managementClient.Scheme()})

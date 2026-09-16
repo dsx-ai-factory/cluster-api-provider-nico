@@ -250,6 +250,28 @@ func createWorkloadKubeconfigSecret(ctx context.Context, tc *fixtures.Case) erro
 	})
 }
 
+func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
+	const contextName = "exec"
+	return clientcmd.Write(clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			contextName: {Server: server},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			contextName: {
+				Exec: &clientcmdapi.ExecConfig{
+					APIVersion:      "client.authentication.k8s.io/v1",
+					Command:         "must-not-run",
+					InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+				},
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {Cluster: contextName, AuthInfo: contextName},
+		},
+		CurrentContext: contextName,
+	})
+}
+
 // startReconcilers runs both reconcilers against the case's API server.
 func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case) {
 	defaultNicoClientCache = nico.NewClientCache()
