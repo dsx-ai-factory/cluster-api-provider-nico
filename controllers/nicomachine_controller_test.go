@@ -144,6 +144,19 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
 	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
+
+	ginkgo.By("rejecting exec credential plugins in workload kubeconfigs")
+	execKubeconfig, err := workloadKubeconfigWithExecProvider(tc.Config.Host)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	execCluster := client.ObjectKey{Namespace: testNamespace, Name: "exec-provider"}
+	execKubeconfigSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: execCluster.Namespace, Name: execCluster.Name + "-kubeconfig"},
+		Data:       map[string][]byte{workloadKubeconfigDataKey: execKubeconfig},
+	}
+	gomega.Expect(tc.Client.Create(ctx, execKubeconfigSecret)).To(gomega.Succeed())
+	workloadClient, err := newWorkloadClusterClient(ctx, tc.Client, execCluster)
+	gomega.Expect(workloadClient).To(gomega.BeNil())
+	gomega.Expect(err).To(gomega.MatchError("workload cluster kubeconfig must not use an exec credential plugin"))
 }
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
