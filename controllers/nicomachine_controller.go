@@ -156,6 +156,15 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// between create and patch can never orphan an instance.
 		return ctrl.Result{Requeue: true}, nil
 	}
+	defer func() {
+		// Once providerID is known, keep Node reconciliation independent from
+		// NICo API availability and preserve whichever requeue is sooner.
+		nodeResult, nodeErr := r.reconcileNodeProviderID(ctx, ownerMachine, cluster, &nicoMachine)
+		retErr = errors.Join(retErr, nodeErr)
+		if !nodeResult.IsZero() && (result.IsZero() || (result.RequeueAfter > 0 && nodeResult.RequeueAfter < result.RequeueAfter)) {
+			result = nodeResult
+		}
+	}()
 
 	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
 	if err != nil {
