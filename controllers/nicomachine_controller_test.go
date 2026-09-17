@@ -71,6 +71,13 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 	"nicomachine-create-provisioned-",
 	func(tc *fixtures.Case, _ fixtures.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
+			var workloadClient client.Client
+			if tc.HasInput("input_workload_client_objects.yaml") {
+				var err error
+				workloadClient, err = newWorkloadClusterClient(ctx, tc.Client, client.ObjectKey{Namespace: testNamespace, Name: testWorkloadCluster})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachine := &infrav1.NicoMachine{}
 				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
@@ -82,20 +89,24 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 				if tc.HasInput("input_workload_client_objects.yaml") {
 					nodes := &corev1.NodeList{}
-					g.Expect(tc.Client.List(ctx, nodes)).To(gomega.Succeed())
+					g.Expect(workloadClient.List(ctx, nodes)).To(gomega.Succeed())
 					g.Expect(nodes.Items).To(gomega.HaveLen(1))
 					g.Expect(nodes.Items[0].Spec.ProviderID).To(gomega.Equal(nicoMachine.Spec.ProviderID))
+
+					managementNode := &corev1.Node{}
+					g.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: testOwnerMachine}, managementNode)).To(gomega.Succeed())
+					g.Expect(managementNode.Spec.ProviderID).To(gomega.BeEmpty())
 				}
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 
 			if tc.HasInput("input_workload_client_objects.yaml") {
-				assertNodeProviderIDReconciliation(ctx, tc)
+				assertNodeProviderIDReconciliation(ctx, tc, workloadClient)
 			}
 		})
 	},
 ))
 
-func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Case) {
+func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Case, workloadClient client.Client) {
 	ginkgo.By("leaving an already matching providerID unchanged")
 	machine := &clusterv1.Machine{}
 	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testOwnerMachine}, machine)).To(gomega.Succeed())
@@ -106,17 +117,17 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 
 	reconciler := &NicoMachineReconciler{Client: tc.Client}
 	node := &corev1.Node{}
-	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	matchingResourceVersion := node.ResourceVersion
 
 	result, err := reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
-	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	gomega.Expect(node.ResourceVersion).To(gomega.Equal(matchingResourceVersion))
 
 	ginkgo.By("waiting when the workload Node has not registered")
-	gomega.Expect(tc.Client.Delete(ctx, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Delete(ctx, node)).To(gomega.Succeed())
 	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(result.RequeueAfter).To(gomega.Equal(machineRequeueFast))
@@ -127,11 +138,11 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 		ObjectMeta: metav1.ObjectMeta{Name: machine.Name},
 		Spec:       corev1.NodeSpec{ProviderID: conflictingProviderID},
 	}
-	gomega.Expect(tc.Client.Create(ctx, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Create(ctx, node)).To(gomega.Succeed())
 	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
 	gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring("has providerID")))
 	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
-	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
 
 	ginkgo.By("leaving providerID ownership to an external CCM when opted out")
@@ -142,7 +153,7 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
-	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
 
 	ginkgo.By("using Machine status nodeRef to select the workload Node")
@@ -150,14 +161,17 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 	nodeRefName := "node-ref-1"
 	machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: nodeRefName}
 	nodeRefNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeRefName}}
-	gomega.Expect(tc.Client.Create(ctx, nodeRefNode)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Create(ctx, nodeRefNode)).To(gomega.Succeed())
 	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
-	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: nodeRefName}, nodeRefNode)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Get(ctx, client.ObjectKey{Name: nodeRefName}, nodeRefNode)).To(gomega.Succeed())
 	gomega.Expect(nodeRefNode.Spec.ProviderID).To(gomega.Equal(nicoMachine.Spec.ProviderID))
-	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(workloadClient.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
+	managementNode := &corev1.Node{}
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, managementNode)).To(gomega.Succeed())
+	gomega.Expect(managementNode.Spec.ProviderID).To(gomega.BeEmpty())
 
 	ginkgo.By("rejecting exec credential plugins in workload kubeconfigs")
 	execKubeconfig, err := workloadKubeconfigWithExecProvider(tc.Config.Host)
@@ -168,8 +182,8 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 		Data:       map[string][]byte{workloadKubeconfigDataKey: execKubeconfig},
 	}
 	gomega.Expect(tc.Client.Create(ctx, execKubeconfigSecret)).To(gomega.Succeed())
-	workloadClient, err := newWorkloadClusterClient(ctx, tc.Client, execCluster)
-	gomega.Expect(workloadClient).To(gomega.BeNil())
+	execWorkloadClient, err := newWorkloadClusterClient(ctx, tc.Client, execCluster)
+	gomega.Expect(execWorkloadClient).To(gomega.BeNil())
 	gomega.Expect(err).To(gomega.MatchError("workload cluster kubeconfig must not use an exec credential plugin"))
 }
 

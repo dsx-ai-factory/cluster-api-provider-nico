@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -221,18 +222,45 @@ func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint st
 }
 
 func createWorkloadKubeconfigSecret(ctx context.Context, tc *fixtures.Case) error {
+	workloadEnvironment := &envtest.Environment{}
+	workloadConfig, err := workloadEnvironment.Start()
+	if err != nil {
+		return fmt.Errorf("start workload envtest: %w", err)
+	}
+	ginkgo.DeferCleanup(func(context.Context) error {
+		return workloadEnvironment.Stop()
+	}, ginkgo.NodeTimeout(time.Minute))
+
+	workloadClient, err := client.New(workloadConfig, client.Options{Scheme: tc.Scheme})
+	if err != nil {
+		return fmt.Errorf("create workload envtest client: %w", err)
+	}
+	// Keep the fixture Nodes in the management API server as unchanged controls,
+	// and copy them into the isolated workload API server for reconciliation.
+	nodes := &corev1.NodeList{}
+	if err := tc.Client.List(ctx, nodes); err != nil {
+		return fmt.Errorf("list workload fixture Nodes: %w", err)
+	}
+	for i := range nodes.Items {
+		node := nodes.Items[i].DeepCopy()
+		node.ObjectMeta = metav1.ObjectMeta{Name: node.Name}
+		if err := workloadClient.Create(ctx, node); err != nil {
+			return fmt.Errorf("create workload Node %q: %w", node.Name, err)
+		}
+	}
+
 	const contextName = "envtest"
 	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{
 			contextName: {
-				Server:                   tc.Config.Host,
-				CertificateAuthorityData: tc.Config.CAData,
+				Server:                   workloadConfig.Host,
+				CertificateAuthorityData: workloadConfig.CAData,
 			},
 		},
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{
 			contextName: {
-				ClientCertificateData: tc.Config.CertData,
-				ClientKeyData:         tc.Config.KeyData,
+				ClientCertificateData: workloadConfig.CertData,
+				ClientKeyData:         workloadConfig.KeyData,
 			},
 		},
 		Contexts: map[string]*clientcmdapi.Context{
