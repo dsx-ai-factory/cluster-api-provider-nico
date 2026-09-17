@@ -145,6 +145,20 @@ func assertNodeProviderIDReconciliation(ctx ginkgo.SpecContext, tc *fixtures.Cas
 	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
 	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
 
+	ginkgo.By("using Machine status nodeRef to select the workload Node")
+	delete(cluster.Annotations, skipNodeProviderIDReconciliationAnnotation)
+	nodeRefName := "node-ref-1"
+	machine.Status.NodeRef = clusterv1.MachineNodeReference{Name: nodeRefName}
+	nodeRefNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeRefName}}
+	gomega.Expect(tc.Client.Create(ctx, nodeRefNode)).To(gomega.Succeed())
+	result, err = reconciler.reconcileNodeProviderID(ctx, machine, cluster, nicoMachine)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(result.IsZero()).To(gomega.BeTrue())
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: nodeRefName}, nodeRefNode)).To(gomega.Succeed())
+	gomega.Expect(nodeRefNode.Spec.ProviderID).To(gomega.Equal(nicoMachine.Spec.ProviderID))
+	gomega.Expect(tc.Client.Get(ctx, client.ObjectKey{Name: machine.Name}, node)).To(gomega.Succeed())
+	gomega.Expect(node.Spec.ProviderID).To(gomega.Equal(conflictingProviderID))
+
 	ginkgo.By("rejecting exec credential plugins in workload kubeconfigs")
 	execKubeconfig, err := workloadKubeconfigWithExecProvider(tc.Config.Host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
