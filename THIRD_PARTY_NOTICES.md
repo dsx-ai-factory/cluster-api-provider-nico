@@ -95,7 +95,7 @@ commands are not listed, because they are not distributed.
 | [k8s.io/utils/internal/third_party/forked/golang](https://github.com/kubernetes/utils/blob/be93311217bd/internal/third_party/forked/golang/LICENSE) | BSD-3-Clause | — |
 | [k8s.io/utils/third_party/forked/golang/btree](https://github.com/kubernetes/utils/blob/be93311217bd/third_party/forked/golang/btree/LICENSE) | Apache-2.0 | k8s.io/utils@v0.0.0-20260626114624-be93311217bd |
 | [sigs.k8s.io/cluster-api](https://github.com/kubernetes-sigs/cluster-api/blob/v1.13.4/LICENSE) | Apache-2.0 | — |
-| [sigs.k8s.io/controller-runtime](https://github.com/kubernetes-sigs/controller-runtime/blob/v0.25.0/LICENSE) | Apache-2.0 | sigs.k8s.io/controller-runtime@v0.25.0 |
+| [sigs.k8s.io/controller-runtime](https://github.com/kubernetes-sigs/controller-runtime/blob/v0.25.1/LICENSE) | Apache-2.0 | sigs.k8s.io/controller-runtime@v0.25.1 |
 | [sigs.k8s.io/json](https://github.com/kubernetes-sigs/json/blob/2d320260d730/LICENSE) | Apache-2.0 / BSD-3-Clause | sigs.k8s.io/json@v0.0.0-20250730193827-2d320260d730 |
 | [sigs.k8s.io/randfill](https://github.com/kubernetes-sigs/randfill/blob/v1.0.0/LICENSE) | Apache-2.0 | sigs.k8s.io/randfill@v1.0.0 |
 | [sigs.k8s.io/structured-merge-diff/v6](https://github.com/kubernetes-sigs/structured-merge-diff/blob/v6.4.2/LICENSE) | Apache-2.0 | — |
