@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -21,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -36,7 +39,8 @@ import (
 
 const (
 	// testNamespace is where every case's objects live.
-	testNamespace = "default"
+	testNamespace       = "default"
+	testWorkloadCluster = "cluster-1"
 )
 
 // caseFakes keeps each case's fake reachable from its assertions. Cases run in
@@ -215,6 +219,85 @@ func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint st
 	secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
 
 	return c.Update(ctx, secret)
+}
+
+func createWorkloadKubeconfigSecret(ctx context.Context, tc *fixtures.Case) error {
+	workloadEnvironment := &envtest.Environment{}
+	workloadConfig, err := workloadEnvironment.Start()
+	if err != nil {
+		return fmt.Errorf("start workload envtest: %w", err)
+	}
+	ginkgo.DeferCleanup(func(context.Context) error {
+		return workloadEnvironment.Stop()
+	}, ginkgo.NodeTimeout(time.Minute))
+
+	workloadClient, err := client.New(workloadConfig, client.Options{Scheme: tc.Scheme})
+	if err != nil {
+		return fmt.Errorf("create workload envtest client: %w", err)
+	}
+	// Keep the fixture Nodes in the management API server as unchanged controls,
+	// and copy them into the isolated workload API server for reconciliation.
+	nodes := &corev1.NodeList{}
+	if err := tc.Client.List(ctx, nodes); err != nil {
+		return fmt.Errorf("list workload fixture Nodes: %w", err)
+	}
+	for i := range nodes.Items {
+		node := nodes.Items[i].DeepCopy()
+		node.ObjectMeta = metav1.ObjectMeta{Name: node.Name}
+		if err := workloadClient.Create(ctx, node); err != nil {
+			return fmt.Errorf("create workload Node %q: %w", node.Name, err)
+		}
+	}
+
+	const contextName = "envtest"
+	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			contextName: {
+				Server:                   workloadConfig.Host,
+				CertificateAuthorityData: workloadConfig.CAData,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			contextName: {
+				ClientCertificateData: workloadConfig.CertData,
+				ClientKeyData:         workloadConfig.KeyData,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {Cluster: contextName, AuthInfo: contextName},
+		},
+		CurrentContext: contextName,
+	})
+	if err != nil {
+		return fmt.Errorf("build workload kubeconfig: %w", err)
+	}
+
+	return tc.Client.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testWorkloadCluster + "-kubeconfig"},
+		Data:       map[string][]byte{workloadKubeconfigDataKey: kubeconfig},
+	})
+}
+
+func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
+	const contextName = "exec"
+	return clientcmd.Write(clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			contextName: {Server: server},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			contextName: {
+				Exec: &clientcmdapi.ExecConfig{
+					APIVersion:      "client.authentication.k8s.io/v1",
+					Command:         "must-not-run",
+					InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+				},
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {Cluster: contextName, AuthInfo: contextName},
+		},
+		CurrentContext: contextName,
+	})
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
