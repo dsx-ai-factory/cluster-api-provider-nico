@@ -1,0 +1,2 @@
+- name: machine-1
+  providerID: nico://instance-00000001

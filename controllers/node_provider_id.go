@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -24,17 +25,9 @@ const (
 	workloadKubeconfigDataKey                  = "value"
 )
 
-func newWorkloadClusterClient(ctx context.Context, managementClient client.Client, cluster client.ObjectKey) (client.Client, error) {
-	kubeconfigSecret := &corev1.Secret{}
-	kubeconfigSecretKey := client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Name + "-kubeconfig"}
-	if err := managementClient.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
-		return nil, fmt.Errorf("get workload cluster kubeconfig: %w", err)
-	}
-	kubeconfig, ok := kubeconfigSecret.Data[workloadKubeconfigDataKey]
-	if !ok {
-		return nil, fmt.Errorf("workload cluster kubeconfig Secret %s is missing data key %q", kubeconfigSecretKey, workloadKubeconfigDataKey)
-	}
+type workloadClientFactory func(kubeconfig []byte, scheme *runtime.Scheme) (client.Client, error)
 
+func newWorkloadClusterClient(kubeconfig []byte, scheme *runtime.Scheme) (client.Client, error) {
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("parse workload cluster kubeconfig: %w", err)
@@ -44,11 +37,18 @@ func newWorkloadClusterClient(ctx context.Context, managementClient client.Clien
 	}
 	restConfig.Timeout = 10 * time.Second
 
-	workloadClient, err := client.New(restConfig, client.Options{Scheme: managementClient.Scheme()})
+	workloadClient, err := client.New(restConfig, client.Options{Scheme: scheme})
 	if err != nil {
 		return nil, fmt.Errorf("create workload cluster client: %w", err)
 	}
 	return workloadClient, nil
+}
+
+func (r *NicoMachineReconciler) workloadClientFactory() workloadClientFactory {
+	if r.WorkloadClientFactory != nil {
+		return r.WorkloadClientFactory
+	}
+	return newWorkloadClusterClient
 }
 
 func (r *NicoMachineReconciler) reconcileNodeProviderID(
@@ -67,12 +67,22 @@ func (r *NicoMachineReconciler) reconcileNodeProviderID(
 		return ctrl.Result{}, nil
 	}
 
-	workloadClient, err := newWorkloadClusterClient(ctx, r.Client, client.ObjectKeyFromObject(cluster))
-	if err != nil {
+	kubeconfigSecretKey := client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Name + "-kubeconfig"}
+	kubeconfigSecret := &corev1.Secret{}
+	if err := r.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
 		if apierrors.IsNotFound(err) {
 			ctrl.LoggerFrom(ctx).V(1).Info("Waiting for workload cluster kubeconfig")
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
+		return ctrl.Result{}, fmt.Errorf("get workload cluster kubeconfig: %w", err)
+	}
+	kubeconfig, ok := kubeconfigSecret.Data[workloadKubeconfigDataKey]
+	if !ok {
+		return ctrl.Result{}, fmt.Errorf("workload cluster kubeconfig Secret %s is missing data key %q", kubeconfigSecretKey, workloadKubeconfigDataKey)
+	}
+
+	workloadClient, err := r.workloadClientFactory()(kubeconfig, r.Scheme)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get workload cluster client: %w", err)
 	}
 
@@ -94,15 +104,14 @@ func (r *NicoMachineReconciler) reconcileNodeProviderID(
 		return ctrl.Result{}, nil
 	}
 	if node.Spec.ProviderID != "" {
-		return ctrl.Result{}, fmt.Errorf(
-			"workload cluster Node %q has providerID %q, expected %q; set %s=true on Cluster %s/%s when an external cloud provider owns providerID",
-			nodeName,
-			node.Spec.ProviderID,
-			nicoMachine.Spec.ProviderID,
-			skipNodeProviderIDReconciliationAnnotation,
-			cluster.Namespace,
-			cluster.Name,
+		ctrl.LoggerFrom(ctx).Info(
+			"workload cluster Node has a different providerID",
+			"node", nodeName,
+			"providerID", node.Spec.ProviderID,
+			"expectedProviderID", nicoMachine.Spec.ProviderID,
+			"optOutAnnotation", skipNodeProviderIDReconciliationAnnotation,
 		)
+		return ctrl.Result{}, nil
 	}
 
 	patch := client.StrategicMergeFrom(node.DeepCopy(), client.MergeFromWithOptimisticLock{})

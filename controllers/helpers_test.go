@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -26,10 +26,12 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/yaml"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
@@ -221,61 +223,49 @@ func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint st
 	return c.Update(ctx, secret)
 }
 
-func createWorkloadKubeconfigSecret(ctx context.Context, tc *fixtures.Case) error {
-	workloadEnvironment := &envtest.Environment{}
-	workloadConfig, err := workloadEnvironment.Start()
-	if err != nil {
-		return fmt.Errorf("start workload envtest: %w", err)
-	}
-	ginkgo.DeferCleanup(func(context.Context) error {
-		return workloadEnvironment.Stop()
-	}, ginkgo.NodeTimeout(time.Minute))
-
-	workloadClient, err := client.New(workloadConfig, client.Options{Scheme: tc.Scheme})
-	if err != nil {
-		return fmt.Errorf("create workload envtest client: %w", err)
-	}
-	// Keep the fixture Nodes in the management API server as unchanged controls,
-	// and copy them into the isolated workload API server for reconciliation.
-	nodes := &corev1.NodeList{}
-	if err := tc.Client.List(ctx, nodes); err != nil {
-		return fmt.Errorf("list workload fixture Nodes: %w", err)
-	}
-	for i := range nodes.Items {
-		node := nodes.Items[i].DeepCopy()
-		node.ObjectMeta = metav1.ObjectMeta{Name: node.Name}
-		if err := workloadClient.Create(ctx, node); err != nil {
-			return fmt.Errorf("create workload Node %q: %w", node.Name, err)
+func seedWorkloadClient(tc *fixtures.Case) (workloadClientFactory, client.Client, error) {
+	builder := crfake.NewClientBuilder().WithScheme(tc.Scheme)
+	if input, ok := tc.Input("input_workload_objects.yaml"); ok {
+		nodes := []corev1.Node{}
+		if err := yaml.Unmarshal([]byte(input), &nodes); err != nil {
+			return nil, nil, fmt.Errorf("decode input_workload_objects.yaml: %w", err)
+		}
+		for i := range nodes {
+			builder = builder.WithObjects(&nodes[i])
 		}
 	}
+	workloadClient := builder.Build()
+	return fixedWorkloadClientFactory(workloadClient), workloadClient, nil
+}
 
-	const contextName = "envtest"
-	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{
-			contextName: {
-				Server:                   workloadConfig.Host,
-				CertificateAuthorityData: workloadConfig.CAData,
-			},
-		},
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			contextName: {
-				ClientCertificateData: workloadConfig.CertData,
-				ClientKeyData:         workloadConfig.KeyData,
-			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			contextName: {Cluster: contextName, AuthInfo: contextName},
-		},
-		CurrentContext: contextName,
-	})
-	if err != nil {
-		return fmt.Errorf("build workload kubeconfig: %w", err)
+func fixedWorkloadClientFactory(workloadClient client.Client) workloadClientFactory {
+	return func([]byte, *runtime.Scheme) (client.Client, error) {
+		return workloadClient, nil
+	}
+}
+
+type workloadNode struct {
+	Name       string `json:"name"`
+	ProviderID string `json:"providerID,omitempty"`
+}
+
+func dumpWorkloadNodes(ctx context.Context, workloadClient client.Client) (string, error) {
+	nodes := &corev1.NodeList{}
+	if err := workloadClient.List(ctx, nodes); err != nil {
+		return "", fmt.Errorf("list workload cluster Nodes: %w", err)
 	}
 
-	return tc.Client.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testWorkloadCluster + "-kubeconfig"},
-		Data:       map[string][]byte{workloadKubeconfigDataKey: kubeconfig},
-	})
+	items := make([]workloadNode, 0, len(nodes.Items))
+	for i := range nodes.Items {
+		items = append(items, workloadNode{Name: nodes.Items[i].Name, ProviderID: nodes.Items[i].Spec.ProviderID})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+
+	out, err := yaml.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("encode workload cluster Nodes: %w", err)
+	}
+	return string(out), nil
 }
 
 func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
@@ -301,7 +291,7 @@ func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
-func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case) {
+func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case, workloadFactory workloadClientFactory) {
 	defaultNicoClientCache = nico.NewClientCache()
 	mgr, err := manager.New(tc.Config, manager.Options{
 		Scheme:  tc.Scheme,
@@ -312,7 +302,11 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
-	gomega.Expect((&NicoMachineReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+	gomega.Expect((&NicoMachineReconciler{
+		Client:                mgr.GetClient(),
+		Scheme:                tc.Scheme,
+		WorkloadClientFactory: workloadFactory,
+	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
 }

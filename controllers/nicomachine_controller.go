@@ -81,6 +81,10 @@ type NicoMachineReconciler struct {
 	Scheme           *runtime.Scheme
 	ProviderConfig   nico.ProviderConfig
 	WatchFilterValue string
+
+	// WorkloadClientFactory overrides workload cluster client construction.
+	// When unset, clients are built from the workload cluster kubeconfig.
+	WorkloadClientFactory workloadClientFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch

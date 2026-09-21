@@ -52,7 +52,7 @@ func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture
 
 			endpoint := startFake(server)
 			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
-			startReconcilers(ctx, tc)
+			startReconcilers(ctx, tc, nil)
 		},
 		DefineSteps: defineSteps,
 	}
