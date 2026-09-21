@@ -28,8 +28,8 @@ the same image whenever they name the same commit.
 | Registry | Audience | Receives |
 | --- | --- | --- |
 | NVCR, at `NVCR_NKE_IMAGE` and `NVCR_DSX_IMAGE` | NVIDIA-internal | every `main` commit as `sha-<commit>`, `edge` and `latest`, plus every tag |
-| `ghcr.io/nvidia/cluster-api-provider-nico/controller` | ⚠️ see below | tagged versions only, release candidates included |
-| `ghcr.io/nvidia/cluster-api-provider-nico/charts` | ⚠️ see below | the Helm chart, as `capi-provider-nico` |
+| `ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller` | ⚠️ see below | tagged versions only, release candidates included |
+| `ghcr.io/dsx-ai-factory/cluster-api-provider-nico/charts` | ⚠️ see below | the Helm chart, as `capi-provider-nico` |
 
 ⚠️ **GHCR packages are not public yet.** This repository is `internal`, and a new
 GHCR package inherits that visibility rather than taking it from the registry.
@@ -72,8 +72,12 @@ the central promoter to act on, which has no equivalent here.
    for the version. The preview is advisory and `CHANGELOG.md` is not updated.
    `git-cliff` must be installed and available on `PATH` to run the preview.
 
-2. **Update `metadata.yaml`** if the major or minor version is new, or if the
-   Cluster API contract version supported by this release differs from the previous one.
+2. **Check for a breaking change, then update `metadata.yaml` if needed.**
+   Diff `api/v1alpha1/` and `config/crd/bases/` against the previous stable
+   tag. A field removed, renamed, or changed in meaning is breaking under
+   **Versioning** above and needs a MAJOR bump. Update `metadata.yaml` if the
+   major or minor version is new, or if the Cluster API contract version
+   supported by this release differs from the previous one.
 
 3. **Ensure the intended release commit is on `main`** and its required checks
    have passed. If step 2 required a change, commit it and merge it through a
@@ -91,7 +95,7 @@ the central promoter to act on, which has no equivalent here.
    - **Tag NVCR** repoints `<tag>` at the `sha-<commit>` digest in both NGC
      orgs. Nothing is uploaded.
    - **Promote to GHCR** copies that digest to
-     `ghcr.io/nvidia/cluster-api-provider-nico/controller:<tag>`, plus the
+     `ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller:<tag>`, plus the
      matching `sha-<commit>` tag, and records the digest in the job summary.
    - **SBOM** generates an SPDX SBOM per architecture, addressing each one by
      digest, and uploads them as workflow artifacts.
@@ -103,7 +107,7 @@ the central promoter to act on, which has no equivalent here.
      `oci://nvcr.io/j7sbcjl3qgta`.
    - **Chart (GHCR)** packages the chart with its image repository pointing at
      the promoted GHCR image and pushes it to
-     `oci://ghcr.io/nvidia/cluster-api-provider-nico/charts`. It fails if the
+     `oci://ghcr.io/dsx-ai-factory/cluster-api-provider-nico/charts`. It fails if the
      rendered manager still names an NVCR image, because that failure would
      otherwise surface only at install time.
    - **Create GitHub Release** creates the release as a **draft**, asks GitHub
@@ -125,7 +129,7 @@ the central promoter to act on, which has no equivalent here.
      > Re-running the failed job also works — it finds the draft, re-uploads,
      > and publishes.
 
-   The jobs that reach NVCR are restricted to `NVIDIA/cluster-api-provider-nico`,
+   The jobs that reach NVCR are restricted to `dsx-ai-factory/cluster-api-provider-nico`,
    and the GHCR promotion reads from NVCR, so the workflow no-ops in a fork —
    including the GitHub Release, which depends on that promotion. Destinations
    and credentials come from the `nvcr` environment: the variables
@@ -134,9 +138,9 @@ the central promoter to act on, which has no equivalent here.
    fails the job with a named error rather than pushing somewhere unintended.
 
 6. **Verify**
-   - GitHub Release: `https://github.com/NVIDIA/cluster-api-provider-nico/releases`
-   - GHCR image: `ghcr.io/nvidia/cluster-api-provider-nico/controller:v<VERSION>`
-   - GHCR chart: `helm pull oci://ghcr.io/nvidia/cluster-api-provider-nico/charts/capi-provider-nico --version <VERSION>`
+   - GitHub Release: `https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases`
+   - GHCR image: `ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller:v<VERSION>`
+   - GHCR chart: `helm pull oci://ghcr.io/dsx-ai-factory/cluster-api-provider-nico/charts/capi-provider-nico --version <VERSION>`
    - NVCR images: `<NVCR_NKE_IMAGE>:v<VERSION>` and `<NVCR_DSX_IMAGE>:v<VERSION>`
    - NGC chart: `ngc registry chart info <DSX_NGC_ORG>/<DSX_NGC_TEAM>/capi-provider-nico`
    - NKE chart: `helm pull oci://nvcr.io/j7sbcjl3qgta/capi-provider-nico --version <VERSION>`
@@ -144,7 +148,7 @@ the central promoter to act on, which has no equivalent here.
 
      ```bash
      make crane
-     bin/crane digest ghcr.io/nvidia/cluster-api-provider-nico/controller:v<VERSION>
+     bin/crane digest ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller:v<VERSION>
      bin/crane digest <NVCR_NKE_IMAGE>:v<VERSION>
      ```
 

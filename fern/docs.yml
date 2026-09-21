@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
+
+instances:
+  - url: cluster-api-provider-nico.docs.buildwithfern.com/cluster-api-provider-nico
+    custom-domain: docs.nvidia.com/cluster-api-provider-nico
+    multi-source: true
+title: NVIDIA Cluster API Provider for NICo
+global-theme: nvidia
+metadata:
+  canonical-host: "docs.nvidia.com/cluster-api-provider-nico"
+products:
+  - display-name: cluster-api-provider-nico
+    slug: /
+    path: ../docs/index.yml
+    versions:
+      # display-name is stamped "Latest · vX.Y.Z" by publish-fern-docs.yml at publish time.
+      - display-name: "Latest"
+        path: ../docs/index.yml
+        slug: latest
+        availability: stable
+redirects:
+  - source: "/cluster-api-provider-nico/index.html"
+    destination: "/cluster-api-provider-nico/"
+logo:
+  href: /cluster-api-provider-nico
+  right-text: Documentation
+navbar-links:
+  - type: github
+    value: https://github.com/dsx-ai-factory/cluster-api-provider-nico

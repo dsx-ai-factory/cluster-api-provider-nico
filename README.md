@@ -1,9 +1,9 @@
 # cluster-api-provider-nico
 
-[![Test](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/test.yml/badge.svg)](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/test.yml)
-[![Lint](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/lint.yml/badge.svg)](https://github.com/NVIDIA/cluster-api-provider-nico/actions/workflows/lint.yml)
-[![License](https://img.shields.io/github/license/NVIDIA/cluster-api-provider-nico)](LICENSE)
-[![Latest Release](https://img.shields.io/github/v/release/NVIDIA/cluster-api-provider-nico?include_prereleases)](https://github.com/NVIDIA/cluster-api-provider-nico/releases)
+[![Test](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/test.yml/badge.svg)](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/test.yml)
+[![Lint](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/lint.yml/badge.svg)](https://github.com/dsx-ai-factory/cluster-api-provider-nico/actions/workflows/lint.yml)
+[![License](https://img.shields.io/github/license/dsx-ai-factory/cluster-api-provider-nico)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/dsx-ai-factory/cluster-api-provider-nico?include_prereleases)](https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases)
 
 Kubernetes Cluster API (CAPI) infrastructure provider to provision bare metal nodes in [NVIDIA Infra Controller (NICo)](https://github.com/NVIDIA/infra-controller).
 
@@ -25,14 +25,9 @@ each requested machine into a NICo instance on real hardware.
   credentials, supplied through a Secret.
 - **Per-cluster credentials.** `NicoCluster` may reference its own Secret, so one
   management cluster can drive several sites.
-- **Credential rotation without a restart.** Clients are cached per Secret
-  `resourceVersion`, so an external rotation is picked up on the next reconcile.
-- **Idempotent instance creation.** A create conflict resolves by looking up the
-  existing instance by name rather than failing or duplicating.
 - **External control-plane endpoints**, including a kube-vip template and a
   developer flow for a single requested IP.
 - **Machine repair and reboot**, both driven by annotations.
-- **An ordered deletion lifecycle**, guarded by a finalizer.
 
 ## How this fits with other tools
 
@@ -60,19 +55,39 @@ same objects, and this provider satisfies them with NICo hardware.
   reconciliation and what the finalizer guards, provider ID and node matching,
   teardown order, and the annotation-driven repair and reboot contracts.
   **Read this before changing controller behaviour.**
+- [docs/api-reference.md](docs/api-reference.md): field-by-field reference
+  for all four CRDs and every condition and reason
+- [docs/troubleshooting.md](docs/troubleshooting.md): symptom, cause, and
+  fix for problems beyond getting-started.md's stall-reason table
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and the pull-request flow
 - [RELEASE.md](RELEASE.md) — versioning and the Cluster API contract
 - [SECURITY.md](SECURITY.md) — vulnerability reporting
 - [NICo documentation](https://docs.nvidia.com/infra-controller/) — the
   infrastructure this provider drives
 
+## Compatibility
+
+CAPNICo tracks two independent version axes: the Cluster API **contract** it
+implements, and the `sigs.k8s.io/cluster-api` **module** version it is built
+and tested against. A newer module version does not by itself mean a newer
+contract.
+
+| CAPNICo release series | CAPI contract | Built against `sigs.k8s.io/cluster-api` |
+|---|---|---|
+| 0.0.x | v1beta2 | v1.13.4 |
+
+`metadata.yaml` records the contract per release series; see
+[RELEASE.md](RELEASE.md) for when it changes.
+
+**Support level:** Experimental.
+
 ## Community and support
 
 - **Questions and discussion** — ask in
-  [GitHub Discussions](https://github.com/NVIDIA/cluster-api-provider-nico/discussions/categories/q-a),
+  [GitHub Discussions](https://github.com/dsx-ai-factory/cluster-api-provider-nico/discussions/categories/q-a),
   where an answer can be marked as the accepted one.
 - **Bug reports and feature requests** — open a
-  [GitHub issue](https://github.com/NVIDIA/cluster-api-provider-nico/issues).
+  [GitHub issue](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues).
 - **Code of Conduct** — everyone taking part is expected to follow the
   [Code of Conduct](CODE_OF_CONDUCT.md).
 - **Security** — report vulnerabilities as described in [SECURITY.md](SECURITY.md).
@@ -81,7 +96,6 @@ same objects, and this provider satisfies them with NICo hardware.
   provider, the upstream project runs `#cluster-api` on
   [Kubernetes Slack](https://slack.k8s.io/), and the
   [Cluster API book](https://cluster-api.sigs.k8s.io/) covers the core concepts.
-- **Support level** — Experimental.
 
 ## How It Works
 
@@ -134,98 +148,30 @@ The `NicoMachine`'s iPXE script must boot an OS image that can consume kubeadm c
 
 ## Local development (no NICo access needed)
 
-`make tilt-up` creates a local kind cluster, brings up Cluster API core, installs
-CAPNICo through its native Helm chart, and runs it against the fake NICo
-endpoint shipped in this repository. No hardware and no access to a real NICo
-deployment is required.
+`make tilt-up` creates a local kind cluster, installs CAPNICo, and runs it
+against the fake NICo endpoint shipped in this repository. It needs no
+hardware and no access to a real NICo deployment.
 
 ```bash
-# Create the kind cluster and start Tilt; the web UI is on localhost:10352
-make tilt-up
-```
-
-The Tilt UI deliberately avoids Tilt's default port of 10350, so this loop runs
-alongside another Cluster API development environment on the same machine.
-Override `CAPNICO_TILT_PORT` if 10352 is taken too.
-
-In a second terminal, point kubectl at the local cluster and apply the worked
-example:
-
-```bash
+make tilt-up                                   # web UI on localhost:10352
 export KUBECONFIG=~/.kube/capnico.kubeconfig   # or: eval "$(make kubeconfig)"
-
 kubectl apply -f examples/cluster-fake.yaml
-kubectl get nicoclusters,nicomachines
 ```
 
-Tear everything down with `make tilt-down`.
+See [docs/development.md](docs/development.md) for the complete workflow,
+fake-NICo seeding, and test commands.
 
-To run just the fake endpoint on its own, without Kubernetes:
-
-```bash
-make run-fake   # serves the NICo API surface on :8090
-```
-
-See [docs/development.md](docs/development.md) for the complete development
-workflow and test commands.
-
-### Failure domains
+## Failure domains
 
 CapNICo implements the Cluster API failure domain contract so control-plane
-machines can be spread across correlated-failure boundaries such as rack groups.
+machines can be spread across correlated-failure boundaries such as rack
+groups. `NicoCluster.status.failureDomains` lists the domains NICo offers for
+the cluster's site, and `NicoCluster.spec.failureDomainLabelKey` selects
+which NICo Machine label carries the domain name. An unset key disables the
+feature entirely.
 
-* `NicoCluster.status.failureDomains` lists the domains NICo offers for the
-  cluster's site. Cluster API copies this to `Cluster.status.failureDomains`.
-* The control-plane provider selects a domain and sets `spec.failureDomain` on
-  each `Machine`.
-* CapNICo discovers domain names from the labels on the site's Machines that
-  have an Instance Type. For a requested domain, it sends
-  `machineLabelSelector: {"failure_domain":"<domain>"}` with the instance create
-  request. NICo selects and locks a matching Machine atomically. Automatic
-  placement retains `instanceTypeId`; an explicitly configured
-  `NicoMachine.spec.machineID` retains `machineId`, and NICo validates that
-  Machine against the same selector.
-* `NicoCluster.spec.failureDomainLabelKey` selects the Machine label key. It is
-  unset by default, which disables failure domains for the cluster; NICo defines
-  no canonical key, so set it to whatever the site stamps on its Machines.
-* CapNICo reads the assigned Machine after creation and reports its label as
-  `NicoMachine.status.failureDomain`; it never copies the requested value into
-  observed status without verification. A label that changes after placement is
-  reported on the `FailureDomainDrifted` condition and does not fail an
-  already-provisioned machine.
-
-Every published domain needs Machines of every Instance Type the cluster
-provisions. A control-plane machine assigned to a domain with none retries
-placement under `FailureDomainUnavailable` and never progresses, because Cluster
-API does not reassign an existing Machine's failure domain.
-
-Failure-domain placement requires a NICo server containing
-[NVIDIA/infra-controller#5484](https://github.com/NVIDIA/infra-controller/pull/5484),
-merged to `main` on August 28, 2026. The SDK module
-`rest-api/sdk/standard` carries no semver tags, so CapNICo pins the
-pseudo-version `v0.0.0-20260901235154-eafb6b962baf`. Older servers silently
-ignore unknown JSON fields and are not compatible with this CapNICo behavior.
-The JSON field is `machineLabelSelector`; the generated Go SDK exposes
-`MachineLabelSelector` (`map[string]string`) and `SetMachineLabelSelector`.
-
-A non-empty selector requires NICo's effective `targetedInstanceCreation`
-capability for the selected site, including automatic `instanceTypeId`
-placement. Explicit `machineId` placement also requires that capability. If no
-matching Machine is available, the `NicoMachine` reports
-`FailureDomainPlacementFailed` and retries without unconstrained placement.
-Missing capability and explicit-selector mismatch are reported as non-capacity
-placement failures. There is no client-side Machine-list/create race because
-matching and allocation happen in the create operation.
-
-The same capability gates listing Machines, so an identity without it publishes
-no failure domains and the cluster provisions as it did before failure-domain
-support. Failure domains are therefore opt-in per tenant and site, with no
-feature flag.
-
-Because CapNICo reconciles and creates each Cluster API Machine independently,
-it does not use NICo's batch allocation API, even though
-`machineLabelSelector` is supported there too. CapNICo still creates one
-`NicoMachine` at a time and does not yet provide grouped NVLink co-placement.
+See [docs/architecture.md](docs/architecture.md) for the full mechanism,
+capability requirements, and placement-failure semantics.
 
 ## Install
 
@@ -272,7 +218,7 @@ CAPNICo publishes Cluster API provider artifacts in the same shape consumed by
 Generate the local artifacts with the controller image you want to publish:
 
 ```bash
-CONTROLLER_IMG=ghcr.io/nvidia/cluster-api-provider-nico/controller:v0.0.43 \
+CONTROLLER_IMG=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller:v0.0.43 \
 make release-manifests
 ```
 
@@ -299,7 +245,7 @@ does not specify one explicitly:
 providers:
   - name: nico
     type: InfrastructureProvider
-    url: https://github.com/NVIDIA/cluster-api-provider-nico/releases/download/v0.0.43/infrastructure-components.yaml
+    url: https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases/download/v0.0.43/infrastructure-components.yaml
 ```
 
 Then initialize the provider:
@@ -482,7 +428,7 @@ Set `KUBE_VIP_ADDRESS` to the stable API endpoint IP. Set
 `CONTROL_PLANE_ENDPOINT_HOST` to that IP or to a DNS name that resolves to it.
 Joining nodes require this endpoint to be reachable after kube-vip starts. By
 default, `KUBE_VIP_BGP_PEER_AS=auto` reads the peer ASN from the NICo instance
-metadata service at `/latest/meta-data/asn`. 
+metadata service at `/latest/meta-data/asn`.
 
 ```bash
 kubectl create namespace demo
@@ -516,7 +462,7 @@ then uses the same address as the Kubernetes API server endpoint.
 `CONTROL_PLANE_ENDPOINT_IP` must be an available IP in the VPC prefix and must
 have its least-significant host bit set to `1`, which is required by NICo's
 VPC-prefix linknet allocation. Do not use this template for normal clusters or
-HA control planes; use `cluster-kube-vip.yaml` instead. This is only intended 
+HA control planes; use `cluster-kube-vip.yaml` instead. This is only intended
 for development with minimal hardware requirements.
 
 ```bash

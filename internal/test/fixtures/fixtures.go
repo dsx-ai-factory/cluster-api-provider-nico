@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/yaml"
 
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/test/matchers"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/matchers"
 )
 
 const (

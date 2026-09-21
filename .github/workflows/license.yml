@@ -109,4 +109,4 @@ jobs:
         run: |
           go-licenses check ./... \
             --disallowed_types=restricted,reciprocal,forbidden,unknown \
-            --ignore github.com/NVIDIA/cluster-api-provider-nico
+            --ignore github.com/dsx-ai-factory/cluster-api-provider-nico

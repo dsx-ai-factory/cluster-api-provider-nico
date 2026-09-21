@@ -12,7 +12,7 @@ plugins:
     manifests: ./dist/install.yaml
     output: .
 projectName: cluster-api-provider-nico
-repo: github.com/NVIDIA/cluster-api-provider-nico
+repo: github.com/dsx-ai-factory/cluster-api-provider-nico
 resources:
 - api:
     crdVersion: v1
@@ -21,7 +21,7 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: NicoCluster
-  path: github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1
+  path: github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -30,7 +30,7 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: NicoMachine
-  path: github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1
+  path: github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -38,7 +38,7 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: NicoClusterTemplate
-  path: github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1
+  path: github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -46,6 +46,6 @@ resources:
   domain: cluster.x-k8s.io
   group: infrastructure
   kind: NicoMachineTemplate
-  path: github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1
+  path: github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
   version: v1alpha1
 version: "3"

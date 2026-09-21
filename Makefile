@@ -71,11 +71,11 @@ TEST_PROCS ?= 5
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ginkgo ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --race --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
 
 .PHONY: test-update
 test-update: manifests generate fmt vet setup-envtest ginkgo ## Run tests and update expected fixture goldens.
-	TESTUTIL_UPDATE_EXPECTED=true KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
+	TESTUTIL_UPDATE_EXPECTED=true KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --race --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -424,7 +424,19 @@ $(KUBEBUILDER): $(LOCALBIN)
 .PHONY: crane
 crane: $(CRANE) ## Download crane locally if necessary.
 $(CRANE): $(LOCALBIN)
-	$(call go-install-tool,$(CRANE),github.com/google/go-containerregistry/cmd/crane,$(CRANE_VERSION))
+	@set -eu; \
+	arch="$$(uname -m)"; \
+	case "$$arch" in aarch64) arch=arm64 ;; esac; \
+	archive="go-containerregistry_$$(uname -s)_$${arch}.tar.gz"; \
+	base="https://github.com/google/go-containerregistry/releases/download/$(CRANE_VERSION)"; \
+	tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	curl -fsSL -o "$$tmp/$$archive" "$$base/$$archive"; \
+	curl -fsSL -o "$$tmp/checksums.txt" "$$base/checksums.txt"; \
+	(cd "$$tmp" && grep " $$archive\$$" checksums.txt | sha256sum -c); \
+	tar -xzf "$$tmp/$$archive" -C "$$tmp" crane; \
+	chmod +x "$$tmp/crane"; \
+	mv "$$tmp/crane" "$(CRANE)"
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.

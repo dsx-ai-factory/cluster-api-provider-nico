@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
-	"github.com/NVIDIA/cluster-api-provider-nico/internal/nico"
+	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 )
 
 const (
@@ -148,8 +148,6 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	case errors.Is(err, nico.ErrForbidden):
 		// Listing machines and placing against a machine label selector are gated by
 		// the same NICo capability, so an identity without it cannot request a domain.
-		// Only 403 means that; a 401 is a credential problem and falls through below,
-		// where the last known list survives.
 		log.V(1).Info("identity cannot list NICo machines; publishing no failure domains")
 		nicoCluster.Status.FailureDomains = nil
 	case err != nil:

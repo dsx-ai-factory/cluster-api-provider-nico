@@ -67,7 +67,9 @@ const (
 	// BootstrapDataInvalidReason indicates bootstrap data could not be used.
 	BootstrapDataInvalidReason = "BootstrapDataInvalid"
 
-	// InstanceCreateRequestInvalidReason indicates the NICo instance create request could not be built.
+	// InstanceCreateRequestInvalidReason indicates the NICo instance create
+	// request is invalid: CAPNICo could not build it, or NICo rejected it with
+	// HTTP 400.
 	InstanceCreateRequestInvalidReason = "InstanceCreateRequestInvalid"
 
 	// AvailabilityCheckFailedReason indicates the instance type availability check failed.

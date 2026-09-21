@@ -67,7 +67,7 @@ jobs:
   build:
     name: Build image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     timeout-minutes: 30
     permissions:
       contents: read

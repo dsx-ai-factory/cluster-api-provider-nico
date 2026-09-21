@@ -1,64 +1,64 @@
-# Getting started
+# Getting Started
 
-CAPNICo is a Cluster API **infrastructure provider**. It turns each Cluster API
+CAPNICo is a Cluster API infrastructure provider. It turns each Cluster API
 `Machine` into one NICo instance on bare metal. It does not install Kubernetes
-and does not join nodes — the kubeadm bootstrap and control-plane providers do
+and it does not join nodes. The kubeadm bootstrap and control-plane providers do
 that, and CAPNICo carries their cloud-init to the instance as user data.
 
-Three paths. Start with A even if you have hardware — it is the fastest way to
-learn what a healthy reconcile looks like, and you will want that baseline when
-C misbehaves.
+This page covers three paths. Start with Path A even if you have hardware,
+because it is the fastest way to learn what a healthy reconcile looks like, and
+you want that baseline when Path C misbehaves.
 
 | Path | Needs | Gets you |
 |---|---|---|
-| [**A — in-repo fake**](#path-a--the-built-in-fake) | Docker, kind | The full reconcile loop in ~5 minutes, no NICo at all |
-| [**B — local NICo**](#path-b--against-a-real-nico) | Docker, kind, the infra-controller repo | The real NICo REST API, against mock hosts |
-| [**C — production**](#path-c--production-against-an-existing-nico-site) | An existing NICo site with real hardware | Machines that actually boot |
+| [Path A, the in-repo fake](#path-a-the-built-in-fake) | Docker and kind. | The full reconcile loop in about 5 minutes, with no NICo at all. |
+| [Path B, a local NICo](#path-b-against-a-real-nico) | Docker, kind, and the infra-controller repository. | The real NICo REST API, against mock hosts. |
+| [Path C, production](#path-c-production-against-an-existing-nico-site) | An existing NICo site with real hardware. | Machines that actually boot. |
 
-## Before you start
+## Before You Start
 
-Clone this repository — every path below runs `make` and reads files from the
-checkout.
+Clone this repository, because every path below runs `make` and reads files from
+the checkout.
 
 ```bash
-git clone https://github.com/NVIDIA/cluster-api-provider-nico
+git clone https://github.com/dsx-ai-factory/cluster-api-provider-nico
 cd cluster-api-provider-nico
 ```
 
-Install these. `make tilt-up` calls `ctlptl`, `tilt` and `helm` directly and
-does not install them for you.
+Install the tools in the following table. `make tilt-up` calls `ctlptl`, `tilt`,
+and `helm` directly and does not install them for you.
 
 | Tool | Used for |
 |---|---|
-| [Docker](https://docs.docker.com/engine/install/) | Builds, and the kind node |
-| [ctlptl](https://github.com/tilt-dev/ctlptl) | Creates the kind cluster and its local registry |
-| [tilt](https://docs.tilt.dev/install.html) | Runs the development loop |
-| [helm](https://helm.sh/docs/intro/install/) | Installs the provider chart |
-| `kubectl` | Everything |
-| [Go](https://go.dev/dl/) | Builds the manager and the codegen tools |
-| [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Paths B and C only |
-| [devspace](https://www.devspace.sh) | Path B only — deploys the local NICo stack |
+| [Docker](https://docs.docker.com/engine/install/) | Builds and the kind node. |
+| [ctlptl](https://github.com/tilt-dev/ctlptl) | Creates the kind cluster and its local registry. |
+| [tilt](https://docs.tilt.dev/install.html) | Runs the development loop. |
+| [helm](https://helm.sh/docs/intro/install/) | Installs the provider chart. |
+| `kubectl` | Applies manifests and inspects cluster resources. |
+| [Go](https://go.dev/dl/) | Builds the manager and the codegen tools. |
+| [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Paths B and C only. |
+| [devspace](https://www.devspace.sh) | Path B only, where it deploys the local NICo stack. |
 
-Ports `10352` (Tilt UI) and `5006` (the local registry) must be free.
+Ports `10352` for the Tilt UI and `5006` for the local registry must be free.
 
-## Path A — the built-in fake
+## Path A: The Built-In Fake
 
-The repository ships a fake NICo endpoint, so no hardware and no NICo access is
-needed.
+The repository ships a fake NICo endpoint, so you need no hardware and no NICo
+access.
 
-**Terminal 1** — this stays running. `Ctrl-C` stops the loop; `make tilt-down`
-deletes the cluster.
+In the first terminal, start the loop and leave it running. `Ctrl-C` stops the
+loop, and `make tilt-down` deletes the cluster.
 
 ```bash
 make tilt-up     # kind + CAPI core + kubeadm providers + CAPNICo + fake NICo
 ```
 
-Tilt UI is on `localhost:10352`, deliberately not Tilt's default 10350, so this
-can run beside another Cluster API environment. `make run-fake` serves the fake
-alone on `:8090`.
+The Tilt UI is on `localhost:10352`, deliberately not Tilt's default 10350, so
+this can run beside another Cluster API environment. `make run-fake` serves the
+fake alone on `:8090`.
 
-**Terminal 2** — wait for the provider to be up before applying anything. On a
-cold start Tilt is still building images, and the CRDs and the
+In the second terminal, wait for the provider to be up before you apply
+anything. On a cold start, Tilt is still building images, and the CRDs and the
 `capnico-system` namespace do not exist yet.
 
 ```bash
@@ -72,8 +72,9 @@ kubectl apply -f examples/cluster-fake.yaml
 kubectl get nicoclusters,nicomachines -A
 ```
 
-`examples/cluster-fake.yaml` creates CAPI `Machine`s directly with ready-made
-bootstrap Secrets, because CAPNICo provisions infrastructure and nothing else.
+`examples/cluster-fake.yaml` creates CAPI `Machine` objects directly with
+ready-made bootstrap Secrets, because CAPNICo provisions infrastructure and
+nothing else.
 
 Watch a machine converge:
 
@@ -81,50 +82,58 @@ Watch a machine converge:
 kubectl describe nicomachine demo-cp-0
 ```
 
-Both machines should end with a provider ID and `Provisioned`. **The worker
-briefly shows `ControlPlanePriorityDeferred` and that is correct** — workers
-wait behind control-plane machines competing for the same instance type.
+Both machines should end with a provider ID and `Provisioned`. The worker
+briefly shows `ControlPlanePriorityDeferred`, and that is correct, because
+workers wait behind control-plane machines competing for the same instance type.
 
-`status.conditions` is where the answer is. Every stall has a named reason —
-`WaitingForBootstrapData`, `InstanceTypeUnavailable`, `WaitingForIdentitySecret`,
-`ControlPlanePriorityDeferred`, `InstanceNotReady`.
+`status.conditions` is where the answer is. Every stall has a named reason, such
+as `WaitingForBootstrapData`, `InstanceTypeUnavailable`,
+`WaitingForIdentitySecret`, `ControlPlanePriorityDeferred`, and
+`InstanceNotReady`.
 
-## Path B — against a real NICo
+## Path B: Against a Real NICo
 
-### What must already exist
+### What Must Already Exist
 
-CAPNICo creates instances. It creates nothing else. Before it can work, the NICo
-side needs:
+CAPNICo creates instances, and it creates nothing else. Before it can work, the
+NICo side needs four things.
 
-- a **site** — goes on `NicoCluster.spec.siteID`
-- a **VPC** — goes on `NicoMachine.spec.vpcID`, **not** on the cluster
-- a **subnet** — one per interface attachment (`vpcPrefixID` instead of
-  `subnetID` only on sites with Native Networking enabled)
-- an **instance type** for control-plane and worker machines
+- A site, which goes on `NicoCluster.spec.siteID`.
+- A VPC, which goes on `NicoMachine.spec.vpcID`, not on the cluster.
+- A subnet, one per interface attachment. Sites with Native Networking enabled
+  use `vpcPrefixID` instead of `subnetID`.
+- An instance type for control-plane and worker machines.
 
-For a local NICo, `hack/local-nico-seed.sh` creates all of these — see "Seed
-test resources" below.
+For a local NICo, `hack/local-nico-seed.sh` creates all of these, as described
+in [Seed Test Resources](#seed-test-resources) below.
 
-### Standing up a local NICo
+### Standing Up a Local NICo
 
 [NVIDIA/infra-controller](https://github.com/NVIDIA/infra-controller) runs
 locally with mock hosts, which is enough to exercise CAPNICo against the real
-REST API. `bootstrap-prereqs.sh` operates on whatever kube context is
-current, so point `KUBECONFIG` at a **dedicated local kind cluster** first —
-not the Path A cluster, and not a shared or remote one. From that repository:
+REST API.
+
+<Warning>
+`bootstrap-prereqs.sh` operates on the current Kubernetes context. Set
+`KUBECONFIG` to a dedicated local kind cluster before you run the script. Do not
+use the Path A cluster or a shared or remote cluster.
+</Warning>
+
+From that repository, run the following two commands:
 
 ```bash
 dev/deployment/devspace/bootstrap-prereqs.sh   # cert-manager, PostgreSQL, Vault, Temporal, Keycloak
 devspace deploy                                # Core + REST + machine-a-tron (the mock hosts)
 ```
 
-Both build a full Rust/Go workspace and several images.
+Both build a full Rust and Go workspace plus several images, so plan for two
+constraints.
 
-- Docker: 8 CPUs, 12GB RAM, 100GB free disk, minimum.
-- `devspace deploy`'s final verification step runs 15–20 minutes with no
-  output. Expected, not a hang.
+- Docker needs 8 CPUs, 12 GB of RAM, and 100 GB of free disk, at minimum.
+- The final verification step of `devspace deploy` runs 15 to 20 minutes with no
+  output. That is expected, and it is not a hang.
 
-For a real site instead, see that repository's `helm-prereqs/setup.sh`.
+For a real site instead, refer to that repository's `helm-prereqs/setup.sh`.
 
 Keep the REST API and Keycloak reachable:
 
@@ -133,13 +142,13 @@ kubectl -n nico-rest port-forward service/nico-rest-api 18388:8388
 kubectl -n nico-rest port-forward service/keycloak     18082:8082
 ```
 
-### Seed test resources
+### Seed Test Resources
 
-A fresh local site has mock hosts but no VPC, instance type, or allocation
-yet — "Create a cluster" below needs all three, and nothing up to this point
-creates them. Safe to re-run — it reuses what already exists rather than
-duplicating it. It also extends the realm's access-token lifespan from the
-5-minute default.
+A fresh local site has mock hosts but no VPC, instance type, or allocation yet.
+[Create a Cluster](#create-a-cluster) below needs all three, and nothing up to
+this point creates them. The seed script is safe to re-run, because it reuses
+what already exists rather than duplicating it. It also extends the realm's
+access-token lifespan from the 5-minute default.
 
 ```bash
 hack/local-nico-seed.sh > /tmp/nico-env.sh
@@ -159,15 +168,15 @@ curl -fsS http://localhost:18388/v2/org/test-org/nico/tenant/current \
   -H "Authorization: Bearer ${TOKEN}" | jq
 ```
 
-### The credentials Secret
+### The Credentials Secret
 
-**Two clusters are in play from here.** NICo runs in the one `devspace deploy`
-just built. CAPNICo runs in your *management* cluster — the Path A kind cluster
-is fine. The commands below target the management cluster, so point `KUBECONFIG`
-at it.
+Two clusters are in play from here. NICo runs in the one `devspace deploy` just
+built. CAPNICo runs in your management cluster, and the Path A kind cluster is
+fine for that. The commands below target the management cluster, so point
+`KUBECONFIG` at it.
 
-Required: `endpoint`, `orgID`. Then **one** authentication mode, never both —
-supplying a token and OAuth keys together is rejected.
+The Secret requires `endpoint` and `orgID`, then exactly one authentication
+mode. Never supply both, because a token and OAuth keys together are rejected.
 
 ```bash
 kubectl create namespace capnico-system --dry-run=client -o yaml | kubectl apply -f -
@@ -179,11 +188,11 @@ kubectl create secret generic nico-credentials -n capnico-system \
   --from-literal=token="${TOKEN}"
 ```
 
-`endpoint` must be reachable **from a pod in the management cluster**, not from
-your laptop. The in-cluster DNS name above only works when CAPNICo and NICo share
-a cluster. If they do not, expose the NICo REST Service to the management cluster
-— a NodePort on the NICo cluster, or putting both kind clusters on the same
-Docker network — and use that address. Check it from a pod, not a shell:
+`endpoint` must be reachable from a pod in the management cluster, not from your
+laptop. The in-cluster DNS name above only works when CAPNICo and NICo share a
+cluster. If they do not, expose the NICo REST Service to the management cluster
+and use that address. You can use a NodePort on the NICo cluster, or put both
+kind clusters on the same Docker network. Check it from a pod, not a shell:
 
 ```bash
 kubectl -n capnico-system run netcheck --rm -it --restart=Never \
@@ -193,36 +202,39 @@ kubectl -n capnico-system run netcheck --rm -it --restart=Never \
 Clients are cached per Secret `resourceVersion`, so an external rotation is
 picked up on the next reconcile with no manager restart.
 
-### Install the provider
+### Install the Provider
+
+Install Cluster API and then the provider chart:
 
 ```bash
 clusterctl init --bootstrap kubeadm --control-plane kubeadm
 
 helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system --create-namespace \
-  --set manager.image.repository=ghcr.io/nvidia/cluster-api-provider-nico/controller \
+  --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
   --set manager.image.tag=v0.0.43 --wait
 ```
 
-Or install from a published release with `clusterctl` by adding the release
-asset URL to `~/.config/cluster-api/clusterctl.yaml`, then
+You can also install from a published release with `clusterctl` by adding the
+release asset URL to `~/.config/cluster-api/clusterctl.yaml`, then running
 `clusterctl init --infrastructure nico:<version>`.
 
-### Create a cluster
+### Create a Cluster
 
-Three templates under `examples/kubeadm/`. List a template's variables with
+Three templates live under `examples/kubeadm/`. List a template's variables with
 `clusterctl generate cluster demo --from <template> --list-variables`.
 
 | Template | Use when |
 |---|---|
-| `cluster.yaml` | A stable API endpoint already exists (DNS, external LB, your own kube-vip) |
-| `cluster-kube-vip.yaml` | You want the template to bootstrap kube-vip as a static pod |
-| `cluster-single-control-plane-static-ip.yaml` | Developer bring-up only — single control plane, requested IP, no HA |
+| `cluster.yaml` | A stable API endpoint already exists, such as DNS, an external load balancer, or your own kube-vip. |
+| `cluster-kube-vip.yaml` | You want the template to bootstrap kube-vip as a static pod. |
+| `cluster-single-control-plane-static-ip.yaml` | You are doing developer bring-up only, with a single control plane, a requested IP, and no high availability. |
 
-For a local NICo, `source /tmp/nico-env.sh` from "Seed test resources" above
-sets `NICO_SITE_ID`, `NICO_VPC_ID`, the instance type IDs, and
-`NICO_NETWORK_METHOD`/`NICO_NETWORK_ID` — only the iPXE scripts and the
-control-plane endpoint stay as placeholders, since nothing local boots them:
+For a local NICo, running `source /tmp/nico-env.sh` from
+[Seed Test Resources](#seed-test-resources) above sets `NICO_SITE_ID`,
+`NICO_VPC_ID`, the instance type IDs, `NICO_NETWORK_METHOD`, and
+`NICO_NETWORK_ID`. Only the iPXE scripts and the control-plane endpoint stay as
+placeholders, since nothing local boots them.
 
 ```bash
 kubectl create namespace demo
@@ -236,62 +248,66 @@ clusterctl generate cluster demo --from examples/kubeadm/cluster.yaml \
   --control-plane-machine-count 1 --worker-machine-count 1 | kubectl apply -f -
 ```
 
-If reconciliation reports `401 Unauthorized` or `TenantResolutionFailed`
-partway through, the static token from "The credentials Secret" has expired —
-re-mint it and update the Secret, same as before.
+If reconciliation reports `401 Unauthorized` or `TenantResolutionFailed` partway
+through, the static token from
+[The Credentials Secret](#the-credentials-secret) has expired. Re-mint it and
+update the Secret, the same way as before.
 
-Against a local NICo, this is as far as Path B goes: `kubectl -n demo get
-nicomachine` reaching `PROVISIONED=true` means the CAPNICo↔NICo integration
-works end to end. It will not reach a booted, `Ready` node — the iPXE URLs
-above are placeholders and `machine-a-tron` only mocks the hardware, so
-nothing ever actually boots `kubeadm`. For a real boot chain, see "What has to
-be in the OS image" below and Path C.
+Against a local NICo, this is as far as Path B goes. When
+`kubectl -n demo get nicomachine` reaches `PROVISIONED=true`, the integration
+between CAPNICo and NICo works end to end. It does not reach a booted, `Ready`
+node, because the iPXE URLs above are placeholders and `machine-a-tron` only
+mocks the hardware, so nothing ever actually boots `kubeadm`. For a real boot
+chain, refer to
+[What Has to Be in the OS Image](#what-has-to-be-in-the-os-image) below and to
+Path C.
 
-Nodes get their provider ID from the NICo metadata service: the templates read
+Nodes get their provider ID from the NICo metadata service. The templates read
 `169.254.169.254:7777/latest/meta-data/instance-id` and patch kubelet with
 `providerID: nico://<instance-id>`. That is how Cluster API matches a `Node`
 back to its `Machine`.
 
-## Path C — production, against an existing NICo site
+## Path C: Production Against an Existing NICo Site
 
-Assumes the site is already installed, its machines are enrolled, and someone
-can issue you a token. You are adding CAPNICo to it.
+This path assumes the site is already installed, its machines are enrolled, and
+someone can issue you a token. You are adding CAPNICo to it.
 
-### 1. Collect seven values
+### 1. Collect Seven Values
 
 Everything CAPNICo needs is an ID you look up. Install
 [`nicocli`](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/cli)
-from the infra-controller repository (`make nico-cli`, then `nicocli init`) and
-read them off:
+from the infra-controller repository by running `make nico-cli` and then
+`nicocli init`, then read the values off the following table.
 
 | Value | Where it goes | Find it with |
 |---|---|---|
-| API base URL | Secret `endpoint` | your site operator |
-| Org | Secret `orgID` | your site operator |
-| API name | Secret `apiName` | the path segment in a working URL |
+| API base URL | Secret `endpoint` | Your site operator |
+| Org | Secret `orgID` | Your site operator |
+| API name | Secret `apiName` | The path segment in a working URL |
 | Site ID | `NicoCluster.spec.siteID` | `nicocli site list` |
 | VPC ID | `NicoMachine.spec.vpcID` | `nicocli vpc list` |
 | VPC prefix ID | `NICO_NETWORK_ID` | `nicocli vpc-prefix list` |
 | Instance type IDs | `NICO_*_INSTANCE_TYPE_ID` | `nicocli instance-type list` |
 
-Optionally SSH key groups (`nicocli sshkeygroup list`) for Serial-over-LAN.
+You can optionally collect SSH key groups with `nicocli sshkeygroup list` for
+Serial-over-LAN.
 
-You also need an **iPXE script URL** per role that boots an OS image able to
-consume kubeadm cloud-init. CAPNICo does not supply one.
+You also need an iPXE script URL per role that boots an OS image able to consume
+kubeadm cloud-init. CAPNICo does not supply one.
 
-### ⚠️ 2. Check the instance types have allocations
+### 2. Check the Instance Types Have Allocations
 
-**This is the failure that wastes the most time.** CAPNICo will not create an
+This is the failure that wastes the most time. CAPNICo does not create an
 instance unless NICo reports free capacity for its instance type. Before every
-create it reads `allocationStats.unusedUsable`, and treats zero as unavailable:
+create, it reads `allocationStats.unusedUsable` and treats zero as unavailable:
 
 ```
 Instance type "…" has no unused usable allocations (total=0 used=0 unused=0 unusedUsable=0)
 ```
 
-That figure comes from NICo **allocations**, which are a separate resource from
-the instance type. An instance type with no allocation looks perfectly healthy
-in `nicocli instance-type get` and provisions nothing. Machines sit in
+That figure comes from NICo allocations, which are a separate resource from the
+instance type. An instance type with no allocation looks perfectly healthy in
+`nicocli instance-type get` and provisions nothing. Machines sit in
 `InstanceTypeUnavailable` and retry every 2 minutes, forever.
 
 ```bash
@@ -302,18 +318,19 @@ nicocli instance-type get <instance-type-id>   # confirm allocationStats.unusedU
 If the response omits `allocationStats.unusedUsable` entirely, CAPNICo fails the
 reconcile with an error naming that field rather than guessing.
 
-The full dependency order is **site → site IP blocks → instance types →
-allocations → VPCs → VPC prefixes**. NICo creates site IP blocks itself from
-fabric prefixes the site reports; the rest are yours. `nicocli site bootstrap
---file <manifest>` walks that chain in order and is the sanctioned way to create
-it — see `rest-api/cli/examples/site-prerequisites.yaml`. It never creates the
-site.
+The full dependency order is the site, then the site IP blocks, then the
+instance types, then the allocations, then the VPCs, and finally the VPC
+prefixes. NICo creates site IP blocks itself from fabric prefixes the site
+reports, and the rest are yours. `nicocli site bootstrap --file <manifest>`
+walks that chain in order and is the sanctioned way to create those resources,
+as `rest-api/cli/examples/site-prerequisites.yaml` shows. The command never
+creates the site itself.
 
-### 3. Get a machine-usable credential
+### 3. Get a Machine-Usable Credential
 
-**CAPNICo supports the client-credentials grant only.** A token minted by an
-interactive password grant works until it expires and then the provider stops
-provisioning, so for anything lasting, ask for an OAuth client:
+CAPNICo supports a static `token` or OAuth client credentials. A token minted by
+an interactive password grant works until it expires. For long-lived production
+access, use OAuth client credentials.
 
 ```bash
 kubectl create namespace capnico-system --dry-run=client -o yaml | kubectl apply -f -
@@ -329,23 +346,23 @@ kubectl create secret generic nico-credentials -n capnico-system \
   --from-file=ca.crt=/path/to/site-ca.pem
 ```
 
-Never set `token` alongside the OAuth keys — supplying both is rejected.
+Never set `token` alongside the OAuth keys, because supplying both is rejected.
 
 If your site's API uses a private CA, pass `ca.crt`. Prefer that over
 `insecureSkipTLSVerify`.
 
-Three things the management cluster must be able to do, and all three fail
-somewhere other than where you look:
+The management cluster must reach both service endpoints and pull the controller
+image.
 
-- **Reach `endpoint`.** Resolve and route it from a pod, not from your laptop.
-- **Pull the controller image** from a registry it has credentials for. Build
-  and push your own — see step 4.
-- **Reach the OAuth `tokenURL`**, which is often a different host from the API.
+- Reach `endpoint`. Resolve and route it from a pod, not from your laptop.
+- Pull the controller image from a registry it has credentials for. Build and
+  push your own, as step 4 describes.
+- Reach the OAuth `tokenURL`, which is often a different host from the API.
 
 Separate provider and tenant organizations are supported, but one token must
 carry the required role in both.
 
-### 4. Build the image, push it, install
+### 4. Build the Image, Push It, and Install
 
 Build the controller from this checkout and push it to a registry your
 management cluster can pull from. `IMG` is one variable, used by both targets:
@@ -358,15 +375,15 @@ make docker-push  IMG="${IMG}"
 ```
 
 For a cluster whose nodes are not all the same architecture, build a multi-arch
-manifest instead — this one builds and pushes in a single step:
+manifest instead. This target builds and pushes in a single step:
 
 ```bash
 make docker-buildx IMG="${IMG}" PLATFORMS=linux/amd64,linux/arm64
 ```
 
 Then install Cluster API and the provider, pointing the chart at that image.
-Split `IMG` at the colon: the part before it is `repository`, the part after is
-`tag`.
+Split `IMG` at the colon, where the part before it is `repository` and the part
+after it is `tag`.
 
 ```bash
 clusterctl init --bootstrap kubeadm --control-plane kubeadm
@@ -397,23 +414,25 @@ helm upgrade --install capi-provider-nico ./chart \
   --wait
 ```
 
-Released deployments log structured JSON; `--zap-devel` is a local-only value.
+Released deployments log structured JSON, and `--zap-devel` is a local-only
+value.
 
-Credentials can be **provider-level** (one Secret in `capnico-system`, used by
-every cluster) or **per-cluster** (`NicoCluster.spec.identityRef`, in the
-`NicoCluster`'s namespace). Use per-cluster when one management cluster drives
-several sites or tenants.
+Credentials can be provider-level, meaning one Secret in `capnico-system` used
+by every cluster, or per-cluster through `NicoCluster.spec.identityRef` in the
+`NicoCluster`'s namespace. Use per-cluster credentials when one management
+cluster drives several sites or tenants.
 
-### 5. Prove the credentials before creating machines
+### 5. Prove the Credentials Before Creating Machines
 
-Readiness on a `NicoCluster` is a validation check — *can this identity reach
-NICo and resolve a tenant* — and it provisions nothing. So a throwaway one is a
-free credential test that cannot cost you hardware.
+Readiness on a `NicoCluster` is a validation check that asks whether this
+identity can reach NICo and resolve a tenant, and it provisions nothing. A
+throwaway `NicoCluster` is therefore a free credential test that cannot cost you
+hardware.
 
-A `NicoCluster` only starts reconciling once a CAPI `Cluster` sets an owner
-reference on it — a bare `NicoCluster` with no owning `Cluster` sits
-forever logging `Waiting for Cluster controller to set OwnerRef on
-NicoCluster` and never even attempts the credential check. Apply both:
+A `NicoCluster` only starts reconciling after a CAPI `Cluster` sets an owner
+reference on it. A bare `NicoCluster` with no owning `Cluster` sits forever
+logging `Waiting for Cluster controller to set OwnerRef on NicoCluster` and
+never even attempts the credential check. Apply both objects:
 
 ```bash
 kubectl create namespace demo
@@ -442,22 +461,24 @@ EOF
 kubectl -n demo describe nicocluster credcheck | sed -n '/Conditions/,$p'
 ```
 
-Ready means the identity resolved a tenant, so auth, TLS, routing and org are
+Ready means the identity resolved a tenant, so auth, TLS, routing, and org are
 all correct. Not ready names the failure: `WaitingForIdentitySecret` for a
 missing or misnamed Secret, `IdentityConfigurationFailed` for one the provider
-cannot parse, and `TenantResolutionFailed` for everything else — see step 7.
+cannot parse, and `TenantResolutionFailed` for everything else, which step 7
+covers.
 
-**Fix this before creating a single Machine**, then clean up — delete the
-`Cluster` first, same as "Things that will bite you" below:
+Fix this before you create a single Machine, then clean up. Delete the `Cluster`
+first, as described in [Common Pitfalls](#common-pitfalls) below:
 
 ```bash
 kubectl -n demo delete cluster credcheck
 ```
 
-### 6. First cluster: one control plane, one worker
+### 6. First Cluster With One Control Plane and One Worker
 
-Smallest thing that proves the path end to end. Use `cluster.yaml` with an
-endpoint you already control, so the first run does not also debug kube-vip.
+This is the smallest thing that proves the path end to end. Use `cluster.yaml`
+with an endpoint you already control, so the first run does not also debug
+kube-vip.
 
 ```bash
 NICO_SITE_ID=<site-id> \
@@ -483,7 +504,7 @@ clusterctl describe cluster demo -n demo             # CAPI's view
 kubectl --kubeconfig <(clusterctl get kubeconfig demo -n demo) get nodes
 ```
 
-A node appearing means the whole chain worked: CAPNICo created the instance, it
+A node appearing means the whole chain worked. CAPNICo created the instance, it
 booted the iPXE image, cloud-init ran kubeadm, and kubelet picked up
 `providerID: nico://<instance-id>` from the metadata service.
 
@@ -498,119 +519,125 @@ image" below for what that chain needs to deliver.
 #### Validating without the kubeadm providers
 
 The templates above need the kubeadm bootstrap and control-plane providers
-(`clusterctl init --bootstrap kubeadm --control-plane kubeadm`, step 4)
-installed on the management cluster. Not every real site has them — some run
-a different orchestrator on top of CAPNICo instead of vanilla kubeadm CAPI.
+installed on the management cluster, which step 4 does with
+`clusterctl init --bootstrap kubeadm --control-plane kubeadm`. Not every real
+site has them, because some run a different orchestrator on top of CAPNICo
+instead of vanilla kubeadm CAPI.
 
-If yours doesn't, you can still validate CAPNICo on its own by creating a
+If yours does not, you can still validate CAPNICo on its own by creating a
 `Machine` and `NicoMachine` directly instead of going through
-`KubeadmControlPlane` — see `examples/cluster-fake.yaml`'s pattern. That
-proves CAPNICo's own create → status behavior against the real REST API and
-real hardware without depending on kubeadm at all.
+`KubeadmControlPlane`, following the pattern in `examples/cluster-fake.yaml`.
+That proves CAPNICo's own create-then-status behavior against the real REST API
+and real hardware without depending on kubeadm at all.
 
-### 7. When it stalls
+### 7. When It Stalls
 
-`status.conditions` on the `NicoMachine` names the reason. Read it first — every
-stall below is a distinct, named reason, not a generic timeout.
+`status.conditions` on the `NicoMachine` names the reason. Read it first,
+because every stall in the following table is a distinct, named reason, not a
+generic timeout.
 
 | Reason | Means |
 |---|---|
-| `WaitingForIdentitySecret` | Secret missing or misnamed |
-| `TenantResolutionFailed` | The tenant lookup failed: wrong org or `apiName`, an expired or rejected token, an unroutable endpoint, or a CA mismatch. All four land here |
-| `InstanceTypeNotFound` | Wrong instance type ID, or wrong org |
-| `InstanceTypeUnavailable` | **No free allocation** — see step 2 |
-| `ControlPlanePriorityDeferred` | A control-plane machine is waiting on this type; workers wait |
-| `WaitingForBootstrapData` | The kubeadm provider has not written the Secret yet |
-| `InstanceCreateFailed` | NICo rejected the create; message carries its error |
-| `InstanceNotReady` | Instance exists and is booting — normal for several minutes |
+| `WaitingForIdentitySecret` | The Secret is missing or misnamed. |
+| `TenantResolutionFailed` | The tenant lookup failed. The cause is a wrong org or `apiName`, an expired or rejected token, an unroutable endpoint, or a CA mismatch. All four land here. |
+| `InstanceTypeNotFound` | The instance type ID is wrong, or the org is wrong. |
+| `InstanceTypeUnavailable` | There is no free allocation, which step 2 covers. |
+| `ControlPlanePriorityDeferred` | A control-plane machine is waiting on this type, so workers wait. |
+| `WaitingForBootstrapData` | The kubeadm provider has not written the Secret yet. |
+| `InstanceCreateFailed` | NICo rejected the create, and the message carries its error. |
+| `InstanceNotReady` | The instance exists and is booting, which is normal for several minutes. |
 
-Nothing here polls faster than it needs to: 15s on the fast path, 30s while an
-instance boots or tears down, 2 minutes when capacity is exhausted, and about 5
-minutes once ready — jittered up to a minute per object so a large cluster does
-not requeue in lockstep.
+Nothing here polls faster than it needs to. The intervals are 15 seconds on the
+fast path, 30 seconds while an instance boots or tears down, 2 minutes when
+capacity is exhausted, and about 5 minutes after the object is ready, jittered
+up to a minute per object so a large cluster does not requeue in lockstep.
 
 If an instance is created but no node ever appears, CAPNICo has done its job and
-the problem is below it — the iPXE image, cloud-init, or network reachability to
-the control-plane endpoint.
+the problem is below it, in the iPXE image, cloud-init, or network reachability
+to the control-plane endpoint.
 
-## What has to be in the OS image
+## What Has to Be in the OS Image
 
-CAPNICo hands NICo an **iPXE script URL** and a blob of **cloud-init user data**,
-and stops. Everything after the machine powers on is the image's job. Nothing in
-this repository builds one, and if the image is wrong you get a created instance
-and a node that never registers — CAPNICo will report `Ready` and be right.
+CAPNICo hands NICo an iPXE script URL and a blob of cloud-init user data, and
+then stops. Everything after the machine powers on is the image's job, and
+nothing in this repository builds one. A wrong image gives you a created
+instance and a node that never registers, and CAPNICo reports `Ready` and is
+right to do so.
 
-### The contract
+### The Contract
 
-Six requirements. All of them come from the two things CAPNICo actually sets on
-the create request: `ipxeScript` and `userData`
-(`controllers/nicomachine_controller.go:835` sets the latter).
+The following table lists six requirements. All of them come from the two things
+CAPNICo actually sets on the create request, `ipxeScript` and `userData`, where
+`controllers/nicomachine_controller.go:902` sets the latter.
 
-| # | Requirement | Why |
+| Number | Requirement | Why |
 |---|---|---|
-| 1 | **Boots from your iPXE script** | `NicoMachine.spec.ipxeScript` is chained verbatim. CAPNICo does not host it |
-| 2 | **cloud-init, reading NICo's datasource** | The kubeadm bootstrap provider writes a `#cloud-config`; CAPNICo passes it through untouched as instance user data |
-| 3 | **`kubeadm`, `kubelet`, a container runtime** | The cloud-config runs `kubeadm init`/`join`. It does not install them |
-| 4 | **`curl`** | `preKubeadmCommands` shells out to it before kubeadm runs |
-| 5 | **Route to `169.254.169.254:7777`** | The metadata service, served by the DPU agent. Provider ID comes from here |
-| 6 | **A CNI plan** | The templates install none. Nodes stay `NotReady` until something does |
+| 1 | It boots from your iPXE script. | `NicoMachine.spec.ipxeScript` is chained verbatim, and CAPNICo does not host it. |
+| 2 | It runs cloud-init, reading NICo's datasource. | The kubeadm bootstrap provider writes a `#cloud-config`, and CAPNICo passes it through untouched as instance user data. |
+| 3 | It has `kubeadm`, `kubelet`, and a container runtime. | The cloud-config runs `kubeadm init` or `kubeadm join`. It does not install them. |
+| 4 | It has `curl`. | `preKubeadmCommands` shells out to it before kubeadm runs. |
+| 5 | It can route to `169.254.169.254:7777`. | This is the metadata service, served by the DPU agent, and the provider ID comes from here. |
+| 6 | It has a CNI plan. | The templates install none, so nodes stay `NotReady` until something does. |
 
-Two lines from `examples/kubeadm/cluster.yaml:98-104` fix requirements 4 and 5:
+The `preKubeadmCommands` block at `examples/kubeadm/cluster.yaml`, lines 98 to
+104, covers requirements 4 and 5:
 
 ```bash
 iid=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/instance-id || true)
 ```
 
-That is guarded with `|| true`, so a missing metadata service degrades quietly —
-the node joins with **no provider ID**, and Cluster API never matches it to its
-`Machine`. A cluster that looks half-built with healthy-looking nodes is usually
-this.
+That is guarded with `|| true`, so a missing metadata service degrades quietly.
+The node joins with no provider ID, and Cluster API never matches it to its
+`Machine`. That is the usual cause of a cluster that looks half-built while its
+nodes look healthy.
 
-⚠️ **`cluster-kube-vip.yaml` is stricter.** Its `preKubeadmCommands` run under
-`set -euo pipefail` and read the peer ASN **without** `|| true`
-(`cluster-kube-vip.yaml:105,118`):
+`cluster-kube-vip.yaml` is stricter. Its first `preKubeadmCommands` entry runs
+`/usr/local/bin/configure-kube-vip.sh`, which sets `set -euo pipefail` and reads
+the peer ASN without `|| true`, at `cluster-kube-vip.yaml:105,118`:
 
 ```bash
 bgp_peer_as=$(curl -fsS --max-time 2 169.254.169.254:7777/latest/meta-data/asn)
 ```
 
-A metadata hiccup there fails the whole step instead of degrading. That template
-also needs `ip` (iproute2), a writable `/etc/kubernetes/manifests`, and the
-ability to pull `ghcr.io/kube-vip/kube-vip`.
+A metadata error there aborts the whole step instead of degrading quietly. That
+template also needs `ip` from iproute2, a writable `/etc/kubernetes/manifests`,
+and the ability to pull `ghcr.io/kube-vip/kube-vip`.
 
-### Which datasource
+### Which Datasource
 
 NICo serves cloud-init two ways, and a production image is normally configured
-for the first with the second as fallback:
+for the first with the second as fallback.
 
-- **NoCloud** — `http://carbide-pxe.forge/api/v0/cloud-init/`
-- **EC2** — `http://169.254.169.254:7777`
+- NoCloud, at `http://carbide-pxe.forge/api/v0/cloud-init/`.
+- EC2, at `http://169.254.169.254:7777`.
 
 `nico-pxe` in the infra-controller repository is the service that serves both the
-iPXE script and the cloud-init data; `pxe/ipxe/` and `pxe/templates/` are the
+iPXE script and the cloud-init data, and `pxe/ipxe/` and `pxe/templates/` are the
 files it renders.
 
-### Things you do not bake
+### Things You Do Not Bake
 
-Instance identity arrives at first boot, never at build time: hostname, join
-tokens, SPIRE or other trust material, anything site-specific. CAPNICo sets
-`hostname`, `preserve_hostname: false` and `manage_etc_hosts` into the
-cloud-config itself when `spec.cloudInitInjectHostname` is true
-(`internal/nico/userdata.go:13-30`), so the image must not fight it.
+Instance identity arrives at first boot, never at build time. That includes the
+hostname, join tokens, SPIRE or other trust material, and anything
+site-specific. CAPNICo sets `hostname`, `preserve_hostname: false`, and
+`manage_etc_hosts` into the cloud-config itself when
+`spec.cloudInitInjectHostname` is true, at `internal/nico/userdata.go:13-30`, so
+the image must not override them.
 
 A build that bakes identity produces machines that are all the same machine.
 Whatever recipe you use, end it with `cloud-init clean` so the next boot is a
 real first boot.
 
-### Recipes you can copy
+### Recipes You Can Copy
 
-Nothing here is a dependency — these are worked examples of the same contract.
+Nothing in the following table is a dependency. These are worked examples of the
+same contract.
 
 | Source | What it gives you |
 |---|---|
-| [Image Builder](https://github.com/kubernetes-sigs/image-builder) | The upstream Cluster API way to bake kubeadm, kubelet and a container runtime into an image. Covers requirement 3, and its output is the normal starting point |
-| [cloud-init datasource docs](https://cloudinit.readthedocs.io/en/latest/reference/datasources.html) | How to pin NoCloud and EC2 so the image reads NICo's, and only NICo's |
-| `pxe/` in the infra-controller repository | `nico-pxe` itself: how the iPXE script and the cloud-init payload are served, and the templates it renders |
+| [Image Builder](https://github.com/kubernetes-sigs/image-builder) | The upstream Cluster API way to bake kubeadm, kubelet, and a container runtime into an image. It covers requirement 3, and its output is the normal starting point. |
+| [cloud-init datasource docs](https://cloudinit.readthedocs.io/en/latest/reference/datasources.html) | How to pin NoCloud and EC2 so the image reads NICo's datasource, and only NICo's. |
+| `pxe/` in the infra-controller repository | `nico-pxe` itself, covering how the iPXE script and the cloud-init payload are served, and the templates it renders. |
 
 The usual shape is Image Builder for the Kubernetes layer, then a small
 provisioning step of your own for the datasource configuration and anything
@@ -687,8 +714,8 @@ and stay `NotReady`, same as requirement 6 in the contract table above.
 
 ### Proving an image before you trust it
 
-Boot one instance by hand — no Cluster API — and check the four things in order.
-Each failure looks like a different problem one layer up.
+Boot one instance by hand, with no Cluster API, and check the four things in
+order. Each failure looks like a different problem one layer up.
 
 ```bash
 cloud-init status --wait                                  # 2: datasource reachable, user data applied
@@ -696,36 +723,46 @@ curl -fsS 169.254.169.254:7777/latest/meta-data/instance-id   # 5: metadata serv
 command -v kubeadm kubelet curl                           # 3, 4: tools present
 ```
 
-Then, once it has joined: `kubectl get node <name> -o jsonpath='{.spec.providerID}'`
-must print `nico://<instance-id>`. Empty means requirement 5 failed silently.
+Then, after it has joined, run
+`kubectl get node <name> -o jsonpath='{.spec.providerID}'`. It must print
+`nico://<instance-id>`. An empty value means requirement 5 failed silently.
 
-## Things that will bite you
+## Common Pitfalls
 
-**The spec freezes once `providerID` is set.** CAPNICo builds the create request
-from the spec and never applies later changes to a live instance, so CEL rules
-reject the edit outright. To change machine infrastructure, make a new
-`NicoMachineTemplate` and repoint the `KubeadmControlPlane` or
-`MachineDeployment` — Cluster API then does a replacement rollout.
+### The Spec Freezes After the Provider ID Is Set
 
-**Delete the `Cluster` and let it finish before deleting the namespace.**
-Namespace-first can remove a **per-cluster** credentials Secret before the
-finalizers run,
-which strands machines in deletion and leaves NICo instances to clean up by
-hand.
+CAPNICo builds the create request from the spec and never applies later changes
+to a live instance, so CEL rules reject the edit outright. To change machine
+infrastructure, make a new `NicoMachineTemplate` and repoint the
+`KubeadmControlPlane` or `MachineDeployment`. Cluster API then does a
+replacement rollout.
 
-**Two operations are annotations on the CAPI `Machine`, not CRD fields.** Both
-ignore an empty value.
+### Delete the Cluster and Let It Finish Before Deleting the Namespace
+
+Deleting the namespace first can remove a per-cluster credentials Secret before
+the finalizers run, which strands machines in deletion and leaves NICo instances
+to clean up by hand.
+
+### Two Operations Are Annotations on the CAPI Machine, Not CRD Fields
+
+Both annotations in the following table ignore an empty value.
 
 | Annotation | Effect |
 |---|---|
-| `nico.nvidia.com/reboot` | One reboot per application; CAPNICo removes the annotation once NICo accepts. `--reboot-annotation` |
-| `nico.nvidia.com/machine-health-issue` | Forwarded to NICo as context on the delete request. Value parses as JSON `{"category","summary","details"}`, else is treated as a plain summary with category `Other`. `--repair-annotation`, empty to disable |
+| `nico.nvidia.com/reboot` | One reboot per application. CAPNICo removes the annotation after NICo accepts it. Configure the key with `--reboot-annotation`. |
+| `nico.nvidia.com/machine-health-issue` | Forwarded to NICo as context on the delete request. The value parses as JSON in the form `{"category","summary","details"}`, and otherwise is treated as a plain summary with category `Other`. Configure the key with `--repair-annotation`, and set it empty to disable. |
 
-**Support level: Experimental.**
+The support level for this provider is Experimental.
 
-## See also
+## Related Information
 
-- [architecture.md](architecture.md) — read before changing controller behaviour
-- [development.md](development.md) — the local Kind, Tilt, Helm and fake-NICo loop
-- [../README.md](../README.md) — install, the Secret layout, the full worked examples
-- [NICo documentation](https://docs.nvidia.com/infra-controller/)
+- [Architecture](architecture.md) is what to read before you change controller
+  behavior.
+- [Development](development.md) walks through the local kind, Tilt, Helm, and
+  fake-NICo loop.
+- The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
+  has the install steps, the Secret layout, and the full worked examples.
+- [Troubleshooting](troubleshooting.md) handles symptom lookup beyond the stall
+  table above.
+- The [NICo documentation](https://docs.nvidia.com/infra-controller/) describes
+  the platform itself.

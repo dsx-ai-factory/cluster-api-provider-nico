@@ -4,7 +4,9 @@ Everything here runs without hardware and without access to a real NICo
 deployment. The repository ships a self-contained fake endpoint for the NICo
 API surface used by CAPNICo.
 
-## The local loop
+## The Local Loop
+
+One command brings up the whole loop:
 
 ```bash
 make tilt-up
@@ -13,8 +15,8 @@ make tilt-up
 That creates a local kind cluster, installs Cluster API core and the kubeadm
 providers, installs CAPNICo through its native Helm chart, and runs it against
 the fake endpoint. The Tilt web UI is on `localhost:10352`. Tear it down with
-`make tilt-down`. The local chart values enable `--zap-devel`; released
-deployments omit it and use structured JSON logging by default.
+`make tilt-down`. The local chart values enable `--zap-devel`. Released
+deployments omit that flag and use structured JSON logging by default.
 
 With the stack up, apply the sample cluster:
 
@@ -23,10 +25,10 @@ kubectl apply -f examples/cluster-fake.yaml
 ```
 
 That manifest is deliberately the smallest thing that provisions through
-CAPNICo: one control-plane-labelled machine and one worker. It creates CAPI
+CAPNICo: one control-plane-labeled machine and one worker. It creates CAPI
 Machines directly with ready-made bootstrap Secrets because CAPNICo provisions
-infrastructure; it does not install Kubernetes or join nodes. Watch it
-converge:
+infrastructure and nothing more. It does not install Kubernetes or join nodes.
+Watch it converge:
 
 ```bash
 kubectl get nicoclusters,nicomachines -A
@@ -36,7 +38,7 @@ kubectl describe nicomachine demo-cp-0
 The fake is seeded from the `fake-nico-seed` ConfigMap in
 `hack/tilt/fake-nico-api.yaml`, whose machines carry `failure_domain` labels.
 Those labels, plus `failureDomainLabelKey: failure_domain` on the `NicoCluster`
-in `examples/cluster-fake.yaml`, are the whole failure domain path:
+in `examples/cluster-fake.yaml`, are the whole failure-domain path:
 
 ```bash
 kubectl get nicocluster demo -o jsonpath='{.status.failureDomains[*].name}'
@@ -69,16 +71,20 @@ go run ./cmd/fake --seed my-machines.yaml
 
 ## Tests
 
+Two targets cover the test suites and their fixtures:
+
 ```bash
 make test              # unit and envtest suites
 make test-update       # regenerate envtest goldens, then read the diff
 ```
 
 `make test-update` rewrites the fixtures under `controllers/testdata`. Always
-read the resulting diff before committing it; an unexpected change there
+read the resulting diff before committing it. An unexpected change there
 usually means a behavior change rather than a formatting change.
 
-## Before opening a pull request
+## Before Opening a Pull Request
+
+Run these four targets first:
 
 ```bash
 make manifests         # regenerate CRDs, RBAC, installer bundle, and Helm chart
@@ -87,12 +93,13 @@ make vet
 make test
 ```
 
-`make manifests` is the step most easily forgotten. The chart and configuration
+Contributors forget `make manifests` most often. The chart and configuration
 are generated from the API and controller markers, so a source change without
 regeneration can leave the release artifacts stale.
 
-## Commit requirements
+## Commit Requirements
 
 Commits follow Conventional Commits and must satisfy the repository's DCO and
-signature policy. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
-contribution workflow.
+signature policy. Refer to the
+[contributing guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md)
+for the full contribution workflow.

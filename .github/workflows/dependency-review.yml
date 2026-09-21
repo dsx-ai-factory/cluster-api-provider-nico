@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Diffs dependency manifests against the pull request base and flags newly
+# introduced vulnerable or disallowed-license dependencies. Complements
+# govulncheck and Grype, which both scan main after merge -- this is the only
+# check that looks at a dependency before it lands.
+#
+# Runs on the real pull_request event and ubuntu-latest, not a self-hosted
+# runner, so every author gets it -- self-hosted runners do not receive fork
+# pull_request events (see merge-gate.yml and govulncheck.yml).
+#
+# Advisory, matching the rest of the fleet's scanners here: continue-on-error
+# means a finding shows in the job output without turning the check red or
+# blocking merge. Fold it into merge-gate.yml's required job list later if the
+# findings prove worth gating on.
+
+name: Dependency Review
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: Dependency Review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dependency Review
+        continue-on-error: true
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          comment-summary-in-pr: never

@@ -8,7 +8,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
-	infrav1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )

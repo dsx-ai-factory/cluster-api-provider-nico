@@ -40,9 +40,9 @@ jobs:
   # Both NVCR orgs are on nvcr.io but take different NGC keys, and a Docker
   # config holds one credential per host, so they cannot share a job.
   promote-nvcr:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Tag NVCR (${{ matrix.dest.name }})
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu16
     environment: nvcr
     timeout-minutes: 15
     permissions:
@@ -63,11 +63,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
+      # `make crane` downloads the released binary now, not `go install`s it,
+      # so this job no longer needs a Go toolchain.
       - name: Build crane
         run: make crane
 
@@ -104,9 +101,9 @@ jobs:
   # Cross-host, so this is the one promotion that can hold both credentials at
   # once: NKE to read, GHCR to write.
   promote-ghcr:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Promote to GHCR
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu16
     needs: [promote-nvcr]
     environment: nvcr
     timeout-minutes: 15
@@ -124,11 +121,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
+      # `make crane` downloads the released binary now, not `go install`s it,
+      # so this job no longer needs a Go toolchain.
       - name: Build crane
         run: make crane
 
@@ -195,7 +189,7 @@ jobs:
 
   sbom:
     name: SBOM (${{ matrix.arch }})
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-ghcr]
     timeout-minutes: 15
     permissions:
@@ -223,13 +217,72 @@ jobs:
           upload-artifact: true
           upload-release-assets: false
 
+  # security-scan.yml's grype job reads the source tree, which catches
+  # vulnerable Go dependencies but not the base image's OS packages. This is
+  # the only scan of the actual bits a consumer pulls. fail-build: false
+  # matches that job too: reports, does not gate.
+  scan-image:
+    name: Scan image (${{ matrix.arch }})
+    runs-on: linux-amd64-cpu16
+    needs: [promote-ghcr]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read          # upload-sarif reads the workflow run
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Grype
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ needs.promote-ghcr.outputs.image }}@${{ needs.promote-ghcr.outputs[format('digest_{0}', matrix.arch)] }}
+          severity-cutoff: medium
+          output-format: sarif
+          only-fixed: true
+          fail-build: false
+
+      - name: Summarise
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${{ steps.scan.outputs.sarif }}"
+          {
+            echo "## Grype (image, ${{ matrix.arch }}) — medium severity and above, fixed versions only"
+            echo
+            if [ -z "${f}" ] || [ ! -s "${f}" ]; then
+              echo "No SARIF produced. The scan did not finish."
+            else
+              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`grype-release-${{ matrix.arch }}\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload SARIF
+        if: always() && steps.scan.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: grype-release-${{ matrix.arch }}
+
   # Three chart jobs, because each package has to name an image its consumers
   # can reach. The native chart is identical apart from image defaults and the
   # NKE package's pull secret.
   chart-ngc:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (NGC)
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-nvcr]
     environment: nvcr
     timeout-minutes: 15
@@ -321,9 +374,9 @@ jobs:
           fi
 
   chart-nke:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (NKE)
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-nvcr]
     environment: nvcr
     timeout-minutes: 15
@@ -412,9 +465,9 @@ jobs:
   # NVIDIA. This job needs neither the nvcr environment nor promote-nvcr; it
   # takes the already-promoted GHCR image from promote-ghcr.
   chart-ghcr:
-    if: github.repository == 'NVIDIA/cluster-api-provider-nico'
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
     name: Chart (GHCR)
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-cpu16
     needs: [promote-ghcr]
     timeout-minutes: 15
     permissions:
@@ -488,8 +541,8 @@ jobs:
   # never touch NGC.
   release:
     name: Create GitHub Release
-    runs-on: linux-amd64-cpu4
-    needs: [promote-ghcr, chart-ghcr]
+    runs-on: linux-amd64-cpu16
+    needs: [promote-ghcr, chart-ghcr, sbom]
     timeout-minutes: 15
     permissions:
       contents: write
@@ -518,6 +571,17 @@ jobs:
           KUSTOMIZE="$(pwd)/bin/kustomize" \
           CONTROLLER_IMG="${IMAGE}:${GITHUB_REF_NAME}" \
             make release-manifests
+
+      # The sbom job stays independent and keeps upload-release-assets: false --
+      # it runs alongside this job, not after it, so sbom-action could not find
+      # a release to attach to yet. Pulling the artifacts here instead lets them
+      # ride the same attach-before-publish path as the other release files.
+      - name: Download SBOMs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: cluster-api-provider-nico-sbom-linux-*
+          path: out
+          merge-multiple: true
 
       # Scans what is about to be attached, before the release exists. Scanning
       # after the upload would mean withdrawing a release rather than never
@@ -595,7 +659,7 @@ jobs:
       - name: Checksum the release assets
         run: |
           set -euo pipefail
-          ( cd out && sha256sum -- *.yaml > checksums.txt )
+          ( cd out && sha256sum -- *.yaml *.spdx.json > checksums.txt )
           echo "checksums.txt:"
           sed 's/^/    /' out/checksums.txt
 
@@ -614,6 +678,8 @@ jobs:
             out/metadata.yaml
             out/infrastructure-components.yaml
             out/checksums.txt
+            out/cluster-api-provider-nico-sbom-linux-amd64.spdx.json
+            out/cluster-api-provider-nico-sbom-linux-arm64.spdx.json
 
       # The assets are checked before the release is published, because
       # publishing it is what seals it.
@@ -632,7 +698,7 @@ jobs:
           retries: 3
           script: |
             const release_id = Number(process.env.RELEASE_ID);
-            const expected = ['infrastructure-components.yaml', 'metadata.yaml', 'checksums.txt'].sort();
+            const expected = ['infrastructure-components.yaml', 'metadata.yaml', 'checksums.txt', 'cluster-api-provider-nico-sbom-linux-amd64.spdx.json', 'cluster-api-provider-nico-sbom-linux-arm64.spdx.json'].sort();
 
             // The asset list can lag behind an upload that has already
             // succeeded, so a short list is read again before it is treated as

@@ -4,7 +4,7 @@
 
 **Prerequisites:**
 
-- Go 1.24+ (see `go.mod` for the exact version in use)
+- Go 1.26.6, the exact version CI scans with, not a minimum (see `go.mod`)
 - Docker (for building the controller image and running e2e tests)
 - [kind](https://kind.sigs.k8s.io/) — local Kubernetes cluster for integration testing
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
@@ -13,7 +13,7 @@
 **Clone and build:**
 
 ```bash
-git clone https://github.com/NVIDIA/cluster-api-provider-nico.git
+git clone https://github.com/dsx-ai-factory/cluster-api-provider-nico.git
 cd cluster-api-provider-nico
 
 # Generate deepcopy methods and CRD manifests
@@ -58,7 +58,7 @@ Thanks for your interest in contributing. Contributions typically fall into
 three categories:
 
 1. Report a bug, feature request, or documentation issue
-   - File an [issue](https://github.com/NVIDIA/cluster-api-provider-nico/issues/new/choose)
+   - File an [issue](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues/new/choose)
      describing what you encountered or what you want changed.
    - Include provider version or commit, Cluster API / Kubernetes versions, and
      relevant controller logs (with secrets redacted).
@@ -75,9 +75,9 @@ three categories:
 
 1. Read [README.md](README.md) for install and development context.
 2. Find an issue labeled
-   [good first issue](https://github.com/NVIDIA/cluster-api-provider-nico/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+   [good first issue](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
    or
-   [help wanted](https://github.com/NVIDIA/cluster-api-provider-nico/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+   [help wanted](https://github.com/dsx-ai-factory/cluster-api-provider-nico/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
 3. Comment on the issue saying you intend to work on it.
 4. Fork the repository and create a branch from `main`.
 5. Make your change and update or add tests.
@@ -91,7 +91,7 @@ make test
 make build
 ```
 
-7. Open a [pull request](https://github.com/NVIDIA/cluster-api-provider-nico/compare)
+7. Open a [pull request](https://github.com/dsx-ai-factory/cluster-api-provider-nico/compare)
    against `main`.
 8. Ensure CI status checks pass, or fix failures.
 9. Address review feedback. A maintainer will merge when approved.
@@ -105,6 +105,10 @@ make build
 - Update docs or examples when user-facing behavior changes.
 - Follow the existing Go style and package layout (`controllers/`,
   `internal/nico/`, `api/`).
+
+### Comments
+
+- Explain non-obvious constraints or reasons only.
 
 ### Branch naming
 
