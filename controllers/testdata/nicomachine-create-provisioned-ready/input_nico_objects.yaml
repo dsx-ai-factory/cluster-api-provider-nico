@@ -1,0 +1,7 @@
+machines:
+- org: org-1
+  resource:
+    id: machine-id-1
+    machineInterfaces:
+    - attachedDpuMachineID: dpu-machine-id-1
+      isPrimary: true

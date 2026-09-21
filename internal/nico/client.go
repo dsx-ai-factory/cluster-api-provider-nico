@@ -368,13 +368,16 @@ func decodeInstance(raw map[string]json.RawMessage) (nicosdk.Instance, bool) {
 	return instance, true
 }
 
-// GetMachine fetches a NICo machine by ID.
+// GetMachine fetches a NICo machine and its provider-only interface metadata.
 func (c *Client) GetMachine(ctx context.Context, machineID string) (*nicosdk.Machine, error) {
 	authCtx, err := c.authCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	machine, resp, err := c.api.MachineAPI.GetMachine(authCtx, c.orgID, machineID).Execute()
+	machine, resp, err := c.api.MachineAPI.
+		GetMachine(authCtx, c.orgID, machineID).
+		IncludeMetadata(true).
+		Execute()
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}
