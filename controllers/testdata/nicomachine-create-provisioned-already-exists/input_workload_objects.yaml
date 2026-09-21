@@ -7,7 +7,3 @@
     name: machine-1
   spec:
     providerID: external://machine-1
-- apiVersion: v1
-  kind: Node
-  metadata:
-    name: node-ref-1

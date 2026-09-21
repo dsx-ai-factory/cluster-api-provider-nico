@@ -28,11 +28,6 @@ type: Opaque
 stringData:
   value: test-kubeconfig
 ---
-apiVersion: v1
-kind: Node
-metadata:
-  name: machine-1
----
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:

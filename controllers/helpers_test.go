@@ -223,6 +223,27 @@ func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint st
 	return c.Update(ctx, secret)
 }
 
+func applyMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error {
+	input, ok := tc.Input("input_machine_status.yaml")
+	if !ok {
+		return nil
+	}
+
+	desired := &clusterv1.Machine{}
+	if err := yaml.Unmarshal([]byte(input), desired); err != nil {
+		return fmt.Errorf("decode input_machine_status.yaml: %w", err)
+	}
+	machine := &clusterv1.Machine{}
+	if err := tc.Client.Get(ctx, client.ObjectKeyFromObject(desired), machine); err != nil {
+		return fmt.Errorf("get Machine for status fixture: %w", err)
+	}
+	machine.Status = desired.Status
+	if err := tc.Client.Status().Update(ctx, machine); err != nil {
+		return fmt.Errorf("apply Machine status fixture: %w", err)
+	}
+	return nil
+}
+
 func seedWorkloadClient(tc *fixtures.Case) (workloadClientFactory, client.Client, error) {
 	builder := crfake.NewClientBuilder().WithScheme(tc.Scheme)
 	if input, ok := tc.Input("input_workload_objects.yaml"); ok {
