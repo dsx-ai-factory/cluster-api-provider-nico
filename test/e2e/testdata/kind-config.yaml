@@ -1,9 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Exposes the host's Docker socket inside the kind node so a pod (the docker
-# fake NICo backend) can bind-mount it in turn and run sibling containers on
-# the host's daemon.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
