@@ -26,10 +26,6 @@ const (
 	kubernetesVersionPlaceholder = "${KUBERNETES_VERSION}"
 )
 
-// dockerSocketPatch layers Docker socket access onto hack/tilt/fake-nico-api.yaml
-// (the in-memory-backend manifest the Tilt dev loop also uses), rather than
-// duplicating that whole Deployment into a second file for the one thing this
-// test needs that Tilt doesn't.
 const dockerSocketPatch = `
 spec:
   template:
@@ -55,9 +51,6 @@ spec:
           type: Socket
 `
 
-// kindContext returns the kubeconfig context `kind create cluster` sets for
-// KIND_CLUSTER, so kubectl calls here never depend on whatever context
-// happens to be ambient.
 func kindContext() string {
 	cluster := "kind"
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
@@ -83,10 +76,6 @@ func renderBootstrapManifest() ([]byte, error) {
 	return bytes.ReplaceAll(manifest, []byte(kubernetesVersionPlaceholder), []byte(version)), nil
 }
 
-// Proves CAPNico's controllers work with the kubeadm bootstrap and
-// control-plane providers end to end: a real KubeadmControlPlane and
-// MachineDeployment/KubeadmConfigTemplate, backed by instances that are real
-// containers (see internal/fake/docker), not just NICo API call assertions.
 var _ = Describe("Bootstrap", Ordered, func() {
 	var bootstrapManifest []byte
 
@@ -103,10 +92,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		By("loading the fake NICo image on Kind")
 		Expect(utils.LoadImageToKindClusterWithName(fakeDockerImage)).To(Succeed())
 
-		// clusterctl init returns once its objects are created, not once their
-		// webhook pods are actually serving -- applying a KubeadmControlPlane
-		// too soon hits "connection refused" from its still-starting
-		// mutating webhook.
+		// clusterctl init does not wait for its webhook deployments to become available.
 		By("waiting for the Cluster API webhooks to be ready")
 		for _, deployment := range []struct{ namespace, name string }{
 			{"capi-system", "capi-controller-manager"},
@@ -166,9 +152,6 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to apply the bootstrap cluster")
 
-		// The ClusterResourceSet in cluster-bootstrap.yaml references this
-		// ConfigMap by name; it's created here, directly from the vendored
-		// file, so that file stays the CNI manifest's single copy.
 		By("creating the kindnet ConfigMap")
 		cmd = exec.Command("kubectl", "--context", kindContext(), "create", "configmap", "cni-kindnet",
 			"-n", "capnico-e2e", "--from-file=kindnet.yaml=test/e2e/testdata/kindnet.yaml")
@@ -177,13 +160,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 	})
 
 	AfterAll(func() {
-		// Deleting the Cluster first, and waiting for it to actually be gone,
-		// lets it cascade through Machines/NicoMachines while nico-credentials
-		// still exists. NicoMachine's own deletion reconciliation needs that
-		// Secret to call the fake API's delete-instance endpoint; a single
-		// `kubectl delete -f` of the whole manifest deletes the Secret in the
-		// same operation, racing it against machines that still need it and
-		// leaving them stuck deleting forever (and their containers orphaned).
+		// Delete the Cluster first because NicoMachine cleanup still needs the credentials Secret.
 		By("deleting the workload cluster")
 		cmd := exec.Command("kubectl", "--context", kindContext(), "delete", "cluster", "capnico-e2e",
 			"-n", "capnico-e2e", "--ignore-not-found", "--wait=true", "--timeout=3m")
@@ -210,10 +187,6 @@ var _ = Describe("Bootstrap", Ordered, func() {
 	})
 
 	It("bootstraps a real workload cluster via KubeadmControlPlane", func() {
-		// This CAPI version's v1beta2 conditions API has no "Ready" condition
-		// type on KubeadmControlPlane, and no Cluster.status.controlPlaneReady
-		// field -- both restructured. Initialized is a fast, focused signal
-		// that kubeadm init itself succeeded.
 		By("waiting for the KubeadmControlPlane to report Initialized")
 		verifyControlPlaneInitialized := func(g Gomega) {
 			cmd := exec.Command("kubectl", "--context", kindContext(), "get", "kubeadmcontrolplane", "capnico-e2e-control-plane",
@@ -224,12 +197,6 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		}
 		Eventually(verifyControlPlaneInitialized, 10*time.Minute, 5*time.Second).Should(Succeed())
 
-		// Cluster's Available condition aggregates both control-plane and
-		// worker availability (it embeds ControlPlaneAvailable/
-		// WorkersAvailable sub-conditions in its message), so this is the one
-		// check that the whole thing -- not just kubeadm init -- worked: CNI
-		// installed via the ClusterResourceSet, the node went Ready, and the
-		// worker joined.
 		By("waiting for the Cluster to report Available")
 		verifyClusterAvailable := func(g Gomega) {
 			cmd := exec.Command("kubectl", "--context", kindContext(), "get", "cluster", "capnico-e2e",

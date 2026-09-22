@@ -3,11 +3,6 @@
 # https://github.com/kubernetes-sigs/kindnet/blob/main/install-kindnet.yaml
 # Copyright the Kubernetes Authors; licensed Apache-2.0:
 # https://github.com/kubernetes-sigs/kindnet/blob/main/LICENSE
-#
-# kindnet is the CNI `kind` itself uses by default for its own clusters, so
-# it's a known-compatible choice for a kindest/node-backed cluster. Applied
-# via a control-plane postKubeadmCommand in cluster-bootstrap.yaml, once
-# kubeadm init succeeds locally -- not driven from the e2e Go test.
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
