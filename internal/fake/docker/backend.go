@@ -24,7 +24,6 @@ import (
 )
 
 const (
-	defaultImage   = "kindest/node:v1.31.0"
 	defaultNetwork = "kind"
 
 	// controlPlaneLabel marks the create request for the single control-plane
@@ -44,7 +43,7 @@ const (
 type Backend struct {
 	Client *client.Client
 
-	// Image is the node image to run. Defaults to defaultImage.
+	// Image is the node image to run.
 	Image string
 	// Network is the Docker network the container joins. Defaults to
 	// defaultNetwork, the network `kind create cluster` creates.
@@ -63,13 +62,6 @@ type cloudConfig struct {
 	RunCmd     []string          `json:"runcmd"`
 }
 
-func (b *Backend) image() string {
-	if b.Image != "" {
-		return b.Image
-	}
-	return defaultImage
-}
-
 func (b *Backend) network() string {
 	if b.Network != "" {
 		return b.Network
@@ -84,7 +76,7 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 		Name: name,
 		Config: &container.Config{
 			Hostname: name,
-			Image:    b.image(),
+			Image:    b.Image,
 			Env: []string{
 				// Real NICo instances learn their own ID from a metadata
 				// service preKubeadmCommands curl; this container has no such
@@ -134,12 +126,21 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 	// and fail on - kubeadm succeeding, defeating Ready() reporting readiness
 	// independent of bootstrap state.
 	go func() {
+		if err := b.waitForContainerRuntime(context.WithoutCancel(ctx), created.ID); err != nil {
+			log.Printf("fake/docker: wait for container runtime in %s: %v", name, err)
+			return
+		}
 		if err := b.applyCloudConfig(context.WithoutCancel(ctx), created.ID, userData); err != nil {
 			log.Printf("fake/docker: apply cloud-config for %s: %v", name, err)
 		}
 	}()
 
 	return nil
+}
+
+func (b *Backend) waitForContainerRuntime(ctx context.Context, containerID string) error {
+	return b.execIn(ctx, containerID, nil, "sh", "-c",
+		`i=0; while [ "$i" -lt 60 ]; do crictl info >/dev/null 2>&1 && exit 0; i=$((i + 1)); sleep 1; done; exit 1`)
 }
 
 // Ready reports whether the container is up, matching NICo: an instance is

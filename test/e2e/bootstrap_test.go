@@ -7,6 +7,8 @@
 package e2e
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,7 +20,11 @@ import (
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/test/utils"
 )
 
-const fakeDockerImage = "fake-nico-api-server"
+const (
+	fakeDockerImage              = "fake-nico-api-server"
+	bootstrapManifestPath        = "test/e2e/testdata/cluster-bootstrap.yaml"
+	kubernetesVersionPlaceholder = "${KUBERNETES_VERSION}"
+)
 
 // dockerSocketPatch layers Docker socket access onto hack/tilt/fake-nico-api.yaml
 // (the in-memory-backend manifest the Tilt dev loop also uses), rather than
@@ -60,15 +66,38 @@ func kindContext() string {
 	return "kind-" + cluster
 }
 
+func renderBootstrapManifest() ([]byte, error) {
+	version := os.Getenv("KUBERNETES_VERSION")
+	if version == "" {
+		return nil, fmt.Errorf("KUBERNETES_VERSION is required")
+	}
+
+	manifest, err := os.ReadFile(bootstrapManifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read bootstrap manifest: %w", err)
+	}
+	if !bytes.Contains(manifest, []byte(kubernetesVersionPlaceholder)) {
+		return nil, fmt.Errorf("bootstrap manifest does not contain %s", kubernetesVersionPlaceholder)
+	}
+
+	return bytes.ReplaceAll(manifest, []byte(kubernetesVersionPlaceholder), []byte(version)), nil
+}
+
 // Proves CAPNico's controllers work with the kubeadm bootstrap and
 // control-plane providers end to end: a real KubeadmControlPlane and
 // MachineDeployment/KubeadmConfigTemplate, backed by instances that are real
 // containers (see internal/fake/docker), not just NICo API call assertions.
 var _ = Describe("Bootstrap", Ordered, func() {
+	var bootstrapManifest []byte
+
 	BeforeAll(func() {
+		var err error
+		bootstrapManifest, err = renderBootstrapManifest()
+		Expect(err).NotTo(HaveOccurred())
+
 		By("building the fake NICo image")
 		cmd := exec.Command("docker", "build", "-f", "Dockerfile.fake", "-t", fakeDockerImage, ".")
-		_, err := utils.Run(cmd)
+		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to build the fake NICo image")
 
 		By("loading the fake NICo image on Kind")
@@ -106,9 +135,16 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the fake NICo API")
 
 		By("switching the fake NICo API to the docker backend")
+		nodeImage := os.Getenv("KIND_NODE_IMAGE")
+		Expect(nodeImage).NotTo(BeEmpty(), "KIND_NODE_IMAGE is required")
+		dockerBackendPatch, err := json.Marshal([]map[string]string{
+			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--backend=docker"},
+			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--docker-image=" + nodeImage},
+		})
+		Expect(err).NotTo(HaveOccurred())
 		cmd = exec.Command("kubectl", "--context", kindContext(), "patch", "deployment", "fake-nico-api",
 			"-n", "fake-nico-api", "--type=json",
-			"-p", `[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--backend=docker"}]`)
+			"-p", string(dockerBackendPatch))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to switch the fake NICo API to the docker backend")
 
@@ -125,7 +161,8 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "fake NICo API did not become available")
 
 		By("applying the bootstrap cluster")
-		cmd = exec.Command("kubectl", "--context", kindContext(), "apply", "-f", "test/e2e/testdata/cluster-bootstrap.yaml")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "apply", "-f", "-")
+		cmd.Stdin = bytes.NewReader(bootstrapManifest)
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to apply the bootstrap cluster")
 
@@ -153,8 +190,9 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("deleting the rest of the bootstrap manifest")
-		cmd = exec.Command("kubectl", "--context", kindContext(), "delete", "-f", "test/e2e/testdata/cluster-bootstrap.yaml",
+		cmd = exec.Command("kubectl", "--context", kindContext(), "delete", "-f", "-",
 			"--ignore-not-found", "--wait=true", "--timeout=1m")
+		cmd.Stdin = bytes.NewReader(bootstrapManifest)
 		_, _ = utils.Run(cmd)
 
 		By("deleting the fake NICo API")
@@ -200,6 +238,6 @@ var _ = Describe("Bootstrap", Ordered, func() {
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(Equal("True"), "Cluster not Available")
 		}
-		Eventually(verifyClusterAvailable, 10*time.Minute, 5*time.Second).Should(Succeed())
+		Eventually(verifyClusterAvailable, 8*time.Minute, 5*time.Second).Should(Succeed())
 	})
 })

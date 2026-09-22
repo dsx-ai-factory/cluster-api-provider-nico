@@ -84,16 +84,18 @@ test-update: manifests generate fmt vet setup-envtest ginkgo ## Run tests and up
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER ?= cluster-api-provider-nico-test-e2e
+E2E_K8S_VERSION ?= v$(ENVTEST_K8S_VERSION).0
+KIND_NODE_IMAGE ?= kindest/node:$(E2E_K8S_VERSION)@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 
 .PHONY: setup-test-e2e
-setup-test-e2e: clusterctl ## Recreate the Kind cluster and install CAPI for e2e tests
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
+setup-test-e2e: kind-tool clusterctl ## Recreate the Kind cluster and install CAPI for e2e tests
+	@case "$(KIND_NODE_IMAGE)" in \
+		kindest/node:$(E2E_K8S_VERSION)@sha256:*) ;; \
+		*) echo "KIND_NODE_IMAGE must pin Kubernetes $(E2E_K8S_VERSION) by digest."; exit 1 ;; \
+	esac
 	@echo "Recreating Kind cluster '$(KIND_CLUSTER)'..."
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
-	@$(KIND) create cluster --name $(KIND_CLUSTER) --config test/e2e/testdata/kind-config.yaml
+	@$(KIND) create cluster --name $(KIND_CLUSTER) --image $(KIND_NODE_IMAGE) --config test/e2e/testdata/kind-config.yaml
 	@echo "Installing Cluster API on Kind cluster '$(KIND_CLUSTER)'..."
 	@"$(CLUSTERCTL)" init \
 		--kubeconfig-context "kind-$(KIND_CLUSTER)" \
@@ -104,10 +106,11 @@ setup-test-e2e: clusterctl ## Recreate the Kind cluster and install CAPI for e2e
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	@trap '$(MAKE) --no-print-directory cleanup-test-e2e || exit $$?' EXIT; \
-		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) KUBERNETES_VERSION=$(E2E_K8S_VERSION) KIND_NODE_IMAGE=$(KIND_NODE_IMAGE) \
+		go test -timeout 15m -tags=e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
+cleanup-test-e2e: kind-tool ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 # Every source file carries an SPDX header; the check runs in
@@ -384,7 +387,7 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KIND ?= kind
+KIND ?= $(LOCALBIN)/kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 KUBEBUILDER ?= $(LOCALBIN)/kubebuilder
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
@@ -401,6 +404,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.20.1
 CRANE_VERSION ?= v0.21.9
 GINKGO_VERSION ?= $(call gomodver,github.com/onsi/ginkgo/v2)
 CAPI_VERSION ?= $(call gomodver,sigs.k8s.io/cluster-api)
+KIND_VERSION ?= v0.33.0
 
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
@@ -467,6 +471,11 @@ $(GINKGO): $(LOCALBIN)
 clusterctl: $(CLUSTERCTL) ## Download clusterctl locally if necessary.
 $(CLUSTERCTL): $(LOCALBIN)
 	$(call go-install-tool,$(CLUSTERCTL),sigs.k8s.io/cluster-api/cmd/clusterctl,$(CAPI_VERSION))
+
+.PHONY: kind-tool
+kind-tool: $(KIND) ## Download Kind locally if necessary.
+$(KIND): $(LOCALBIN)
+	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
