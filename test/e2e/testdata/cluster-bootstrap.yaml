@@ -1,26 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# A real KubeadmControlPlane + MachineDeployment/KubeadmConfigTemplate cluster,
-# backed by the fake NICo API's Docker mode, to prove CAPNico's controllers
-# work with the kubeadm bootstrap and control-plane providers end to end -- not
-# just that CAPNico calls the NICo API correctly.
-#
-# Two differences from examples/kubeadm/cluster.yaml, both because this runs
-# against fake containers rather than real NICo hardware:
-#
-#  1. No kube-vip. Real deployments need it (or an external LB) because
-#     Cluster.spec.controlPlaneEndpoint must exist before any control-plane
-#     machine does, and kube-vip lets that address float between multiple
-#     control-plane replicas on failover. This cluster has exactly one
-#     control-plane replica, so there's no floating-IP scenario to test: the
-#     docker backend (internal/fake/docker/backend.go) just gives that one
-#     container a fixed address up front and controlPlaneEndpoint points
-#     directly at it.
-#
-#  2. Fake containers have no NICo metadata service. Hostname injection makes
-#     each Node register with its CAPI Machine name, allowing CAPNico's normal
-#     Node provider ID reconciliation to find and patch it.
 ---
 apiVersion: v1
 kind: Namespace
@@ -61,9 +40,7 @@ spec:
       cloudInitInjectHostname: true
       interfaces:
       - vpcPrefixID: prefix-1
-      # Not a real NICo/CAPI convention -- read by the docker backend
-      # (internal/fake/docker/backend.go) to give only this instance the
-      # fixed IP Cluster.spec.controlPlaneEndpoint points at below.
+      # Selects the fixed control-plane IP behavior in the Docker backend.
       labels:
         capnico-fake/control-plane: "true"
 ---
@@ -90,9 +67,6 @@ metadata:
     cni: kindnet
 spec:
   controlPlaneEndpoint:
-    # The docker backend gives the control-plane container this exact
-    # address (see the NicoMachineTemplate above and backend.go); no VIP, no
-    # DNS involved.
     host: 172.18.255.250
     port: 6443
   clusterNetwork:
@@ -132,11 +106,7 @@ spec:
         certSANs:
           - 172.18.255.250
     initConfiguration:
-      # kubeadm's SystemVerification preflight check tries to `modprobe
-      # configs` to read /proc/config.gz. That kernel module is a property of
-      # the host kernel, not something a container can load regardless of
-      # privilege -- the same class of check kind itself works around inside
-      # its own node containers.
+      # The container cannot load the host's configs kernel module.
       nodeRegistration:
         ignorePreflightErrors:
           - SystemVerification
@@ -182,10 +152,7 @@ spec:
         kind: NicoMachineTemplate
         name: capnico-e2e-workers
 ---
-# Installs kindnet once the cluster matches this selector. The referenced
-# ConfigMap (cni-kindnet) isn't in this file -- bootstrap_test.go creates it
-# directly from the vendored test/e2e/testdata/kindnet.yaml, so that file
-# stays the single copy instead of being duplicated into this manifest too.
+# Installs vendored kindnet from a ConfigMap created by bootstrap_test.go.
 apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:

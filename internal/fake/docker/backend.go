@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package docker implements a fake.Backend that runs each instance as a real
-// kindest/node container and applies the create request's userData to it, so
-// a bootstrap provider's rendered cloud-init actually executes somewhere.
+// Package docker runs fake NICo instances as kindest/node containers.
 package docker
 
 import (
@@ -26,27 +24,17 @@ import (
 const (
 	defaultNetwork = "kind"
 
-	// controlPlaneLabel marks the create request for the single control-plane
-	// instance, set via NicoMachineTemplate.spec.template.spec.labels in the
-	// test manifest -- not a real CAPI or NICo convention.
 	controlPlaneLabel = "capnico-fake/control-plane"
-
-	// controlPlaneIP is a fixed address on the kind network. With only one
-	// control-plane replica there's no floating-IP/failover scenario to
-	// test, so the control-plane container gets this address directly
-	// instead of standing up kube-vip for it.
-	controlPlaneIP = "172.18.255.250"
+	controlPlaneIP    = "172.18.255.250"
 )
 
-// Backend runs instances as containers on a Docker network shared with a kind
-// management cluster's nodes.
+// Backend runs instances as containers on the kind Docker network.
 type Backend struct {
 	Client *client.Client
 
 	// Image is the node image to run.
 	Image string
-	// Network is the Docker network the container joins. Defaults to
-	// defaultNetwork, the network `kind create cluster` creates.
+	// Network is the Docker network the container joins. It defaults to the kind network.
 	Network string
 }
 
@@ -79,10 +67,7 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 			Hostname: name,
 			Image:    b.Image,
 			Env: []string{
-				// containerd's default overlayfs snapshotter fails to mount
-				// when it's already running on top of another overlayfs (the
-				// host's own storage driver, e.g. Docker Desktop). kindest/node
-				// ships fuse-overlayfs for exactly this nested case.
+				// Use fuse-overlayfs because nested overlayfs fails on Docker-backed hosts.
 				"KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs",
 			},
 		},
@@ -115,12 +100,7 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 		return fmt.Errorf("start node container: %w", err)
 	}
 
-	// Real hardware's create-instance call returns once the machine is
-	// powered on; cloud-init (including any kubeadm command in it) runs
-	// afterward, on its own timeline, and can fail without un-creating the
-	// instance. Applying it synchronously here would make Create() block on -
-	// and fail on - kubeadm succeeding, defeating Ready() reporting readiness
-	// independent of bootstrap state.
+	// Run bootstrap asynchronously so instance readiness remains independent of kubeadm.
 	go func() {
 		if err := b.waitForContainerRuntime(context.WithoutCancel(ctx), created.ID); err != nil {
 			log.Printf("fake/docker: wait for container runtime in %s: %v", name, err)
@@ -139,9 +119,7 @@ func (b *Backend) waitForContainerRuntime(ctx context.Context, containerID strin
 		`i=0; while [ "$i" -lt 60 ]; do crictl info >/dev/null 2>&1 && exit 0; i=$((i + 1)); sleep 1; done; exit 1`)
 }
 
-// Ready reports whether the container is up, matching NICo: an instance is
-// READY once the machine exists, independent of whether kubeadm has joined it
-// to a cluster yet. KubeadmControlPlane observes bootstrap success separately.
+// Ready reports whether the container is running, independently of kubeadm bootstrap.
 func (b *Backend) Ready(ctx context.Context, instanceID string) (bool, error) {
 	result, err := b.Client.ContainerInspect(ctx, containerName(instanceID), client.ContainerInspectOptions{})
 	if err != nil {
@@ -164,8 +142,6 @@ func containerName(instanceID string) string {
 	return "capnico-fake-" + instanceID
 }
 
-// applyCloudConfig supports the hostname/write_files/runcmd subset of cloud-config,
-// same as CWE's nico-mock.
 func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData string) error {
 	userData = strings.TrimSpace(userData)
 	if userData == "" {
@@ -217,8 +193,6 @@ func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData st
 	return nil
 }
 
-// execIn runs a command in containerID, optionally feeding it stdin. It fails
-// on a nonzero exit code, same as shelling out to `docker exec` would.
 func (b *Backend) execIn(ctx context.Context, containerID string, stdin io.Reader, cmd ...string) error {
 	created, err := b.Client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
 		Cmd:          cmd,

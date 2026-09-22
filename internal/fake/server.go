@@ -55,8 +55,7 @@ type instanceRecord struct {
 	rebootCount int
 }
 
-// Backend provisions real compute for a created instance. Nil is valid and
-// preserves the default poll-counted state machine in advanceInstance.
+// Backend provisions compute for fake instances.
 type Backend interface {
 	Create(ctx context.Context, instanceID, userData string, labels map[string]string) error
 	Ready(ctx context.Context, instanceID string) (bool, error)
