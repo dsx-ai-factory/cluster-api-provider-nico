@@ -667,23 +667,41 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	instance.SetInterfaces(interfaces)
 
 	record := &instanceRecord{org: org, instance: *instance}
-	s.instances.Resources[resourceKey(org, id)] = record
+	key := resourceKey(org, id)
+	s.instances.Resources[key] = record
 	requestCopy := request
+	requestIndex := len(s.requests)
 	s.requests = append(s.requests, requestRecord{
 		Operation:  operationCreateInstance,
 		Org:        org,
 		InstanceID: id,
 		Create:     &requestCopy,
 	})
-	response := cloneInstance(record.instance)
 	s.mu.Unlock()
 
 	if s.backend != nil {
 		if err := s.backend.Create(r.Context(), id, request.GetUserData(), request.GetLabels()); err != nil {
 			log.Printf("fake: backend create %s: %v", id, err)
+			s.mu.Lock()
+			if s.instances.Resources[key] == record {
+				delete(s.instances.Resources, key)
+			}
+			if assignedMachine != nil && assignedMachine.GetInstanceId() == id {
+				assignedMachine.SetInstanceIdNil()
+			}
+			if requestIndex < len(s.requests) && s.requests[requestIndex].Operation == operationCreateInstance &&
+				s.requests[requestIndex].InstanceID == id {
+				s.requests = append(s.requests[:requestIndex], s.requests[requestIndex+1:]...)
+			}
+			s.mu.Unlock()
+			writeError(w, http.StatusServiceUnavailable, "instance backend create failed")
+			return
 		}
 	}
 
+	s.mu.Lock()
+	response := cloneInstance(record.instance)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, &response)
 }
 
@@ -706,16 +724,39 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getInstance(w http.ResponseWriter, r *http.Request) {
 	org, instanceID := r.PathValue("org"), r.PathValue("instanceID")
+	key := resourceKey(org, instanceID)
 	s.mu.Lock()
-	record, ok := s.instances.Resources[resourceKey(org, instanceID)]
-	if ok {
-		s.advanceInstance(r.Context(), record)
+	record, ok := s.instances.Resources[key]
+	if !ok {
+		s.mu.Unlock()
+		writeError(w, http.StatusNotFound, "instance not found")
+		return
+	}
+	backend := s.backend
+	if backend == nil || !statusEqual(record.instance.GetStatus(), string(nicosdk.INSTANCESTATUS_PENDING)) {
+		s.advanceInstance(record)
+		response := cloneInstance(record.instance)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, &response)
+		return
+	}
+	s.mu.Unlock()
+
+	ready, err := backend.Ready(r.Context(), instanceID)
+	s.mu.Lock()
+	record, ok = s.instances.Resources[key]
+	if ok && err == nil && ready && statusEqual(record.instance.GetStatus(), string(nicosdk.INSTANCESTATUS_PENDING)) {
+		record.instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
+		assignInstanceAddresses(&record.instance, defaultIPAddress)
 	}
 	var response nicosdk.Instance
 	if ok {
 		response = cloneInstance(record.instance)
 	}
 	s.mu.Unlock()
+	if err != nil {
+		log.Printf("fake: backend ready %s: %v", instanceID, err)
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "instance not found")
 		return
@@ -852,8 +893,11 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "instance not found")
 		return
 	}
+	previousStatus := record.instance.GetStatus()
+	previousPolls := record.polls
 	record.instance.SetStatus(nicosdk.INSTANCESTATUS_TERMINATING)
 	record.polls = 0
+	requestIndex := len(s.requests)
 	s.requests = append(s.requests, requestRecord{
 		Operation:  operationDeleteInstance,
 		Org:        org,
@@ -865,6 +909,18 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 	if s.backend != nil {
 		if err := s.backend.Delete(r.Context(), instanceID); err != nil {
 			log.Printf("fake: backend delete %s: %v", instanceID, err)
+			s.mu.Lock()
+			if s.instances.Resources[resourceKey(org, instanceID)] == record {
+				record.instance.SetStatus(previousStatus)
+				record.polls = previousPolls
+			}
+			if requestIndex < len(s.requests) && s.requests[requestIndex].Operation == operationDeleteInstance &&
+				s.requests[requestIndex].InstanceID == instanceID {
+				s.requests = append(s.requests[:requestIndex], s.requests[requestIndex+1:]...)
+			}
+			s.mu.Unlock()
+			writeError(w, http.StatusServiceUnavailable, "instance backend delete failed")
+			return
 		}
 	}
 
@@ -902,22 +958,10 @@ func (s *Server) getVPC(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, vpc)
 }
 
-func (s *Server) advanceInstance(ctx context.Context, record *instanceRecord) {
+func (s *Server) advanceInstance(record *instanceRecord) {
 	status := record.instance.GetStatus()
 	switch {
 	case statusEqual(status, string(nicosdk.INSTANCESTATUS_PENDING)):
-		if s.backend != nil {
-			ready, err := s.backend.Ready(ctx, record.instance.GetId())
-			if err != nil {
-				log.Printf("fake: backend ready %s: %v", record.instance.GetId(), err)
-				return
-			}
-			if ready {
-				record.instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
-				assignInstanceAddresses(&record.instance, defaultIPAddress)
-			}
-			return
-		}
 		record.polls++
 		if record.polls >= ReadyAfterPolls {
 			record.instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
