@@ -86,23 +86,25 @@ test-update: manifests generate fmt vet setup-envtest ginkgo ## Run tests and up
 KIND_CLUSTER ?= cluster-api-provider-nico-test-e2e
 
 .PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
+setup-test-e2e: clusterctl ## Recreate the Kind cluster and install CAPI for e2e tests
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) --config test/e2e/testdata/kind-config.yaml ;; \
-	esac
+	@echo "Recreating Kind cluster '$(KIND_CLUSTER)'..."
+	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+	@$(KIND) create cluster --name $(KIND_CLUSTER) --config test/e2e/testdata/kind-config.yaml
+	@echo "Installing Cluster API on Kind cluster '$(KIND_CLUSTER)'..."
+	@"$(CLUSTERCTL)" init \
+		--kubeconfig-context "kind-$(KIND_CLUSTER)" \
+		--core cluster-api:$(CAPI_VERSION) \
+		--bootstrap kubeadm:$(CAPI_VERSION) \
+		--control-plane kubeadm:$(CAPI_VERSION)
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
+	@trap '$(MAKE) --no-print-directory cleanup-test-e2e || exit $$?' EXIT; \
+		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests

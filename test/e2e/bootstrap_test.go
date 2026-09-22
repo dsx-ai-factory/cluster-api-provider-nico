@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -75,13 +74,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		By("loading the fake NICo image on Kind")
 		Expect(utils.LoadImageToKindClusterWithName(fakeDockerImage)).To(Succeed())
 
-		By("installing Cluster API core, kubeadm bootstrap, and kubeadm control-plane providers")
-		cmd = exec.Command("make", "capi-init")
-		cmd.Env = append(os.Environ(), "CAPNICO_KUBECONFIG="+ambientKubeconfig())
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install Cluster API")
-
-		// capi-init returns once its objects are created, not once their
+		// clusterctl init returns once its objects are created, not once their
 		// webhook pods are actually serving -- applying a KubeadmControlPlane
 		// too soon hits "connection refused" from its still-starting
 		// mutating webhook.
@@ -210,16 +203,3 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		Eventually(verifyClusterAvailable, 10*time.Minute, 5*time.Second).Should(Succeed())
 	})
 })
-
-// ambientKubeconfig mirrors the default `make capi-init` would use for a
-// bare `kubectl`/`kind` invocation, so Cluster API installs onto the same
-// cluster the rest of this suite already targets rather than the Tilt dev
-// loop's dedicated kubeconfig.
-func ambientKubeconfig() string {
-	if kubeconfig := os.Getenv("KUBECONFIG"); kubeconfig != "" {
-		return kubeconfig
-	}
-	home, err := os.UserHomeDir()
-	Expect(err).NotTo(HaveOccurred())
-	return filepath.Join(home, ".kube", "config")
-}
