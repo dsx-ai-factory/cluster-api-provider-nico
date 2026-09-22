@@ -29,6 +29,13 @@ instances:
     status: Ready
     tenantId: tenant-1
     vpcId: vpc-1
+machines:
+- org: org-1
+  resource:
+    id: machine-id-1
+    machineInterfaces:
+    - attachedDpuMachineID: dpu-machine-id-1
+      isPrimary: true
 requests:
 - create:
     description: Managed by Cluster API

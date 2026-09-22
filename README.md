@@ -25,14 +25,9 @@ each requested machine into a NICo instance on real hardware.
   credentials, supplied through a Secret.
 - **Per-cluster credentials.** `NicoCluster` may reference its own Secret, so one
   management cluster can drive several sites.
-- **Credential rotation without a restart.** Clients are cached per Secret
-  `resourceVersion`, so an external rotation is picked up on the next reconcile.
-- **Idempotent instance creation.** A create conflict resolves by looking up the
-  existing instance by name rather than failing or duplicating.
 - **External control-plane endpoints**, including a kube-vip template and a
   developer flow for a single requested IP.
 - **Machine repair and reboot**, both driven by annotations.
-- **An ordered deletion lifecycle**, guarded by a finalizer.
 
 ## How this fits with other tools
 
@@ -378,6 +373,13 @@ The kubeadm templates patch kubelet with `providerID: nico://<instance-id>` by r
 the NICo metadata service at `169.254.169.254:7777`. This lets Cluster API match
 workload-cluster Nodes back to their `Machine` objects.
 
+CAPNICo also backfills an empty `Node.spec.providerID` after confirming the NICo
+instance identity, using the workload-cluster kubeconfig Secret. It never
+overwrites a different provider ID. Clusters where an external cloud provider
+owns this field can opt out by setting the
+`nico.nvidia.com/skip-node-provider-id-reconciliation: "true"` annotation on the
+Cluster API `Cluster`.
+
 The NICo architecture documentation describes The Metadata Service (FMDS) as the local HTTP metadata API provided by the DPU agent:
 [Overview and Components](https://docs.nvidia.com/infra-controller/documentation/architecture/overview-and-components).
 
@@ -433,7 +435,7 @@ Set `KUBE_VIP_ADDRESS` to the stable API endpoint IP. Set
 `CONTROL_PLANE_ENDPOINT_HOST` to that IP or to a DNS name that resolves to it.
 Joining nodes require this endpoint to be reachable after kube-vip starts. By
 default, `KUBE_VIP_BGP_PEER_AS=auto` reads the peer ASN from the NICo instance
-metadata service at `/latest/meta-data/asn`. 
+metadata service at `/latest/meta-data/asn`.
 
 ```bash
 kubectl create namespace demo
@@ -467,7 +469,7 @@ then uses the same address as the Kubernetes API server endpoint.
 `CONTROL_PLANE_ENDPOINT_IP` must be an available IP in the VPC prefix and must
 have its least-significant host bit set to `1`, which is required by NICo's
 VPC-prefix linknet allocation. Do not use this template for normal clusters or
-HA control planes; use `cluster-kube-vip.yaml` instead. This is only intended 
+HA control planes; use `cluster-kube-vip.yaml` instead. This is only intended
 for development with minimal hardware requirements.
 
 ```bash

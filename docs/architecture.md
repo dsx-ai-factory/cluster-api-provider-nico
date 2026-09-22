@@ -243,6 +243,15 @@ agent. Refer to
 [Overview and Components](https://docs.nvidia.com/infra-controller/documentation/architecture/overview-and-components)
 for details.
 
+Once the backing instance identity is confirmed, the `NicoMachine` reconciler
+also connects through the standard Cluster API kubeconfig Secret and fills an
+empty `Node.spec.providerID`. Before Cluster API has a `status.nodeRef`, the
+workload Node name must match the owning `Machine` name, as it does in the NKE
+bootstrap flow. The reconciler treats an already matching value as complete and
+never overwrites a different value. Annotate the Cluster API `Cluster` with
+`nico.nvidia.com/skip-node-provider-id-reconciliation: "true"` when an external
+cloud provider owns the Node provider ID.
+
 ## Teardown
 
 Delete the Cluster API `Cluster` and let that deletion finish before you remove

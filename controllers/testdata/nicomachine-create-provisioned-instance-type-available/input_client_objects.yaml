@@ -24,6 +24,8 @@ kind: Cluster
 metadata:
   name: cluster-1
   namespace: default
+  annotations:
+    nico.nvidia.com/skip-node-provider-id-reconciliation: "true"
 spec:
   infrastructureRef:
     apiGroup: infrastructure.cluster.x-k8s.io

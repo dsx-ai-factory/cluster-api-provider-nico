@@ -129,6 +129,7 @@ items:
       provisioned: true
     instanceID: instance-00000001
     machineID: machine-id-1
+    primaryDPUMachineID: dpu-machine-id-1
     ready: true
     siteID: site-1
     siteName: fake-site

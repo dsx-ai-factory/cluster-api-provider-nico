@@ -1,0 +1,2 @@
+- name: machine-1
+  providerID: external://machine-1

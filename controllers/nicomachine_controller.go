@@ -81,6 +81,10 @@ type NicoMachineReconciler struct {
 	Scheme           *runtime.Scheme
 	ProviderConfig   nico.ProviderConfig
 	WatchFilterValue string
+
+	// WorkloadClientFactory overrides workload cluster client construction.
+	// When unset, clients are built from the workload cluster kubeconfig.
+	WorkloadClientFactory workloadClientFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -370,6 +374,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 	setObservedTopology(&nicoMachine, instance, observedDomain, site, vpc)
+	if err := setObservedPrimaryDPUMachineID(ctx, nicoClient, &nicoMachine, instance); err != nil {
+		// DPU attachment metadata is optional infrastructure state. Consumers that
+		// require it decide whether its absence should block their own workflow.
+		log.Error(err, "failed to observe primary DPU machine ID", "machineID", instance.GetMachineId())
+	}
 	setFailureDomainDrift(ctx, &nicoMachine, instance, nicoCluster.Spec.FailureDomainLabelKey, requestedDomain, observedDomain)
 	// Machine ID and normalized topology names are only known after NICo returns
 	// the instance, so apply them after the status observation step.
@@ -410,6 +419,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
 	setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
+	nodeResult, err := r.reconcileNodeProviderID(ctx, ownerMachine, cluster, &nicoMachine)
+	if err != nil || !nodeResult.IsZero() {
+		return nodeResult, err
+	}
 	return ctrl.Result{RequeueAfter: machineReadyRequeueAfter(nicoMachine)}, nil
 }
 
@@ -571,6 +584,38 @@ func observeFailureDomain(
 		return observed, nil
 	}
 	return nico.MachineFailureDomain(machine, labelKey), nil
+}
+
+func setObservedPrimaryDPUMachineID(ctx context.Context, nicoClient nico.API, nicoMachine *infrav1.NicoMachine, instance *nicosdk.Instance) error {
+	machineID := instance.GetMachineId()
+	if machineID == "" {
+		nicoMachine.Status.PrimaryDPUMachineID = ""
+		return nil
+	}
+
+	machine, err := nicoClient.GetMachine(ctx, machineID)
+	if err != nil {
+		if errors.Is(err, nico.ErrNotFound) {
+			nicoMachine.Status.PrimaryDPUMachineID = ""
+		}
+		return fmt.Errorf("failed to get NICo machine %q: %w", machineID, err)
+	}
+
+	var primaryDPUMachineID string
+	for _, machineInterface := range machine.GetMachineInterfaces() {
+		if !machineInterface.GetIsPrimary() {
+			continue
+		}
+
+		attachedDPUMachineID := machineInterface.GetAttachedDpuMachineID()
+		if attachedDPUMachineID == "" {
+			continue
+		}
+		primaryDPUMachineID = attachedDPUMachineID
+		break
+	}
+	nicoMachine.Status.PrimaryDPUMachineID = primaryDPUMachineID
+	return nil
 }
 
 func setObservedTopology(

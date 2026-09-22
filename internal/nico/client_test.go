@@ -18,6 +18,40 @@ import (
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 )
 
+func TestUnit_ClientGetMachine(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.URL.Path, "/v2/org/test-org/nico/machine/machine-1"; got != want {
+			t.Fatalf("request path = %q, want %q", got, want)
+		}
+		if got, want := r.URL.Query().Get("includeMetadata"), "true"; got != want {
+			t.Fatalf("includeMetadata = %q, want %q", got, want)
+		}
+		if got, want := r.Header.Get("Authorization"), testBearerToken; got != want {
+			t.Fatalf("Authorization = %q, want %q", got, want)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"machine-1","machineInterfaces":[{"isPrimary":true,"attachedDpuMachineID":"dpu-1"}]}`))
+	}))
+	defer server.Close()
+
+	client := newStaticTokenClient(t, server.URL)
+	machine, err := client.GetMachine(context.Background(), "machine-1")
+
+	if err != nil {
+		t.Fatalf("GetMachine() error = %v", err)
+	}
+	if got, want := machine.GetId(), "machine-1"; got != want {
+		t.Fatalf("machine ID = %q, want %q", got, want)
+	}
+	machineInterfaces := machine.GetMachineInterfaces()
+	if got, want := len(machineInterfaces), 1; got != want {
+		t.Fatalf("machine interface count = %d, want %d", got, want)
+	}
+	if got, want := machineInterfaces[0].GetAttachedDpuMachineID(), "dpu-1"; got != want {
+		t.Fatalf("attached DPU machine ID = %q, want %q", got, want)
+	}
+}
+
 func TestClientGetSite(t *testing.T) {
 	api := fake.New()
 	api.SeedToken("static-token")
