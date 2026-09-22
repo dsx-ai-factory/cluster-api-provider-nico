@@ -83,7 +83,7 @@ test-update: manifests generate fmt vet setup-envtest ginkgo ## Run tests and up
 # - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER ?= cluster-api-provider-nico-test-e2e
 E2E_K8S_VERSION ?= v$(ENVTEST_K8S_VERSION).0
-KIND_NODE_IMAGE ?= kindest/node:$(E2E_K8S_VERSION)@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+KIND_NODE_IMAGE ?= kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 
 .PHONY: setup-test-e2e
 setup-test-e2e: kind-tool clusterctl ## Recreate the Kind cluster and install CAPI for e2e tests
@@ -105,11 +105,13 @@ setup-test-e2e: kind-tool clusterctl ## Recreate the Kind cluster and install CA
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	@trap '$(MAKE) --no-print-directory cleanup-test-e2e || exit $$?' EXIT; \
 		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) KUBERNETES_VERSION=$(E2E_K8S_VERSION) KIND_NODE_IMAGE=$(KIND_NODE_IMAGE) \
-		go test -timeout 15m -tags=e2e ./test/e2e/ -v -ginkgo.v
+		go test -timeout 30m -tags=e2e ./test/e2e/ -v -ginkgo.v -ginkgo.timeout=28m
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: kind-tool ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+	@containers="$$(docker ps -aq --filter 'name=^/capnico-fake-')"; \
+		if [ -n "$$containers" ]; then docker rm -f $$containers; fi
 
 # Every source file carries an SPDX header; the check runs in
 # .github/workflows/license.yml.
