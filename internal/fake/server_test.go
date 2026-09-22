@@ -5,18 +5,42 @@ package fake
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 )
+
+type testBackend struct {
+	createErr error
+	deleteErr error
+	ready     func(context.Context, string) (bool, error)
+}
+
+func (b *testBackend) Create(context.Context, string, string, map[string]string) error {
+	return b.createErr
+}
+
+func (b *testBackend) Ready(ctx context.Context, instanceID string) (bool, error) {
+	if b.ready == nil {
+		return false, nil
+	}
+	return b.ready(ctx, instanceID)
+}
+
+func (b *testBackend) Delete(context.Context, string) error {
+	return b.deleteErr
+}
 
 const (
 	testOrgID        = "org-1"
@@ -36,6 +60,87 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 	assertInstanceUpdatesAndReads(t, client, instance)
 	assertInstanceDeletion(t, server, client, instance)
 	assertDeterministicDump(t, server)
+}
+
+func TestBackendLifecycleFailuresAreReturned(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		server, client := newSeededBackendClient(t, &testBackend{createErr: errors.New("create failed")})
+		if _, err := client.CreateInstance(t.Context(), testCreateRequest(), nico.InstancePlacement{}); err == nil {
+			t.Fatal("create instance succeeded when backend creation failed")
+		}
+		if got := server.InstanceCount(); got != 0 {
+			t.Fatalf("live instance count = %d, want 0", got)
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		server, client := newSeededBackendClient(t, &testBackend{deleteErr: errors.New("delete failed")})
+		instance, err := client.CreateInstance(t.Context(), testCreateRequest(), nico.InstancePlacement{})
+		if err != nil {
+			t.Fatalf("create instance: %v", err)
+		}
+		if err := client.DeleteInstance(t.Context(), instance.GetId(), nil); err == nil {
+			t.Fatal("delete instance succeeded when backend deletion failed")
+		}
+
+		server.mu.Lock()
+		record := server.instances[resourceKey(testOrgID, instance.GetId())]
+		requestCount := len(server.requests)
+		server.mu.Unlock()
+		if record == nil || record.instance.GetStatus() != nicosdk.INSTANCESTATUS_PENDING {
+			t.Fatalf("instance status after failed deletion = %v, want Pending", record)
+		}
+		if requestCount != 1 {
+			t.Fatalf("recorded request count = %d, want only the successful create", requestCount)
+		}
+	})
+}
+
+func TestBackendReadDoesNotHoldServerLock(t *testing.T) {
+	started := make(chan struct{})
+	continueReady := make(chan struct{})
+	release := sync.OnceFunc(func() { close(continueReady) })
+	defer release()
+	backend := &testBackend{ready: func(ctx context.Context, _ string) (bool, error) {
+		close(started)
+		select {
+		case <-continueReady:
+			return false, nil
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}}
+	_, client := newSeededBackendClient(t, backend)
+	instance, err := client.CreateInstance(t.Context(), testCreateRequest(), nico.InstancePlacement{})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	getDone := make(chan error, 1)
+	go func() {
+		_, err := client.GetInstance(t.Context(), instance.GetId())
+		getDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("backend readiness check did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := client.GetVPC(ctx, testVPCID); err != nil {
+		t.Fatalf("concurrent VPC read was blocked by backend readiness: %v", err)
+	}
+	release()
+	select {
+	case err := <-getDone:
+		if err != nil {
+			t.Fatalf("get instance: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("instance read did not finish")
+	}
 }
 
 func assertSeededResources(t *testing.T, client *nico.Client) {
@@ -586,6 +691,10 @@ func closeResponseBody(t *testing.T, response *http.Response) {
 }
 
 func newSeededClient(t *testing.T) (*Server, *nico.Client) {
+	return newSeededBackendClient(t, nil)
+}
+
+func newSeededBackendClient(t *testing.T, backend Backend) (*Server, *nico.Client) {
 	t.Helper()
 
 	server := New()
@@ -594,6 +703,9 @@ func newSeededClient(t *testing.T) (*Server, *nico.Client) {
 	server.SeedInstanceType(testOrgID, testInstanceTypeResource(1))
 	server.SeedSite(testOrgID, testSite())
 	server.SeedVPC(testOrgID, testVPC())
+	if backend != nil {
+		server.SetBackend(backend)
+	}
 	endpoint := httptest.NewServer(server.Handler())
 	t.Cleanup(endpoint.Close)
 	return server, newStaticClient(t, endpoint.URL, testStaticToken)

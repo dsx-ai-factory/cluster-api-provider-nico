@@ -97,6 +97,7 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 		return fmt.Errorf("create node container: %w", err)
 	}
 	if _, err := b.Client.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
+		_, _ = b.Client.ContainerRemove(ctx, created.ID, client.ContainerRemoveOptions{Force: true})
 		return fmt.Errorf("start node container: %w", err)
 	}
 
