@@ -373,6 +373,13 @@ The kubeadm templates patch kubelet with `providerID: nico://<instance-id>` by r
 the NICo metadata service at `169.254.169.254:7777`. This lets Cluster API match
 workload-cluster Nodes back to their `Machine` objects.
 
+CAPNICo also backfills an empty `Node.spec.providerID` after confirming the NICo
+instance identity, using the workload-cluster kubeconfig Secret. It never
+overwrites a different provider ID. Clusters where an external cloud provider
+owns this field can opt out by setting the
+`nico.nvidia.com/skip-node-provider-id-reconciliation: "true"` annotation on the
+Cluster API `Cluster`.
+
 The NICo architecture documentation describes The Metadata Service (FMDS) as the local HTTP metadata API provided by the DPU agent:
 [Overview and Components](https://docs.nvidia.com/infra-controller/documentation/architecture/overview-and-components).
 

@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	timeout     = 60 * time.Second
-	testMachine = "nicomachine-1"
+	timeout          = 60 * time.Second
+	testMachine      = "nicomachine-1"
+	testOwnerMachine = "machine-1"
 )
 
 func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
@@ -40,6 +41,14 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
+			gomega.Expect(applyMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
+			workloadFactory, workloadClient, err := seedWorkloadClient(tc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if tc.HasInput("input_workload_objects.yaml") {
+				tc.AddGolden("expected_workload_objects.yaml", func(ctx context.Context) (string, error) {
+					return dumpWorkloadNodes(ctx, workloadClient)
+				})
+			}
 			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
 
 			server := fake.New()
@@ -51,7 +60,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 
 			endpoint := startFake(server)
 			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
-			startReconcilers(ctx, tc)
+			startReconcilers(ctx, tc, workloadFactory)
 		},
 		DefineSteps: defineSteps,
 	}
