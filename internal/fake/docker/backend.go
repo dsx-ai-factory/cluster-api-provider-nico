@@ -58,6 +58,7 @@ type cloudConfigFile struct {
 }
 
 type cloudConfig struct {
+	Hostname   string            `json:"hostname"`
 	WriteFiles []cloudConfigFile `json:"write_files"`
 	RunCmd     []string          `json:"runcmd"`
 }
@@ -78,11 +79,6 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 			Hostname: name,
 			Image:    b.Image,
 			Env: []string{
-				// Real NICo instances learn their own ID from a metadata
-				// service preKubeadmCommands curl; this container has no such
-				// service, so the ID is injected directly for the same
-				// providerID patch.
-				"NICO_INSTANCE_ID=" + instanceID,
 				// containerd's default overlayfs snapshotter fails to mount
 				// when it's already running on top of another overlayfs (the
 				// host's own storage driver, e.g. Docker Desktop). kindest/node
@@ -168,7 +164,7 @@ func containerName(instanceID string) string {
 	return "capnico-fake-" + instanceID
 }
 
-// applyCloudConfig supports the write_files/runcmd subset of cloud-config,
+// applyCloudConfig supports the hostname/write_files/runcmd subset of cloud-config,
 // same as CWE's nico-mock.
 func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData string) error {
 	userData = strings.TrimSpace(userData)
@@ -181,6 +177,11 @@ func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData st
 	var cfg cloudConfig
 	if err := yaml.Unmarshal([]byte(userData), &cfg); err != nil {
 		return fmt.Errorf("parse cloud-config userData: %w", err)
+	}
+	if cfg.Hostname != "" {
+		if err := b.execIn(ctx, containerID, nil, "hostname", cfg.Hostname); err != nil {
+			return fmt.Errorf("set hostname: %w", err)
+		}
 	}
 
 	for _, file := range cfg.WriteFiles {
