@@ -1,0 +1,23 @@
+instances:
+- org: org-1
+  resource:
+    id: seeded-1
+    interfaces:
+    - ipAddresses:
+      - 10.0.0.10
+      subnetId: subnet-1
+    machineId: machine-id-1
+    name: machine-1
+    siteId: site-1
+    status: Ready
+    tenantId: tenant-1
+    vpcId: vpc-1
+machines:
+- org: org-1
+  resource:
+    id: machine-id-1
+    instanceId: seeded-1
+    instanceTypeId: type-1
+    labels:
+      failure_domain: fd-a
+    siteId: site-1

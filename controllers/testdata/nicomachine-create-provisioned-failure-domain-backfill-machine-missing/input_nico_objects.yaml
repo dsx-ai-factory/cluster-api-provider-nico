@@ -1,0 +1,14 @@
+instances:
+- org: org-1
+  resource:
+    id: seeded-1
+    interfaces:
+    - ipAddresses:
+      - 10.0.0.10
+      subnetId: subnet-1
+    machineId: machine-id-1
+    name: machine-1
+    siteId: site-1
+    status: Ready
+    tenantId: tenant-1
+    vpcId: vpc-1
