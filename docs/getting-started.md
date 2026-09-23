@@ -32,6 +32,7 @@ and `helm` directly and does not install them for you.
 |---|---|
 | [Docker](https://docs.docker.com/engine/install/) | Builds and the kind node. |
 | [ctlptl](https://github.com/tilt-dev/ctlptl) | Creates the kind cluster and its local registry. |
+| [kind](https://kind.sigs.k8s.io/) | Runs the local cluster. `ctlptl` invokes this binary directly. |
 | [tilt](https://docs.tilt.dev/install.html) | Runs the development loop. |
 | [helm](https://helm.sh/docs/intro/install/) | Installs the provider chart. |
 | `kubectl` | Applies manifests and inspects cluster resources. |
@@ -119,11 +120,20 @@ REST API.
 use the Path A cluster or a shared or remote cluster.
 </Warning>
 
+Create that dedicated cluster first. The bootstrap script assumes an empty
+cluster and does not create one. The deploy step loads locally built images into
+contexts named `kind-<cluster>`, so create the cluster with `kind`:
+
+```bash
+kind create cluster --name nico --kubeconfig ~/.kube/nico.kubeconfig
+export KUBECONFIG=~/.kube/nico.kubeconfig
+```
+
 From that repository, run the following two commands:
 
 ```bash
 dev/deployment/devspace/bootstrap-prereqs.sh   # cert-manager, PostgreSQL, Vault, Temporal, Keycloak
-devspace deploy                                # Core + REST + machine-a-tron (the mock hosts)
+devspace deploy -n nico-system                 # Core + REST + machine-a-tron (the mock hosts)
 ```
 
 Both build a full Rust and Go workspace plus several images, so plan for two
@@ -172,8 +182,15 @@ curl -fsS http://localhost:18388/v2/org/test-org/nico/tenant/current \
 
 Two clusters are in play from here. NICo runs in the one `devspace deploy` just
 built. CAPNICo runs in your management cluster, and the Path A kind cluster is
-fine for that. The commands below target the management cluster, so point
-`KUBECONFIG` at it.
+fine for that. If you started at Path B, or tore the Path A cluster down with
+`make tilt-down`, create one now:
+
+```bash
+kind create cluster --name mgmt --kubeconfig ~/.kube/mgmt.kubeconfig
+export KUBECONFIG=~/.kube/mgmt.kubeconfig
+```
+
+The commands below target the management cluster, so point `KUBECONFIG` at it.
 
 The Secret requires `endpoint` and `orgID`, then exactly one authentication
 mode. Never supply both, because a token and OAuth keys together are rejected.
@@ -192,7 +209,10 @@ kubectl create secret generic nico-credentials -n capnico-system \
 laptop. The in-cluster DNS name above only works when CAPNICo and NICo share a
 cluster. If they do not, expose the NICo REST Service to the management cluster
 and use that address. You can use a NodePort on the NICo cluster, or put both
-kind clusters on the same Docker network. Check it from a pod, not a shell:
+kind clusters on the same Docker network. Note that kind already places every
+cluster it creates on a shared `kind` Docker network, so a NodePort on the NICo
+cluster is reachable from the management cluster at the NICo node address. Check
+it from a pod, not a shell:
 
 ```bash
 kubectl -n capnico-system run netcheck --rm -it --restart=Never \
@@ -210,10 +230,23 @@ Install Cluster API and then the provider chart:
 clusterctl init --bootstrap kubeadm --control-plane kubeadm
 
 helm upgrade --install capi-provider-nico ./chart \
-  --namespace capnico-system --create-namespace \
+  --namespace capnico-system \
   --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
-  --set manager.image.tag=v0.0.43 --wait
+  --set manager.image.tag=v0.0.45 --wait
 ```
+
+The chart creates the `capnico-system` namespace itself. If you already created it
+by hand for the credentials Secret, Helm refuses to adopt it and reports
+`invalid ownership metadata`. Give Helm ownership of the existing namespace first:
+
+```bash
+kubectl label    namespace capnico-system app.kubernetes.io/managed-by=Helm --overwrite
+kubectl annotate namespace capnico-system meta.helm.sh/release-name=capi-provider-nico --overwrite
+kubectl annotate namespace capnico-system meta.helm.sh/release-namespace=capnico-system --overwrite
+```
+
+Check the tag against the current releases before you run this. A published
+release does not guarantee a published container image.
 
 You can also install from a published release with `clusterctl` by adding the
 release asset URL to `~/.config/cluster-api/clusterctl.yaml`, then running
@@ -257,8 +290,15 @@ Against a local NICo, this is as far as Path B goes. When
 `kubectl -n demo get nicomachine` reaches `PROVISIONED=true`, the integration
 between CAPNICo and NICo works end to end. It does not reach a booted, `Ready`
 node, because the iPXE URLs above are placeholders and `machine-a-tron` only
-mocks the hardware, so nothing ever actually boots `kubeadm`. For a real boot
-chain, refer to
+mocks the hardware, so nothing ever actually boots `kubeadm`.
+
+Only the control-plane machine reaches `PROVISIONED=true`. Worker machines stay
+on `WaitingForBootstrapData` for as long as the cluster exists. A worker needs a
+join token, a join token needs an initialized control plane, and the control
+plane never initializes because no node ever boots. That is expected here, not a
+failure.
+
+For a real boot chain, refer to
 [What Has to Be in the OS Image](#what-has-to-be-in-the-os-image) below and to
 Path C.
 
