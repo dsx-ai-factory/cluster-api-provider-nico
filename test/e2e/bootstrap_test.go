@@ -142,6 +142,38 @@ func backendFailureLogs(logs string) string {
 	return strings.TrimSpace(filtered.String())
 }
 
+func writeWorkloadNodeDiagnostics() {
+	By("fetching workload node diagnostics")
+	output, err := utils.Run(exec.Command("docker", "ps", "-a", "--filter", "name=capnico-fake-instance-",
+		"--format", "{{.Names}}\t{{.Status}}"))
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to list workload node containers: %s\n", err)
+		return
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		_, _ = fmt.Fprintf(GinkgoWriter, "Workload node %s\n", line)
+		for _, command := range [][]string{
+			{"systemctl", "show", "capnico-bootstrap.service", "--no-pager",
+				"--property=ActiveState,SubState,Result,ExecMainStatus"},
+			{"systemctl", "show", "kubelet.service", "--no-pager",
+				"--property=ActiveState,SubState,Result,ExecMainStatus"},
+			{"crictl", "ps", "-a", "--output", "table"},
+		} {
+			diagnostic, diagnosticErr := utils.Run(exec.Command("docker", append([]string{"exec", parts[0]}, command...)...))
+			if diagnosticErr != nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "%s failed: %s\n", strings.Join(command, " "), diagnosticErr)
+				continue
+			}
+			_, _ = fmt.Fprintf(GinkgoWriter, "$ %s\n%s\n", strings.Join(command, " "), diagnostic)
+		}
+	}
+}
+
 var _ = Describe("Bootstrap", Ordered, func() {
 	var bootstrapManifest []byte
 
@@ -232,6 +264,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		if !CurrentSpecReport().Failed() {
 			return
 		}
+		writeWorkloadNodeDiagnostics()
 
 		By("fetching fake NICo API logs")
 		cmd := exec.Command("kubectl", "--context", kindContext(), "logs", "deployment/fake-nico-api",
