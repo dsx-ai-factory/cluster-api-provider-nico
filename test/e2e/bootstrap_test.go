@@ -1,0 +1,337 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build e2e
+// +build e2e
+
+package e2e
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/test/utils"
+)
+
+const (
+	fakeDockerImage                 = "fake-nico-api-server"
+	controlPlaneProxyImage          = "haproxy:3.2.23-alpine@sha256:1ed7048482a1550aaea61d886dcbefcb70a60f5612b2a1ead2171cef860c94fc"
+	controlPlaneProxyName           = "capnico-fake-api-proxy"
+	controlPlaneProxyConfigPath     = "test/e2e/testdata/haproxy.cfg"
+	bootstrapManifestPath           = "test/e2e/testdata/cluster-bootstrap.yaml"
+	managerKustomizationPath        = "test/e2e/config/manager"
+	kubernetesVersionPlaceholder    = "${KUBERNETES_VERSION}"
+	controlPlaneHostname            = "capnico-e2e-control-plane"
+	controlPlaneEndpointPlaceholder = "${CONTROL_PLANE_ENDPOINT}"
+)
+
+const dockerSocketPatch = `
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false
+      containers:
+      - name: api
+        securityContext:
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        env:
+        - name: DOCKER_HOST
+          value: unix:///var/run/docker.sock
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+`
+
+func kindContext() string {
+	cluster := "kind"
+	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
+		cluster = v
+	}
+	return "kind-" + cluster
+}
+
+func createControlPlaneProxy() (string, error) {
+	_, _ = utils.Run(exec.Command("docker", "rm", "-f", controlPlaneProxyName))
+
+	cmd := exec.Command("docker", "create", "--name", controlPlaneProxyName, "--network", "kind", controlPlaneProxyImage)
+	if _, err := utils.Run(cmd); err != nil {
+		return "", fmt.Errorf("create control-plane proxy: %w", err)
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_, _ = utils.Run(exec.Command("docker", "rm", "-f", controlPlaneProxyName))
+		}
+	}()
+
+	cmd = exec.Command("docker", "cp", controlPlaneProxyConfigPath,
+		controlPlaneProxyName+":/usr/local/etc/haproxy/haproxy.cfg")
+	if _, err := utils.Run(cmd); err != nil {
+		return "", fmt.Errorf("configure control-plane proxy: %w", err)
+	}
+	if _, err := utils.Run(exec.Command("docker", "start", controlPlaneProxyName)); err != nil {
+		return "", fmt.Errorf("start control-plane proxy: %w", err)
+	}
+
+	cmd = exec.Command("docker", "inspect", "--format", "{{(index .NetworkSettings.Networks \"kind\").IPAddress}}", controlPlaneProxyName)
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return "", fmt.Errorf("inspect control-plane proxy: %w", err)
+	}
+	endpoint := strings.TrimSpace(output)
+	if endpoint == "" {
+		return "", fmt.Errorf("control-plane proxy has no IPv4 address")
+	}
+	cleanup = false
+	return endpoint, nil
+}
+
+func renderBootstrapManifest(endpoint string) ([]byte, error) {
+	version := os.Getenv("KUBERNETES_VERSION")
+	if version == "" {
+		return nil, fmt.Errorf("KUBERNETES_VERSION is required")
+	}
+
+	manifest, err := os.ReadFile(bootstrapManifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read bootstrap manifest: %w", err)
+	}
+	if !bytes.Contains(manifest, []byte(kubernetesVersionPlaceholder)) {
+		return nil, fmt.Errorf("bootstrap manifest does not contain %s", kubernetesVersionPlaceholder)
+	}
+	if !bytes.Contains(manifest, []byte(controlPlaneEndpointPlaceholder)) {
+		return nil, fmt.Errorf("bootstrap manifest does not contain %s", controlPlaneEndpointPlaceholder)
+	}
+
+	manifest = bytes.ReplaceAll(manifest, []byte(kubernetesVersionPlaceholder), []byte(version))
+	return bytes.ReplaceAll(manifest, []byte(controlPlaneEndpointPlaceholder), []byte(endpoint)), nil
+}
+
+func backendFailureLogs(logs string) string {
+	const timestampLayout = "2006/01/02 15:04:05"
+
+	var filtered strings.Builder
+	include := false
+	for _, line := range strings.Split(logs, "\n") {
+		if len(line) >= len(timestampLayout) {
+			if _, err := time.Parse(timestampLayout, line[:len(timestampLayout)]); err == nil {
+				include = strings.Contains(line, " fake: backend ") || strings.Contains(line, " fake/docker: ")
+			}
+		}
+		if include {
+			filtered.WriteString(line)
+			filtered.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(filtered.String())
+}
+
+func writeWorkloadNodeDiagnostics() {
+	By("fetching workload node diagnostics")
+	output, err := utils.Run(exec.Command("docker", "ps", "-a", "--filter", "name=capnico-fake-instance-",
+		"--format", "{{.Names}}\t{{.Status}}"))
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to list workload node containers: %s\n", err)
+		return
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		_, _ = fmt.Fprintf(GinkgoWriter, "Workload node %s\n", line)
+		for _, command := range [][]string{
+			{"systemctl", "show", "capnico-bootstrap.service", "--no-pager",
+				"--property=ActiveState,SubState,Result,ExecMainStatus"},
+			{"systemctl", "show", "kubelet.service", "--no-pager",
+				"--property=ActiveState,SubState,Result,ExecMainStatus"},
+			{"crictl", "ps", "-a", "--output", "table"},
+		} {
+			diagnostic, diagnosticErr := utils.Run(exec.Command("docker", append([]string{"exec", parts[0]}, command...)...))
+			if diagnosticErr != nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "%s failed: %s\n", strings.Join(command, " "), diagnosticErr)
+				continue
+			}
+			_, _ = fmt.Fprintf(GinkgoWriter, "$ %s\n%s\n", strings.Join(command, " "), diagnostic)
+		}
+	}
+}
+
+var _ = Describe("Bootstrap", Ordered, func() {
+	var bootstrapManifest []byte
+
+	BeforeAll(func() {
+		By("building the fake NICo image")
+		cmd := exec.Command("docker", "build", "-f", "Dockerfile.fake", "-t", fakeDockerImage, ".")
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to build the fake NICo image")
+
+		By("loading the fake NICo image on Kind")
+		Expect(utils.LoadImageToKindClusterWithName(fakeDockerImage)).To(Succeed())
+
+		By("creating the control-plane API proxy")
+		endpoint, err := createControlPlaneProxy()
+		Expect(err).NotTo(HaveOccurred())
+		bootstrapManifest, err = renderBootstrapManifest(endpoint)
+		Expect(err).NotTo(HaveOccurred())
+
+		// clusterctl init does not wait for its webhook deployments to become available.
+		By("waiting for the Cluster API webhooks to be ready")
+		for _, deployment := range []struct{ namespace, name string }{
+			{"capi-system", "capi-controller-manager"},
+			{"capi-kubeadm-bootstrap-system", "capi-kubeadm-bootstrap-controller-manager"},
+			{"capi-kubeadm-control-plane-system", "capi-kubeadm-control-plane-controller-manager"},
+		} {
+			cmd = exec.Command("kubectl", "--context", kindContext(), "wait", "deployment/"+deployment.name,
+				"-n", deployment.namespace, "--for", "condition=Available", "--timeout", "2m")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("%s did not become available", deployment.name))
+		}
+
+		By("installing CRDs")
+		cmd = exec.Command("make", "install")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
+
+		By("deploying the controller-manager")
+		cmd = exec.Command("make", "deploy", "DEPLOY_CONFIG="+managerKustomizationPath)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("deploying the fake NICo API")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "apply", "-f", "hack/tilt/fake-nico-api.yaml")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the fake NICo API")
+
+		By("switching the fake NICo API to the docker backend")
+		nodeImage := os.Getenv("KIND_NODE_IMAGE")
+		Expect(nodeImage).NotTo(BeEmpty(), "KIND_NODE_IMAGE is required")
+		dockerBackendPatch, err := json.Marshal([]map[string]string{
+			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--backend=docker"},
+			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--docker-image=" + nodeImage},
+			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--docker-control-plane-hostname=" + controlPlaneHostname},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		cmd = exec.Command("kubectl", "--context", kindContext(), "patch", "deployment", "fake-nico-api",
+			"-n", "fake-nico-api", "--type=json",
+			"-p", string(dockerBackendPatch))
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to switch the fake NICo API to the docker backend")
+
+		By("giving the fake NICo API access to the host's Docker socket")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "patch", "deployment", "fake-nico-api",
+			"-n", "fake-nico-api", "--type=strategic", "-p", dockerSocketPatch)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to mount the Docker socket into the fake NICo API")
+
+		By("waiting for the fake NICo API to be available")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "wait", "deployment/fake-nico-api",
+			"-n", "fake-nico-api", "--for", "condition=Available", "--timeout", "2m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "fake NICo API did not become available")
+
+		By("applying the bootstrap cluster")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "apply", "-f", "-")
+		cmd.Stdin = bytes.NewReader(bootstrapManifest)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply the bootstrap cluster")
+
+		By("creating the kindnet ConfigMap")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "create", "configmap", "cni-kindnet",
+			"-n", "capnico-e2e", "--from-file=kindnet.yaml=test/e2e/testdata/kindnet.yaml")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create the kindnet ConfigMap")
+	})
+
+	AfterEach(func() {
+		if !CurrentSpecReport().Failed() {
+			return
+		}
+		writeWorkloadNodeDiagnostics()
+
+		By("fetching fake NICo API logs")
+		cmd := exec.Command("kubectl", "--context", kindContext(), "logs", "deployment/fake-nico-api",
+			"-n", "fake-nico-api")
+		logs, err := utils.Run(cmd)
+		if err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get fake NICo API logs: %s\n", err)
+			return
+		}
+		filtered := backendFailureLogs(logs)
+		if filtered == "" {
+			_, _ = fmt.Fprintln(GinkgoWriter, "No fake NICo backend errors found.")
+			return
+		}
+		_, _ = fmt.Fprintf(GinkgoWriter, "Fake NICo backend errors:\n%s\n", filtered)
+	})
+
+	AfterAll(func() {
+		// Delete the Cluster first because NicoMachine cleanup still needs the credentials Secret.
+		By("deleting the workload cluster")
+		cmd := exec.Command("kubectl", "--context", kindContext(), "delete", "cluster", "capnico-e2e",
+			"-n", "capnico-e2e", "--ignore-not-found", "--wait=true", "--timeout=3m")
+		_, _ = utils.Run(cmd)
+
+		By("deleting the rest of the bootstrap manifest")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "delete", "-f", "-",
+			"--ignore-not-found", "--wait=true", "--timeout=1m")
+		cmd.Stdin = bytes.NewReader(bootstrapManifest)
+		_, _ = utils.Run(cmd)
+
+		By("deleting the fake NICo API")
+		cmd = exec.Command("kubectl", "--context", kindContext(),
+			"delete", "-f", "hack/tilt/fake-nico-api.yaml", "--ignore-not-found")
+		_, _ = utils.Run(cmd)
+
+		By("undeploying the controller-manager")
+		cmd = exec.Command("make", "undeploy", "DEPLOY_CONFIG="+managerKustomizationPath,
+			"ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+
+		By("uninstalling CRDs")
+		cmd = exec.Command("make", "uninstall", "ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+
+		By("deleting the control-plane API proxy")
+		_, _ = utils.Run(exec.Command("docker", "rm", "-f", controlPlaneProxyName))
+	})
+
+	It("bootstraps a real workload cluster via KubeadmControlPlane", func() {
+		By("waiting for the KubeadmControlPlane to report Initialized")
+		verifyControlPlaneInitialized := func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", kindContext(), "get", "kubeadmcontrolplane", "capnico-e2e-control-plane",
+				"-n", "capnico-e2e", "-o", "jsonpath={.status.conditions[?(@.type=='Initialized')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"), "KubeadmControlPlane not Initialized")
+		}
+		Eventually(verifyControlPlaneInitialized, 10*time.Minute, 5*time.Second).Should(Succeed())
+
+		By("waiting for the Cluster to report Available")
+		verifyClusterAvailable := func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", kindContext(), "get", "cluster", "capnico-e2e",
+				"-n", "capnico-e2e", "-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"), "Cluster not Available")
+		}
+		Eventually(verifyClusterAvailable, 8*time.Minute, 5*time.Second).Should(Succeed())
+	})
+})

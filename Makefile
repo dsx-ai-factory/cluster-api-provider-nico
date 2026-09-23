@@ -77,36 +77,41 @@ test: manifests generate fmt vet setup-envtest ginkgo ## Run tests.
 test-update: manifests generate fmt vet setup-envtest ginkgo ## Run tests and update expected fixture goldens.
 	TESTUTIL_UPDATE_EXPECTED=true KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" "$(GINKGO)" --race --procs=$(TEST_PROCS) --cover --coverprofile=cover.out --skip-package=e2e,hack ./...
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # kubectl kuberc is disabled by default for test isolation; enable with:
 # - KUBECTL_KUBERC=true
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER ?= cluster-api-provider-nico-test-e2e
+E2E_K8S_VERSION ?= v$(ENVTEST_K8S_VERSION).0
+KIND_NODE_IMAGE ?= kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 
 .PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@case "$$($(KIND) get clusters)" in \
-		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
+setup-test-e2e: kind-tool clusterctl ## Recreate the Kind cluster and install CAPI for e2e tests
+	@case "$(KIND_NODE_IMAGE)" in \
+		kindest/node:$(E2E_K8S_VERSION)@sha256:*) ;; \
+		*) echo "KIND_NODE_IMAGE must pin Kubernetes $(E2E_K8S_VERSION) by digest."; exit 1 ;; \
 	esac
+	@echo "Recreating Kind cluster '$(KIND_CLUSTER)'..."
+	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+	@$(KIND) create cluster --name $(KIND_CLUSTER) --image $(KIND_NODE_IMAGE) --config test/e2e/testdata/kind-config.yaml
+	@echo "Installing Cluster API on Kind cluster '$(KIND_CLUSTER)'..."
+	@"$(CLUSTERCTL)" init \
+		--kubeconfig-context "kind-$(KIND_CLUSTER)" \
+		--core cluster-api:$(CAPI_VERSION) \
+		--bootstrap kubeadm:$(CAPI_VERSION) \
+		--control-plane kubeadm:$(CAPI_VERSION)
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
+	@trap '$(MAKE) --no-print-directory cleanup-test-e2e || exit $$?' EXIT; \
+		KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) KUBERNETES_VERSION=$(E2E_K8S_VERSION) KIND_NODE_IMAGE=$(KIND_NODE_IMAGE) \
+		go test -timeout 30m -tags=e2e ./test/e2e/ -v -ginkgo.v -ginkgo.timeout=28m
 
 .PHONY: cleanup-test-e2e
-cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
+cleanup-test-e2e: kind-tool ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
+	@containers="$$(docker ps -aq --filter 'name=^/capnico-fake-')"; \
+		if [ -n "$$containers" ]; then docker rm -f $$containers; fi
 
 # Every source file carries an SPDX header; the check runs in
 # .github/workflows/license.yml.
@@ -276,6 +281,8 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
+DEPLOY_CONFIG ?= config/default
+
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
@@ -288,12 +295,14 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
+	@if [ "$(DEPLOY_CONFIG)" = "config/default" ]; then \
+		cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}; \
+	fi
+	"$(KUSTOMIZE)" build "$(DEPLOY_CONFIG)" | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
+	"$(KUSTOMIZE)" build "$(DEPLOY_CONFIG)" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Release
 
@@ -382,7 +391,7 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KIND ?= kind
+KIND ?= $(LOCALBIN)/kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 KUBEBUILDER ?= $(LOCALBIN)/kubebuilder
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
@@ -399,6 +408,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.20.1
 CRANE_VERSION ?= v0.21.9
 GINKGO_VERSION ?= $(call gomodver,github.com/onsi/ginkgo/v2)
 CAPI_VERSION ?= $(call gomodver,sigs.k8s.io/cluster-api)
+KIND_VERSION ?= v0.33.0
 
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
@@ -465,6 +475,11 @@ $(GINKGO): $(LOCALBIN)
 clusterctl: $(CLUSTERCTL) ## Download clusterctl locally if necessary.
 $(CLUSTERCTL): $(LOCALBIN)
 	$(call go-install-tool,$(CLUSTERCTL),sigs.k8s.io/cluster-api/cmd/clusterctl,$(CAPI_VERSION))
+
+.PHONY: kind-tool
+kind-tool: $(KIND) ## Download Kind locally if necessary.
+$(KIND): $(LOCALBIN)
+	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
