@@ -23,6 +23,7 @@ import (
 const (
 	fakeDockerImage              = "fake-nico-api-server"
 	bootstrapManifestPath        = "test/e2e/testdata/cluster-bootstrap.yaml"
+	managerKustomizationPath     = "test/e2e/config/manager"
 	kubernetesVersionPlaceholder = "${KUBERNETES_VERSION}"
 )
 
@@ -111,7 +112,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
 		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
+		cmd = exec.Command("make", "deploy", "DEPLOY_CONFIG="+managerKustomizationPath)
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
@@ -159,6 +160,22 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to create the kindnet ConfigMap")
 	})
 
+	AfterEach(func() {
+		if !CurrentSpecReport().Failed() {
+			return
+		}
+
+		By("fetching fake NICo API logs")
+		cmd := exec.Command("kubectl", "--context", kindContext(), "logs", "deployment/fake-nico-api",
+			"-n", "fake-nico-api")
+		logs, err := utils.Run(cmd)
+		if err != nil {
+			_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get fake NICo API logs: %s\n", err)
+			return
+		}
+		_, _ = fmt.Fprintf(GinkgoWriter, "Fake NICo API logs:\n%s\n", logs)
+	})
+
 	AfterAll(func() {
 		// Delete the Cluster first because NicoMachine cleanup still needs the credentials Secret.
 		By("deleting the workload cluster")
@@ -178,7 +195,8 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy", "ignore-not-found=true")
+		cmd = exec.Command("make", "undeploy", "DEPLOY_CONFIG="+managerKustomizationPath,
+			"ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
 		By("uninstalling CRDs")
