@@ -190,7 +190,36 @@ kind create cluster --name mgmt --kubeconfig ~/.kube/mgmt.kubeconfig
 export KUBECONFIG=~/.kube/mgmt.kubeconfig
 ```
 
+If you kept the Path A cluster, point `KUBECONFIG` back at it, because the
+previous section left it set to the NICo cluster:
+
+```bash
+export KUBECONFIG=~/.kube/capnico.kubeconfig
+```
+
 The commands below target the management cluster, so point `KUBECONFIG` at it.
+
+`endpoint` must be reachable from a pod in the management cluster, not from your
+laptop. NICo and CAPNICo run in separate clusters here, so the NICo REST Service
+needs exposing first. `nico-rest-api` is a ClusterIP Service, which no other
+cluster can reach. Change it to a NodePort, and read the NICo node address off
+the shared Docker network that kind places every cluster on:
+
+```bash
+KUBECONFIG=~/.kube/nico.kubeconfig \
+  kubectl -n nico-rest patch svc nico-rest-api -p '{"spec":{"type":"NodePort"}}'
+
+KUBECONFIG=~/.kube/nico.kubeconfig \
+  kubectl -n nico-rest get svc nico-rest-api    # note the port mapped from 8388
+
+docker inspect nico-control-plane \
+  --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+```
+
+That gives an endpoint of the form `http://<node-address>:<node-port>`. If you
+install CAPNICo into the NICo cluster instead, use
+`http://nico-rest-api.nico-rest.svc.cluster.local:8388`, because the in-cluster
+DNS name resolves only within that cluster.
 
 The Secret requires `endpoint` and `orgID`, then exactly one authentication
 mode. Never supply both, because a token and OAuth keys together are rejected.
@@ -199,24 +228,19 @@ mode. Never supply both, because a token and OAuth keys together are rejected.
 kubectl create namespace capnico-system --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create secret generic nico-credentials -n capnico-system \
-  --from-literal=endpoint=http://nico-rest-api.nico-rest.svc.cluster.local:8388 \
+  --from-literal=endpoint=http://<node-address>:<node-port> \
   --from-literal=orgID=test-org \
   --from-literal=apiName=nico \
   --from-literal=token="${TOKEN}"
 ```
 
-`endpoint` must be reachable from a pod in the management cluster, not from your
-laptop. The in-cluster DNS name above only works when CAPNICo and NICo share a
-cluster. If they do not, expose the NICo REST Service to the management cluster
-and use that address. You can use a NodePort on the NICo cluster, or put both
-kind clusters on the same Docker network. Note that kind already places every
-cluster it creates on a shared `kind` Docker network, so a NodePort on the NICo
-cluster is reachable from the management cluster at the NICo node address. Check
-it from a pod, not a shell:
+Check the endpoint from a pod, not a shell. A `401` confirms the request reached
+NICo, which is what you want here. A connection error means it did not:
 
 ```bash
 kubectl -n capnico-system run netcheck --rm -it --restart=Never \
-  --image=curlimages/curl -- curl -sv <endpoint>/healthz
+  --image=curlimages/curl -- \
+  curl -sv http://<node-address>:<node-port>/v2/org/test-org/nico/tenant/current
 ```
 
 Clients are cached per Secret `resourceVersion`, so an external rotation is
@@ -224,20 +248,15 @@ picked up on the next reconcile with no manager restart.
 
 ### Install the Provider
 
-Install Cluster API and then the provider chart:
+Install Cluster API:
 
 ```bash
 clusterctl init --bootstrap kubeadm --control-plane kubeadm
-
-helm upgrade --install capi-provider-nico ./chart \
-  --namespace capnico-system \
-  --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
-  --set manager.image.tag=v0.0.45 --wait
 ```
 
-The chart creates the `capnico-system` namespace itself. If you already created it
-by hand for the credentials Secret, Helm refuses to adopt it and reports
-`invalid ownership metadata`. Give Helm ownership of the existing namespace first:
+The chart also renders `capnico-system` as a Namespace, and the previous section
+already created it for the credentials Secret. Give Helm ownership of that
+namespace first, or the install fails with `invalid ownership metadata`:
 
 ```bash
 kubectl label    namespace capnico-system app.kubernetes.io/managed-by=Helm --overwrite
@@ -245,8 +264,16 @@ kubectl annotate namespace capnico-system meta.helm.sh/release-name=capi-provide
 kubectl annotate namespace capnico-system meta.helm.sh/release-namespace=capnico-system --overwrite
 ```
 
-Check the tag against the current releases before you run this. A published
-release does not guarantee a published container image.
+Then install the provider chart. Check the tag against the current releases
+first, because a published release does not guarantee a published container
+image:
+
+```bash
+helm upgrade --install capi-provider-nico ./chart \
+  --namespace capnico-system \
+  --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
+  --set manager.image.tag=v0.0.45 --wait
+```
 
 You can also install from a published release with `clusterctl` by adding the
 release asset URL to `~/.config/cluster-api/clusterctl.yaml`, then running
