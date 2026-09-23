@@ -281,6 +281,8 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
+DEPLOY_CONFIG ?= config/default
+
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
@@ -293,12 +295,14 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
+	@if [ "$(DEPLOY_CONFIG)" = "config/default" ]; then \
+		cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}; \
+	fi
+	"$(KUSTOMIZE)" build "$(DEPLOY_CONFIG)" | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
+	"$(KUSTOMIZE)" build "$(DEPLOY_CONFIG)" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Release
 
