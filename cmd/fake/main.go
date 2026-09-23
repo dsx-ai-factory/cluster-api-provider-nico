@@ -24,7 +24,9 @@ func main() {
 	seed := flag.String("seed", "", "Path to a YAML file of resources to seed into the endpoint.")
 	backend := flag.String("backend", "", `Instance backend: "" (in-memory, default) or "docker".`)
 	dockerImage := flag.String("docker-image", "", "Node image used by the Docker backend.")
-	dockerControlPlaneHostname := flag.String("docker-control-plane-hostname", "", "Control-plane hostname used by the Docker backend.")
+	dockerControlPlaneHostname := flag.String(
+		"docker-control-plane-hostname", "", "Control-plane hostname used by the Docker backend.",
+	)
 	flag.Parse()
 
 	endpoint := fake.New()
