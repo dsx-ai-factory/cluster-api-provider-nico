@@ -42,6 +42,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
 			gomega.Expect(applyMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
+			gomega.Expect(applyNicoMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
 			workloadFactory, workloadClient, err := seedWorkloadClient(tc)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if tc.HasInput("input_workload_objects.yaml") {

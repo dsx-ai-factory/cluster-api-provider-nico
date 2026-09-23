@@ -244,6 +244,27 @@ func applyMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error {
 	return nil
 }
 
+func applyNicoMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error {
+	input, ok := tc.Input("input_nicomachine_status.yaml")
+	if !ok {
+		return nil
+	}
+
+	desired := &infrav1.NicoMachine{}
+	if err := yaml.Unmarshal([]byte(input), desired); err != nil {
+		return fmt.Errorf("decode input_nicomachine_status.yaml: %w", err)
+	}
+	nicoMachine := &infrav1.NicoMachine{}
+	if err := tc.Client.Get(ctx, client.ObjectKeyFromObject(desired), nicoMachine); err != nil {
+		return fmt.Errorf("get NicoMachine for status fixture: %w", err)
+	}
+	nicoMachine.Status = desired.Status
+	if err := tc.Client.Status().Update(ctx, nicoMachine); err != nil {
+		return fmt.Errorf("apply NicoMachine status fixture: %w", err)
+	}
+	return nil
+}
+
 func seedWorkloadClient(tc *fixtures.Case) (workloadClientFactory, client.Client, error) {
 	builder := crfake.NewClientBuilder().WithScheme(tc.Scheme)
 	if input, ok := tc.Input("input_workload_objects.yaml"); ok {
