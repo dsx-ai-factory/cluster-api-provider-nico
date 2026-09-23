@@ -73,3 +73,25 @@ jobs:
             echo "::error::Generated files or formatting are out of date. Run 'make generate manifests fmt' and commit the result."
             exit 1
           fi
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run end-to-end tests
+        run: make test-e2e
