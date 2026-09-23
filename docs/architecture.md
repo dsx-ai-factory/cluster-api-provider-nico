@@ -39,7 +39,7 @@ and its subnet or VPC prefix must already exist.
 
 ## The Resources
 
-The provider defines four kinds, and the following table shows what each one
+CAPNICo defines five kinds, and the following table shows what each one
 holds.
 
 | Kind | Holds |
@@ -48,6 +48,7 @@ holds.
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
+| `NicoIdentity` | A same-namespace credential Secret reference and optional observation status. The API is installed, but its controller is not yet implemented. It does not change provisioning credential selection. |
 
 `NicoMachine.spec` remains editable until the controller assigns
 `spec.providerID`. After that assignment, the entire spec is immutable because
@@ -313,7 +314,7 @@ annotation after handling it and emits events for acceptance and fallback.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps, the credentials Secret, and the worked
   `clusterctl` examples.
-- The [API Reference](api-reference.md) documents all four CRDs, field by field.
+- The [API Reference](api-reference.md) documents all five CRDs, field by field.
 - [Troubleshooting](troubleshooting.md) gives the symptom, cause, and fix for
   problems beyond the stall-reason table in Getting Started.
 - The [contributing guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md)
