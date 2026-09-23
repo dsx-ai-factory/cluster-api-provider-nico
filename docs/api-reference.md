@@ -1,12 +1,69 @@
 # API Reference
 
-The following sections document every field of the four CRDs in
+The following sections document every field of the five CRDs in
 `infrastructure.cluster.x-k8s.io/v1alpha1`, one section per kind. Read
 [Architecture](architecture.md) for why these fields exist and how they interact.
 Read [Getting Started](getting-started.md) for how to use them.
 
 The field descriptions mirror the Go doc comments in `api/v1alpha1/`. If they
 ever drift, the Go source is authoritative.
+
+## NicoIdentity
+
+`NicoIdentity` is a namespaced credential-observation API. Standard CAPNICo
+installations include its CRD, but this release does not include an Identity
+controller. Creating an Identity does not read its Secret or contact NICo.
+Status remains absent until a controller is implemented; absence is not success.
+
+The Identity describes default credential health independently of tenant
+clusters. It does not select provisioning credentials, protect a Secret from
+deletion, or gate cluster or machine reconciliation. Existing
+`NicoCluster.spec.identityRef` values continue to reference Secrets.
+
+### Spec
+
+The required spec contains one reference. Connection and authentication settings
+remain in the Secret.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `credentialsRef.name` | string, required | Name of a Secret in the Identity's namespace. Uses Kubernetes Secret-name syntax, with a maximum of 253 characters. You can change this reference. |
+
+Admission validates the reference's shape, not whether the Secret exists or
+contains usable credentials. The API has no cross-namespace reference field.
+
+### Status
+
+The optional `/status` subresource reserves the following observation fields.
+They have no defaults or observations supplied by the current manager.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `conditions` | list, up to 32 items | Standard Kubernetes conditions, keyed by `type`. `Ready` records the latest completed validation result. |
+| `lastCheckedTime` | timestamp | Completion time of the reported attempt, including failures. Absent before a completed attempt. |
+
+For `Ready`, `True` means the completed credential check passed the NICo
+current-tenant lookup baseline. `False` means a known configuration, credential,
+or permission failure; `Unknown` means the result is inconclusive. This baseline
+does not establish all provisioning permissions, capacity, or the intended
+principal. Reasons can be extended; messages are diagnostic text for people.
+
+Readers select `Ready` by type and compare its `observedGeneration` with
+`metadata.generation`. They also inspect `lastCheckedTime` for freshness.
+Missing or outdated observations do not establish current health. Condition
+`lastTransitionTime` records a change in truth value, not the last check.
+Additional conditions must not change those existing meanings.
+
+The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age.
+Until validation is implemented, Ready and LastChecked are empty. A future
+controller will populate status; creating this API alone does not enable checks
+or notifications. Deleting an Identity removes only the observation object.
+
+Use the desired-only
+[`NicoIdentity sample`](../config/samples/infrastructure_v1alpha1_nicoidentity.yaml)
+in the namespace containing the credentials Secret. Installation bundles do not
+create an Identity or credential Secret. The `nicoidentity-viewer-role` helper
+grants Identity reads without Secret access or permission to write spec/status.
 
 ## NicoCluster
 
