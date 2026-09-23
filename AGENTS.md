@@ -30,6 +30,7 @@ It currently exposes:
 * `NicoMachine`
 * `NicoClusterTemplate`
 * `NicoMachineTemplate`
+* `NicoIdentity` (API only; no controller yet)
 
 The provider uses the published NICo SDK under the alias `nicosdk`.
 
