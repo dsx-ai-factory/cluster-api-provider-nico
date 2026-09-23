@@ -40,7 +40,7 @@ spec:
       cloudInitInjectHostname: true
       interfaces:
       - vpcPrefixID: prefix-1
-      # Selects the fixed control-plane IP behavior in the Docker backend.
+      # Selects the dedicated control-plane IP behavior in the Docker backend.
       labels:
         capnico-fake/control-plane: "true"
 ---
@@ -67,7 +67,7 @@ metadata:
     cni: kindnet
 spec:
   controlPlaneEndpoint:
-    host: 172.18.255.250
+    host: ${CONTROL_PLANE_IP}
     port: 6443
   clusterNetwork:
     pods:
@@ -104,7 +104,7 @@ spec:
     clusterConfiguration:
       apiServer:
         certSANs:
-          - 172.18.255.250
+          - ${CONTROL_PLANE_IP}
     initConfiguration:
       # The container cannot load the host's configs kernel module.
       nodeRegistration:
