@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/finalizers"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -84,12 +85,8 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return reconcile.Result{}, nil
 	}
 
-	if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
-		controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer)
-		if err := r.Update(ctx, &nicoCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
-		}
-		return ctrl.Result{}, nil
+	if finalizerAdded, err := finalizers.EnsureFinalizer(ctx, r.Client, &nicoCluster, nicoClusterFinalizer); err != nil || finalizerAdded {
+		return ctrl.Result{}, err
 	}
 
 	patchHelper, err := patch.NewHelper(&nicoCluster, r.Client)

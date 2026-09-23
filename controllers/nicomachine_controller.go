@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/finalizers"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -123,6 +124,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	if finalizerAdded, err := finalizers.EnsureFinalizer(ctx, r.Client, &nicoMachine, nicoMachineFinalizer); err != nil || finalizerAdded {
+		return ctrl.Result{}, err
+	}
+
 	patchHelper, err := patch.NewHelper(&nicoMachine, r.Client)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
@@ -153,12 +158,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !nicoMachine.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, ownerMachine, cluster, &nicoMachine)
-	}
-
-	if controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer) {
-		// Persist the finalizer before creating anything external, so a crash
-		// between create and patch can never orphan an instance.
-		return ctrl.Result{Requeue: true}, nil
 	}
 
 	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
