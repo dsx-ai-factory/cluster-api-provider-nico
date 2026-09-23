@@ -67,7 +67,7 @@ metadata:
     cni: kindnet
 spec:
   controlPlaneEndpoint:
-    host: ${CONTROL_PLANE_IP}
+    host: ${CONTROL_PLANE_HOSTNAME}
     port: 6443
   clusterNetwork:
     pods:
@@ -104,7 +104,7 @@ spec:
     clusterConfiguration:
       apiServer:
         certSANs:
-          - ${CONTROL_PLANE_IP}
+          - ${CONTROL_PLANE_HOSTNAME}
     initConfiguration:
       # The container cannot load the host's configs kernel module.
       nodeRegistration:

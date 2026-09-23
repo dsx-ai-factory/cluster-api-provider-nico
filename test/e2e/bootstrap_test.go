@@ -8,10 +8,8 @@ package e2e
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"net/netip"
 	"os"
 	"os/exec"
 	"strings"
@@ -28,7 +26,8 @@ const (
 	bootstrapManifestPath        = "test/e2e/testdata/cluster-bootstrap.yaml"
 	managerKustomizationPath     = "test/e2e/config/manager"
 	kubernetesVersionPlaceholder = "${KUBERNETES_VERSION}"
-	controlPlaneIPPlaceholder    = "${CONTROL_PLANE_IP}"
+	controlPlaneHostname         = "capnico-e2e-control-plane"
+	controlPlaneHostPlaceholder  = "${CONTROL_PLANE_HOSTNAME}"
 )
 
 const dockerSocketPatch = `
@@ -64,35 +63,7 @@ func kindContext() string {
 	return "kind-" + cluster
 }
 
-func kindControlPlaneIP() (string, error) {
-	cmd := exec.Command("docker", "network", "inspect", "kind", "--format",
-		"{{range .IPAM.Config}}{{println .Subnet}}{{end}}")
-	output, err := utils.Run(cmd)
-	if err != nil {
-		return "", fmt.Errorf("inspect kind Docker network: %w", err)
-	}
-
-	for _, subnet := range strings.Fields(output) {
-		prefix, err := netip.ParsePrefix(subnet)
-		if err != nil || !prefix.Addr().Is4() {
-			continue
-		}
-		hostBits := 32 - prefix.Bits()
-		if hostBits < 4 {
-			return "", fmt.Errorf("kind Docker IPv4 subnet %s is too small", prefix)
-		}
-		baseBytes := prefix.Masked().Addr().As4()
-		// Docker allocates dynamic addresses from the low end of the subnet.
-		address := uint64(binary.BigEndian.Uint32(baseBytes[:])) + (uint64(1) << hostBits) - 6
-		var addressBytes [4]byte
-		binary.BigEndian.PutUint32(addressBytes[:], uint32(address))
-		return netip.AddrFrom4(addressBytes).String(), nil
-	}
-
-	return "", fmt.Errorf("kind Docker network has no IPv4 subnet")
-}
-
-func renderBootstrapManifest(controlPlaneIP string) ([]byte, error) {
+func renderBootstrapManifest() ([]byte, error) {
 	version := os.Getenv("KUBERNETES_VERSION")
 	if version == "" {
 		return nil, fmt.Errorf("KUBERNETES_VERSION is required")
@@ -105,12 +76,12 @@ func renderBootstrapManifest(controlPlaneIP string) ([]byte, error) {
 	if !bytes.Contains(manifest, []byte(kubernetesVersionPlaceholder)) {
 		return nil, fmt.Errorf("bootstrap manifest does not contain %s", kubernetesVersionPlaceholder)
 	}
-	if !bytes.Contains(manifest, []byte(controlPlaneIPPlaceholder)) {
-		return nil, fmt.Errorf("bootstrap manifest does not contain %s", controlPlaneIPPlaceholder)
+	if !bytes.Contains(manifest, []byte(controlPlaneHostPlaceholder)) {
+		return nil, fmt.Errorf("bootstrap manifest does not contain %s", controlPlaneHostPlaceholder)
 	}
 
 	manifest = bytes.ReplaceAll(manifest, []byte(kubernetesVersionPlaceholder), []byte(version))
-	return bytes.ReplaceAll(manifest, []byte(controlPlaneIPPlaceholder), []byte(controlPlaneIP)), nil
+	return bytes.ReplaceAll(manifest, []byte(controlPlaneHostPlaceholder), []byte(controlPlaneHostname)), nil
 }
 
 func backendFailureLogs(logs string) string {
@@ -136,10 +107,8 @@ var _ = Describe("Bootstrap", Ordered, func() {
 	var bootstrapManifest []byte
 
 	BeforeAll(func() {
-		controlPlaneIP, err := kindControlPlaneIP()
-		Expect(err).NotTo(HaveOccurred())
-
-		bootstrapManifest, err = renderBootstrapManifest(controlPlaneIP)
+		var err error
+		bootstrapManifest, err = renderBootstrapManifest()
 		Expect(err).NotTo(HaveOccurred())
 
 		By("building the fake NICo image")
@@ -184,7 +153,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		dockerBackendPatch, err := json.Marshal([]map[string]string{
 			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--backend=docker"},
 			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--docker-image=" + nodeImage},
-			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--docker-control-plane-ip=" + controlPlaneIP},
+			{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--docker-control-plane-hostname=" + controlPlaneHostname},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		cmd = exec.Command("kubectl", "--context", kindContext(), "patch", "deployment", "fake-nico-api",
