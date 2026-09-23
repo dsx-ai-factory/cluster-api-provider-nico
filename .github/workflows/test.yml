@@ -3,28 +3,11 @@
 
 name: Test
 
-# Self-hosted runners do not pick up jobs from pull_request events, so pull
-# requests are tested through the pull-request/<number> branch instead.
-# workflow_call is declared so merge-gate.yml can call this as a reusable
-# workflow, and the jobs run on ubuntu-latest so that call works from a real
-# pull_request event. Self-hosted runners do not receive fork pull_request
-# events, so a gate built on them would queue forever instead of reporting.
-#
-# Nothing here needs an NVIDIA runner: this module has no internal dependencies.
-#
-# This lands ahead of the gate on purpose. A local `uses: ./.github/workflows/...`
-# reference resolves against the BASE branch, so a workflow whose workflow_call
-# trigger exists only on a pull-request head cannot be called from that same
-# pull request -- the call fails with no jobs and no error message.
+# The merge gate calls this workflow for pull requests and main. The jobs run on
+# ubuntu-latest because self-hosted runners do not receive fork pull_request
+# events. Nothing here needs an NVIDIA runner because this module has no
+# internal dependencies.
 on:
-  push:
-    branches:
-      - main
-      - "pull-request/[0-9]+"
-      # Dependabot pushes to a branch in this repository, which matches
-      # neither of the two above, so none of this CI ran on a dependency
-      # bump. The bump merged on the strength of Dependabot's own testing.
-      - "dependabot/**"
   workflow_call:
   workflow_dispatch:
 
@@ -92,6 +75,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            Makefile
 
       - name: Run end-to-end tests
         run: make test-e2e
