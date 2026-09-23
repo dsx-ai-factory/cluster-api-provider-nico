@@ -184,13 +184,22 @@ func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData st
 		}
 	}
 
+	commands := make([]string, 0, len(cfg.RunCmd))
 	for _, command := range cfg.RunCmd {
 		if strings.TrimSpace(command) == "" {
 			continue
 		}
-		if err := b.execIn(ctx, containerID, nil, "sh", "-lc", command); err != nil {
-			return fmt.Errorf("run cloud-config command %q: %w", command, err)
-		}
+		commands = append(commands, command)
+	}
+	if len(commands) == 0 {
+		return nil
+	}
+
+	// Keep the container's root cgroup empty while kubelet starts.
+	script := "set -e\n" + strings.Join(commands, "\n")
+	if err := b.execIn(ctx, containerID, nil, "systemd-run", "--quiet", "--collect",
+		"--property=Type=exec", "--", "sh", "-lc", script); err != nil {
+		return fmt.Errorf("start cloud-config commands: %w", err)
 	}
 	return nil
 }
