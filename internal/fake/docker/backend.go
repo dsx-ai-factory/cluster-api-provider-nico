@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/netip"
 	"path/filepath"
 	"strings"
 
@@ -35,8 +34,8 @@ type Backend struct {
 	Image string
 	// Network is the Docker network the container joins. It defaults to the kind network.
 	Network string
-	// ControlPlaneIP is the address assigned to the control-plane container.
-	ControlPlaneIP netip.Addr
+	// ControlPlaneHostname is the network alias assigned to the control-plane container.
+	ControlPlaneHostname string
 }
 
 type cloudConfigFile struct {
@@ -82,15 +81,13 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 	}
 
 	if labels[controlPlaneLabel] == "true" {
-		if !b.ControlPlaneIP.Is4() {
-			return fmt.Errorf("control-plane IP must be a valid IPv4 address")
+		if b.ControlPlaneHostname == "" {
+			return fmt.Errorf("control-plane hostname is required")
 		}
 		options.NetworkingConfig = &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
 				b.network(): {
-					IPAMConfig: &network.EndpointIPAMConfig{
-						IPv4Address: b.ControlPlaneIP,
-					},
+					Aliases: []string{b.ControlPlaneHostname},
 				},
 			},
 		}
