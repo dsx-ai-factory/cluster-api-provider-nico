@@ -66,17 +66,19 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 		Config: &container.Config{
 			Hostname: name,
 			Image:    b.Image,
+			Volumes:  map[string]struct{}{"/var": {}},
 			Env: []string{
 				// Use fuse-overlayfs because nested overlayfs fails on Docker-backed hosts.
 				"KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs",
 			},
 		},
 		HostConfig: &container.HostConfig{
-			Privileged:  true,
-			SecurityOpt: []string{"seccomp=unconfined", "apparmor=unconfined"},
-			Tmpfs:       map[string]string{"/tmp": "", "/run": ""},
-			NetworkMode: container.NetworkMode(b.network()),
-			Binds:       []string{"/lib/modules:/lib/modules:ro"},
+			Privileged:   true,
+			CgroupnsMode: container.CgroupnsModePrivate,
+			SecurityOpt:  []string{"seccomp=unconfined", "apparmor=unconfined"},
+			Tmpfs:        map[string]string{"/tmp": "", "/run": ""},
+			NetworkMode:  container.NetworkMode(b.network()),
+			Binds:        []string{"/lib/modules:/lib/modules:ro"},
 		},
 	}
 
@@ -197,7 +199,7 @@ func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData st
 
 	// Keep the container's root cgroup empty while kubelet starts.
 	script := "set -e\n" + strings.Join(commands, "\n")
-	if err := b.execIn(ctx, containerID, nil, "systemd-run", "--quiet", "--collect",
+	if err := b.execIn(ctx, containerID, nil, "systemd-run", "--quiet", "--unit=capnico-bootstrap",
 		"--property=Type=exec", "--", "sh", "-lc", script); err != nil {
 		return fmt.Errorf("start cloud-config commands: %w", err)
 	}
