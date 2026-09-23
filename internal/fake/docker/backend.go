@@ -67,10 +67,6 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 			Hostname: name,
 			Image:    b.Image,
 			Volumes:  map[string]struct{}{"/var": {}},
-			Env: []string{
-				// Use fuse-overlayfs because nested overlayfs fails on Docker-backed hosts.
-				"KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs",
-			},
 		},
 		HostConfig: &container.HostConfig{
 			Privileged:   true,
