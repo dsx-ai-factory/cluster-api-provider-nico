@@ -10,6 +10,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"time"
 
@@ -24,6 +25,7 @@ func main() {
 	seed := flag.String("seed", "", "Path to a YAML file of resources to seed into the endpoint.")
 	backend := flag.String("backend", "", `Instance backend: "" (in-memory, default) or "docker".`)
 	dockerImage := flag.String("docker-image", "", "Node image used by the Docker backend.")
+	dockerControlPlaneIP := flag.String("docker-control-plane-ip", "", "Control-plane IP used by the Docker backend.")
 	flag.Parse()
 
 	endpoint := fake.New()
@@ -34,11 +36,19 @@ func main() {
 		if *dockerImage == "" {
 			log.Fatal("--docker-image is required with --backend=docker")
 		}
+		controlPlaneIP, err := netip.ParseAddr(*dockerControlPlaneIP)
+		if err != nil || !controlPlaneIP.Is4() {
+			log.Fatal("--docker-control-plane-ip must be a valid IPv4 address with --backend=docker")
+		}
 		dockerClient, err := client.New(client.FromEnv)
 		if err != nil {
 			log.Fatalf("create docker client: %v", err)
 		}
-		endpoint.SetBackend(&fakedocker.Backend{Client: dockerClient, Image: *dockerImage})
+		endpoint.SetBackend(&fakedocker.Backend{
+			Client:         dockerClient,
+			Image:          *dockerImage,
+			ControlPlaneIP: controlPlaneIP,
+		})
 		log.Print("using the docker backend: instances run as real containers")
 	default:
 		log.Fatalf("unknown backend %q", *backend)

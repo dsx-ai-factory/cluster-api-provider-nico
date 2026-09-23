@@ -25,7 +25,6 @@ const (
 	defaultNetwork = "kind"
 
 	controlPlaneLabel = "capnico-fake/control-plane"
-	controlPlaneIP    = "172.18.255.250"
 )
 
 // Backend runs instances as containers on the kind Docker network.
@@ -36,6 +35,8 @@ type Backend struct {
 	Image string
 	// Network is the Docker network the container joins. It defaults to the kind network.
 	Network string
+	// ControlPlaneIP is the address assigned to the control-plane container.
+	ControlPlaneIP netip.Addr
 }
 
 type cloudConfigFile struct {
@@ -81,11 +82,14 @@ func (b *Backend) Create(ctx context.Context, instanceID, userData string, label
 	}
 
 	if labels[controlPlaneLabel] == "true" {
+		if !b.ControlPlaneIP.Is4() {
+			return fmt.Errorf("control-plane IP must be a valid IPv4 address")
+		}
 		options.NetworkingConfig = &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
 				b.network(): {
 					IPAMConfig: &network.EndpointIPAMConfig{
-						IPv4Address: netip.MustParseAddr(controlPlaneIP),
+						IPv4Address: b.ControlPlaneIP,
 					},
 				},
 			},
