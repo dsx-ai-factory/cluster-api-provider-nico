@@ -22,12 +22,15 @@ import (
 )
 
 const (
-	fakeDockerImage              = "fake-nico-api-server"
-	bootstrapManifestPath        = "test/e2e/testdata/cluster-bootstrap.yaml"
-	managerKustomizationPath     = "test/e2e/config/manager"
-	kubernetesVersionPlaceholder = "${KUBERNETES_VERSION}"
-	controlPlaneHostname         = "capnico-e2e-control-plane"
-	controlPlaneHostPlaceholder  = "${CONTROL_PLANE_HOSTNAME}"
+	fakeDockerImage                 = "fake-nico-api-server"
+	controlPlaneProxyImage          = "haproxy:3.2.23-alpine@sha256:1ed7048482a1550aaea61d886dcbefcb70a60f5612b2a1ead2171cef860c94fc"
+	controlPlaneProxyName           = "capnico-fake-api-proxy"
+	controlPlaneProxyConfigPath     = "test/e2e/testdata/haproxy.cfg"
+	bootstrapManifestPath           = "test/e2e/testdata/cluster-bootstrap.yaml"
+	managerKustomizationPath        = "test/e2e/config/manager"
+	kubernetesVersionPlaceholder    = "${KUBERNETES_VERSION}"
+	controlPlaneHostname            = "capnico-e2e-control-plane"
+	controlPlaneEndpointPlaceholder = "${CONTROL_PLANE_ENDPOINT}"
 )
 
 const dockerSocketPatch = `
@@ -63,7 +66,43 @@ func kindContext() string {
 	return "kind-" + cluster
 }
 
-func renderBootstrapManifest() ([]byte, error) {
+func createControlPlaneProxy() (string, error) {
+	_, _ = utils.Run(exec.Command("docker", "rm", "-f", controlPlaneProxyName))
+
+	cmd := exec.Command("docker", "create", "--name", controlPlaneProxyName, "--network", "kind", controlPlaneProxyImage)
+	if _, err := utils.Run(cmd); err != nil {
+		return "", fmt.Errorf("create control-plane proxy: %w", err)
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_, _ = utils.Run(exec.Command("docker", "rm", "-f", controlPlaneProxyName))
+		}
+	}()
+
+	cmd = exec.Command("docker", "cp", controlPlaneProxyConfigPath,
+		controlPlaneProxyName+":/usr/local/etc/haproxy/haproxy.cfg")
+	if _, err := utils.Run(cmd); err != nil {
+		return "", fmt.Errorf("configure control-plane proxy: %w", err)
+	}
+	if _, err := utils.Run(exec.Command("docker", "start", controlPlaneProxyName)); err != nil {
+		return "", fmt.Errorf("start control-plane proxy: %w", err)
+	}
+
+	cmd = exec.Command("docker", "inspect", "--format", "{{(index .NetworkSettings.Networks \"kind\").IPAddress}}", controlPlaneProxyName)
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return "", fmt.Errorf("inspect control-plane proxy: %w", err)
+	}
+	endpoint := strings.TrimSpace(output)
+	if endpoint == "" {
+		return "", fmt.Errorf("control-plane proxy has no IPv4 address")
+	}
+	cleanup = false
+	return endpoint, nil
+}
+
+func renderBootstrapManifest(endpoint string) ([]byte, error) {
 	version := os.Getenv("KUBERNETES_VERSION")
 	if version == "" {
 		return nil, fmt.Errorf("KUBERNETES_VERSION is required")
@@ -76,12 +115,12 @@ func renderBootstrapManifest() ([]byte, error) {
 	if !bytes.Contains(manifest, []byte(kubernetesVersionPlaceholder)) {
 		return nil, fmt.Errorf("bootstrap manifest does not contain %s", kubernetesVersionPlaceholder)
 	}
-	if !bytes.Contains(manifest, []byte(controlPlaneHostPlaceholder)) {
-		return nil, fmt.Errorf("bootstrap manifest does not contain %s", controlPlaneHostPlaceholder)
+	if !bytes.Contains(manifest, []byte(controlPlaneEndpointPlaceholder)) {
+		return nil, fmt.Errorf("bootstrap manifest does not contain %s", controlPlaneEndpointPlaceholder)
 	}
 
 	manifest = bytes.ReplaceAll(manifest, []byte(kubernetesVersionPlaceholder), []byte(version))
-	return bytes.ReplaceAll(manifest, []byte(controlPlaneHostPlaceholder), []byte(controlPlaneHostname)), nil
+	return bytes.ReplaceAll(manifest, []byte(controlPlaneEndpointPlaceholder), []byte(endpoint)), nil
 }
 
 func backendFailureLogs(logs string) string {
@@ -107,17 +146,19 @@ var _ = Describe("Bootstrap", Ordered, func() {
 	var bootstrapManifest []byte
 
 	BeforeAll(func() {
-		var err error
-		bootstrapManifest, err = renderBootstrapManifest()
-		Expect(err).NotTo(HaveOccurred())
-
 		By("building the fake NICo image")
 		cmd := exec.Command("docker", "build", "-f", "Dockerfile.fake", "-t", fakeDockerImage, ".")
-		_, err = utils.Run(cmd)
+		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to build the fake NICo image")
 
 		By("loading the fake NICo image on Kind")
 		Expect(utils.LoadImageToKindClusterWithName(fakeDockerImage)).To(Succeed())
+
+		By("creating the control-plane API proxy")
+		endpoint, err := createControlPlaneProxy()
+		Expect(err).NotTo(HaveOccurred())
+		bootstrapManifest, err = renderBootstrapManifest(endpoint)
+		Expect(err).NotTo(HaveOccurred())
 
 		// clusterctl init does not wait for its webhook deployments to become available.
 		By("waiting for the Cluster API webhooks to be ready")
@@ -234,6 +275,9 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		By("uninstalling CRDs")
 		cmd = exec.Command("make", "uninstall", "ignore-not-found=true")
 		_, _ = utils.Run(cmd)
+
+		By("deleting the control-plane API proxy")
+		_, _ = utils.Run(exec.Command("docker", "rm", "-f", controlPlaneProxyName))
 	})
 
 	It("bootstraps a real workload cluster via KubeadmControlPlane", func() {
