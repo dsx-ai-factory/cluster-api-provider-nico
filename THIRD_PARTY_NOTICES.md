@@ -55,7 +55,7 @@ commands are not listed, because they are not distributed.
 | [github.com/modern-go/concurrent](https://github.com/modern-go/concurrent/blob/bacd9c7ef1dd/LICENSE) | Apache-2.0 | github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd |
 | [github.com/modern-go/reflect2](https://github.com/modern-go/reflect2/blob/35a7c28c31ee/LICENSE) | Apache-2.0 | github.com/modern-go/reflect2@v1.0.3-0.20250322232337-35a7c28c31ee |
 | [github.com/munnerz/goautoneg](https://github.com/munnerz/goautoneg/blob/a7dc8b61c822/LICENSE) | BSD-3-Clause | github.com/munnerz/goautoneg@v0.0.0-20191010083416-a7dc8b61c822 |
-| [github.com/onsi/gomega](https://github.com/onsi/gomega/blob/v1.43.0/LICENSE) | MIT | github.com/onsi/gomega@v1.43.0 |
+| [github.com/onsi/gomega](https://github.com/onsi/gomega/blob/v1.43.1/LICENSE) | MIT | github.com/onsi/gomega@v1.43.1 |
 | [github.com/pkg/errors](https://github.com/pkg/errors/blob/v0.9.1/LICENSE) | BSD-2-Clause | github.com/pkg/errors@v0.9.1 |
 | [github.com/pmezard/go-difflib/difflib](https://github.com/pmezard/go-difflib/blob/5d4384ee4fb2/LICENSE) | BSD-3-Clause | github.com/pmezard/go-difflib@v1.0.1-0.20181226105442-5d4384ee4fb2 |
 | [github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil](https://github.com/prometheus/client_golang/blob/v1.24.0/internal/github.com/golang/gddo/LICENSE) | BSD-3-Clause | github.com/prometheus/client_golang@v1.24.0 |
