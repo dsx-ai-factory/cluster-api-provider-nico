@@ -49,7 +49,7 @@ metadata:
   name: machine-1
   namespace: default
   annotations:
-    nico.nvidia.com/reboot: requested
+    nico.nvidia.com/reboot: replacement
   labels:
     cluster.x-k8s.io/cluster-name: cluster-1
 spec:

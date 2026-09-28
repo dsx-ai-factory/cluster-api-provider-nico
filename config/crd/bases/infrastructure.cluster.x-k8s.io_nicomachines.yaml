@@ -381,6 +381,10 @@ spec:
                     description: Annotation is the request annotation on the owning
                       Machine.
                     type: string
+                  annotationValue:
+                    description: AnnotationValue identifies the accepted request when
+                      the annotation changes.
+                    type: string
                   bootID:
                     description: BootID is the workload Node boot ID observed before
                       the request.

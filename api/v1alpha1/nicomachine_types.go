@@ -178,6 +178,10 @@ type NicoMachineRebootStatus struct {
 	// Annotation is the request annotation on the owning Machine.
 	Annotation string `json:"annotation"`
 
+	// AnnotationValue identifies the accepted request when the annotation changes.
+	// +optional
+	AnnotationValue string `json:"annotationValue,omitempty"`
+
 	// Mode is graceful-fallback, graceful-only, or hard.
 	Mode string `json:"mode"`
 

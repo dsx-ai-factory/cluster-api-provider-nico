@@ -536,6 +536,9 @@ The key is configurable with a manager flag:
 
 Set one of these annotations to a non-empty value on the owning CAPI `Machine`.
 CAPNICo treats the value as consumer-owned metadata and does not interpret it.
+To replace an active request, set the same annotation to a different non-empty
+value. Reapplying the same value while it remains set does not create a new
+request.
 Do not set more than one reboot annotation at a time.
 
 | Annotation | Behavior |
@@ -565,7 +568,8 @@ power attempt before sending it and does not repeat an uncertain attempt after
 a controller restart. A crash between recording and sending can skip that
 attempt. Reapply the annotation after reviewing the status if an action remains
 uncertain. CAPNICo removes the request annotation after it finishes handling
-the request.
+the request if its value still matches the accepted request. A replacement
+value remains set for the next request.
 
 ## Development
 

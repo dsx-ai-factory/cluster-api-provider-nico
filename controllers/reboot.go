@@ -77,10 +77,11 @@ func (r *NicoMachineReconciler) reconcileReboot(
 			return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 		}
 		freshState := &infrav1.NicoMachineRebootStatus{
-			Annotation: requestAnnotation,
-			Mode:       mode,
-			Phase:      rebootPhasePrepared,
-			StartedAt:  metav1.NewTime(time.Now().UTC()),
+			Annotation:      requestAnnotation,
+			AnnotationValue: machine.Annotations[requestAnnotation],
+			Mode:            mode,
+			Phase:           rebootPhasePrepared,
+			StartedAt:       metav1.NewTime(time.Now().UTC()),
 		}
 		if err := r.persistRebootState(ctx, nicoMachine, freshState); err != nil {
 			return ctrl.Result{}, true, fmt.Errorf("record reboot request: %w", err)
@@ -150,8 +151,12 @@ func (r *NicoMachineReconciler) reconcilePreparedReboot(
 		return ctrl.Result{}, true, fmt.Errorf("read Machine before reboot dispatch: %w", err)
 	}
 	machine = fresh
-	if machine.Annotations[state.Annotation] == "" {
+	currentValue := machine.Annotations[state.Annotation]
+	if currentValue == "" {
 		return r.completeReboot(ctx, machine, nicoMachine, state, "none", "Reboot request removed before dispatch")
+	}
+	if state.AnnotationValue != "" && currentValue != state.AnnotationValue {
+		return r.completeReboot(ctx, machine, nicoMachine, state, "none", "Reboot request replaced before dispatch")
 	}
 	if _, _, count := requestedReboot(machine, r.ProviderConfig.RebootAnnotation); count > 1 {
 		r.rebootEvent(machine, corev1.EventTypeWarning, "RebootRequestConflict", "Only one reboot annotation can be set at a time")
@@ -264,7 +269,9 @@ func definiteRebootRejection(err error) bool {
 }
 
 func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clusterv1.Machine, nicoMachine *infrav1.NicoMachine, state *infrav1.NicoMachineRebootStatus, path, message string) (ctrl.Result, bool, error) {
-	if machine.Annotations[state.Annotation] != "" {
+	currentValue := machine.Annotations[state.Annotation]
+	replaced := state.AnnotationValue != "" && currentValue != "" && currentValue != state.AnnotationValue
+	if currentValue != "" && !replaced {
 		before := machine.DeepCopy()
 		delete(machine.Annotations, state.Annotation)
 		if err := r.Patch(ctx, machine, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
@@ -280,7 +287,7 @@ func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clu
 	if err := r.persistRebootState(ctx, nicoMachine, &copy); err != nil {
 		return ctrl.Result{}, true, fmt.Errorf("record reboot completion: %w", err)
 	}
-	return ctrl.Result{}, true, nil
+	return ctrl.Result{Requeue: replaced}, true, nil
 }
 
 func (r *NicoMachineReconciler) persistRebootState(ctx context.Context, nicoMachine *infrav1.NicoMachine, state *infrav1.NicoMachineRebootStatus) error {

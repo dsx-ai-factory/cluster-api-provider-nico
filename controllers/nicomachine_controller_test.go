@@ -5,12 +5,14 @@ package controllers
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -48,6 +50,16 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			if tc.HasInput("input_workload_objects.yaml") {
 				tc.AddGolden("expected_workload_objects.yaml", func(ctx context.Context) (string, error) {
 					return dumpWorkloadNodes(ctx, workloadClient)
+				})
+			}
+			if input, ok := tc.Input("input_machine_annotation_key.txt"); ok {
+				annotation := strings.TrimSpace(input)
+				tc.AddGolden("expected_machine_annotation.txt", func(ctx context.Context) (string, error) {
+					machine := &clusterv1.Machine{}
+					if err := tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testOwnerMachine}, machine); err != nil {
+						return "", err
+					}
+					return machine.Annotations[annotation] + "\n", nil
 				})
 			}
 			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())

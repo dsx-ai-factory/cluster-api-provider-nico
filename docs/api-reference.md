@@ -108,7 +108,7 @@ The status records what the provider observed about the backing instance.
 | `ready` | bool | True after the backing instance reaches Ready. |
 | `instanceID` | string | The instance identifier backing this machine. |
 | `machineID` | string | The NICo machine ID for this machine. |
-| `reboot` | object, optional | Records the latest annotation-driven reboot. It contains `annotation`, `mode`, `phase`, `startedAt`, optional `deadline`, `bootID`, `completedAt`, and the final `path` and `message`. |
+| `reboot` | object, optional | Records the latest annotation-driven reboot. It contains `annotation`, the accepted `annotationValue`, `mode`, `phase`, `startedAt`, optional `deadline`, `bootID`, `completedAt`, and the final `path` and `message`. |
 | `siteID`, `siteName` | string | The observed site for this machine. |
 | `vpcID`, `vpcName` | string | The observed VPC for this machine. |
 | `tpmEkPubHash` | string | The TPM EK public hash for this machine. |

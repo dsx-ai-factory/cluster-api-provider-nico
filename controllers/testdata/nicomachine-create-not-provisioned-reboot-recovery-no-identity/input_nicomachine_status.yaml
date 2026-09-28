@@ -11,6 +11,7 @@ status:
   machineID: machine-id-1
   reboot:
     annotation: nico.nvidia.com/reboot
+    annotationValue: original
     mode: graceful-fallback
     phase: graceful-dispatched
     startedAt: "2026-01-01T00:00:00Z"

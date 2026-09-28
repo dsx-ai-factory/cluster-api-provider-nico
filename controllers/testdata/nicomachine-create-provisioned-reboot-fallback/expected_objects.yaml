@@ -137,6 +137,7 @@ items:
     ready: true
     reboot:
       annotation: nico.nvidia.com/reboot
+      annotationValue: requested
       completedAt: "1970-01-01T00:00:00Z"
       message: NICo accepted hard reboot fallback
       mode: graceful-fallback
