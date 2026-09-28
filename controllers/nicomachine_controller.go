@@ -202,7 +202,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
 			// Persist providerID and its new generation before a reboot can
 			// interrupt normal status reconciliation.
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		} else if !errors.Is(err, nico.ErrNotFound) {
 			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to find existing instance before create: %w", err)

@@ -271,7 +271,7 @@ func (r *NicoMachineReconciler) dispatchHardReboot(ctx context.Context, machine 
 			return r.completeReboot(ctx, machine, nicoMachine, nicoMachine.Status.Reboot, "none", "NICo rejected hard reboot")
 		}
 		r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootUnconfirmed", "NICo did not confirm hard reboot acceptance; the action will not be repeated automatically")
-		return ctrl.Result{Requeue: true}, true, nil
+		return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 	}
 	copy.Message = "NICo accepted hard reboot"
 	if fallback {
@@ -282,7 +282,7 @@ func (r *NicoMachineReconciler) dispatchHardReboot(ctx context.Context, machine 
 	}
 	recordRebootTriggered(nicoMachine)
 	r.rebootEvent(machine, corev1.EventTypeNormal, "HardRebootAccepted", copy.Message)
-	return ctrl.Result{Requeue: true}, true, nil
+	return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 }
 
 func definiteRebootRejection(err error) bool {
@@ -309,7 +309,10 @@ func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clu
 	if err := r.persistRebootState(ctx, nicoMachine, &copy); err != nil {
 		return ctrl.Result{}, true, fmt.Errorf("record reboot completion: %w", err)
 	}
-	return ctrl.Result{Requeue: replaced}, true, nil
+	if replaced {
+		return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
+	}
+	return ctrl.Result{}, true, nil
 }
 
 func (r *NicoMachineReconciler) persistRebootState(ctx context.Context, nicoMachine *infrav1.NicoMachine, state *infrav1.NicoMachineRebootStatus) error {
