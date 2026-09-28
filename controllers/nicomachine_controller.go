@@ -552,11 +552,8 @@ func (r *NicoMachineReconciler) machineHealthIssue(ctx context.Context, ownerMac
 	)
 }
 
-// observeFailureDomain returns the failure domain of the machine NICo assigned to
-// the instance, or the empty string when none is assigned or labelKey is unset.
-// NICo is queried only when the assignment changed or a requested domain is still
-// unconfirmed, so a steady-state reconcile does not read the machine again. A
-// non-nil error means a requested domain could not be verified.
+// observeFailureDomain returns the failure domain assigned by NICo.
+// It queries NICo only when the status needs to be set or verified.
 func observeFailureDomain(
 	ctx context.Context,
 	nicoClient nico.API,
@@ -571,7 +568,7 @@ func observeFailureDomain(
 	}
 
 	observed := nicoMachine.Status.FailureDomain
-	if machineID == nicoMachine.Status.MachineID && (requestedDomain == "" || observed == requestedDomain) {
+	if observed != "" && machineID == nicoMachine.Status.MachineID && (requestedDomain == "" || observed == requestedDomain) {
 		return observed, nil
 	}
 
