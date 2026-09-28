@@ -373,6 +373,53 @@ spec:
               ready:
                 description: Ready is true once the backing instance reaches Ready.
                 type: boolean
+              reboot:
+                description: Reboot records the latest annotation-driven reboot request
+                  and its outcome.
+                properties:
+                  annotation:
+                    description: Annotation is the request annotation on the owning
+                      Machine.
+                    type: string
+                  bootID:
+                    description: BootID is the workload Node boot ID observed before
+                      the request.
+                    type: string
+                  completedAt:
+                    description: CompletedAt is when CAPNICo finished handling the
+                      request.
+                    format: date-time
+                    type: string
+                  deadline:
+                    description: Deadline is when CAPNICo stops waiting for graceful
+                      reboot recovery.
+                    format: date-time
+                    type: string
+                  message:
+                    description: Message summarizes the most recent outcome without
+                      sensitive API data.
+                    type: string
+                  mode:
+                    description: Mode is graceful-fallback, graceful-only, or hard.
+                    type: string
+                  path:
+                    description: Path is graceful, hard, or none after the request
+                      completes.
+                    type: string
+                  phase:
+                    description: Phase is prepared, graceful-dispatched, hard-dispatched,
+                      or completed.
+                    type: string
+                  startedAt:
+                    description: StartedAt is when CAPNICo observed the request.
+                    format: date-time
+                    type: string
+                required:
+                - annotation
+                - mode
+                - phase
+                - startedAt
+                type: object
               siteID:
                 description: SiteID is the observed Forge/Carbide site ID for this
                   machine.

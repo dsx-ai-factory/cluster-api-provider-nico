@@ -19,6 +19,11 @@ type NicoClusterSpec struct {
 	// +optional
 	IdentityRef corev1.LocalObjectReference `json:"identityRef,omitempty,omitzero"`
 
+	// PowerControlIdentityRef names a Secret with provider credentials for NICo
+	// Machine power control. When unset, IdentityRef is used.
+	// +optional
+	PowerControlIdentityRef corev1.LocalObjectReference `json:"powerControlIdentityRef,omitempty,omitzero"`
+
 	// SiteID is the site where this provider should create and look up instances.
 	SiteID string `json:"siteID"`
 

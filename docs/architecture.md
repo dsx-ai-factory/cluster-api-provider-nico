@@ -82,6 +82,11 @@ Every reconcile resolves credentials in a fixed order.
    `nico-credentials`).
 3. Otherwise the reconcile fails with a not-found error.
 
+For graceful reboot, `NicoCluster.spec.powerControlIdentityRef.name` can name a
+second Secret in the cluster namespace. It supplies the provider organization
+and credential required by NICo's Machine power API. When unset, CAPNICo uses
+the regular NICo credential for the graceful action.
+
 **Clients are cached per Secret revision.** The cache key is
 `namespace/name@resourceVersion`, and inserting a new revision evicts earlier
 entries sharing the `namespace/name@` prefix. That is what makes external
@@ -287,10 +292,19 @@ NICo as context on the delete request. Configure the key with
 
 ### The Reboot Annotation
 
-Setting `nico.nvidia.com/reboot` to a non-empty value requests one reboot. The
-value itself is consumer-owned and is not otherwise interpreted. After NICo
-accepts the trigger, the provider removes the annotation, so one reboot happens
-per application. Configure the key with `--reboot-annotation`.
+Setting `nico.nvidia.com/reboot` to a non-empty value requests a graceful
+Machine restart with hard instance reboot fallback after 30 minutes without a
+confirmed workload Node boot ID change. Configure this key with
+`--reboot-annotation`. `nico.nvidia.com/reboot-soft` requests only the graceful
+action. `nico.nvidia.com/reboot-hard` requests the existing hard action
+immediately. Only one request annotation can be present at a time.
+
+The controller records a reboot phase in `NicoMachine.status.reboot` before
+each NICo call. It does not repeat an uncertain call after a restart. A changed
+workload Node boot ID followed by a Ready condition confirms graceful recovery.
+If the boot ID changes while the Node remains unavailable, the controller waits
+for recovery without sending a hard fallback. The provider removes the request
+annotation after handling it and emits events for acceptance and fallback.
 
 ## Related Information
 

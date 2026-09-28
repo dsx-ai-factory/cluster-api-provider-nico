@@ -171,8 +171,48 @@ type NicoMachineInitializationStatus struct {
 	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
+// NicoMachineRebootStatus records the latest annotation-driven reboot request.
+// A phase is persisted before each external power action so retries never
+// repeat an action whose result is uncertain.
+type NicoMachineRebootStatus struct {
+	// Annotation is the request annotation on the owning Machine.
+	Annotation string `json:"annotation"`
+
+	// Mode is graceful-fallback, graceful-only, or hard.
+	Mode string `json:"mode"`
+
+	// Phase is prepared, graceful-dispatched, hard-dispatched, or completed.
+	Phase string `json:"phase"`
+
+	// StartedAt is when CAPNICo observed the request.
+	StartedAt metav1.Time `json:"startedAt"`
+
+	// CompletedAt is when CAPNICo finished handling the request.
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+
+	// Deadline is when CAPNICo stops waiting for graceful reboot recovery.
+	// +optional
+	Deadline *metav1.Time `json:"deadline,omitempty"`
+
+	// BootID is the workload Node boot ID observed before the request.
+	// +optional
+	BootID string `json:"bootID,omitempty"`
+
+	// Path is graceful, hard, or none after the request completes.
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// Message summarizes the most recent outcome without sensitive API data.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // NicoMachineStatus defines the observed state of NicoMachine.
 type NicoMachineStatus struct {
+	// Reboot records the latest annotation-driven reboot request and its outcome.
+	// +optional
+	Reboot *NicoMachineRebootStatus `json:"reboot,omitempty"`
 	// Initialization provides provisioning observations for the backing instance.
 	// +optional
 	Initialization NicoMachineInitializationStatus `json:"initialization,omitempty,omitzero"`

@@ -44,6 +44,7 @@ const (
 	operationCreateInstance operation = "create-instance"
 	operationUpdateInstance operation = "update-instance"
 	operationDeleteInstance operation = "delete-instance"
+	operationMachinePower   operation = "machine-power"
 )
 
 type instanceRecord struct {
@@ -54,12 +55,14 @@ type instanceRecord struct {
 }
 
 type requestRecord struct {
-	Operation  operation                      `json:"operation"`
-	Org        string                         `json:"org"`
-	InstanceID string                         `json:"instance_id,omitempty"`
-	Create     *nicosdk.InstanceCreateRequest `json:"create,omitempty"`
-	Update     *nicosdk.InstanceUpdateRequest `json:"update,omitempty"`
-	Delete     *nicosdk.InstanceDeleteRequest `json:"delete,omitempty"`
+	Operation  operation                           `json:"operation"`
+	Org        string                              `json:"org"`
+	InstanceID string                              `json:"instance_id,omitempty"`
+	MachineID  string                              `json:"machine_id,omitempty"`
+	Create     *nicosdk.InstanceCreateRequest      `json:"create,omitempty"`
+	Update     *nicosdk.InstanceUpdateRequest      `json:"update,omitempty"`
+	Delete     *nicosdk.InstanceDeleteRequest      `json:"delete,omitempty"`
+	Power      *nicosdk.MachinePowerControlRequest `json:"power,omitempty"`
 }
 
 type tenantDump struct {
@@ -127,7 +130,9 @@ type Server struct {
 
 	requests []requestRecord
 
-	nextID int
+	nextID             int
+	powerControlStatus int
+	powerControlCalls  int
 }
 
 // New returns a Server seeded with the resources needed by the worked example.
@@ -190,6 +195,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v2/org/{org}/nico/instance/{instanceID}", s.deleteInstance)
 	mux.HandleFunc("GET /v2/org/{org}/nico/machine", s.listMachines)
 	mux.HandleFunc("GET /v2/org/{org}/nico/machine/{machineID}", s.getMachine)
+	mux.HandleFunc("PATCH /v2/org/{org}/nico/machine/{machineID}/power", s.powerControlMachine)
 	mux.HandleFunc("GET /v2/org/{org}/nico/site", s.listSites)
 	mux.HandleFunc("GET /v2/org/{org}/nico/vpc/{vpcID}", s.getVPC)
 
@@ -639,6 +645,67 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, &response)
+}
+
+// SetPowerControlStatus makes Machine power actions fail with the given HTTP
+// status. Zero restores the normal accepted response.
+func (s *Server) SetPowerControlStatus(status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.powerControlStatus = status
+}
+
+// PowerControlCalls counts all valid Machine power requests, including rejected ones.
+func (s *Server) PowerControlCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.powerControlCalls
+}
+
+// InstanceRebootCount counts accepted hard reboots for one Instance.
+func (s *Server) InstanceRebootCount(org, instanceID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record := s.instances[resourceKey(org, instanceID)]; record != nil {
+		return record.rebootCount
+	}
+	return 0
+}
+
+func (s *Server) powerControlMachine(w http.ResponseWriter, r *http.Request) {
+	var request nicosdk.MachinePowerControlRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "malformed machine power request")
+		return
+	}
+	if request.GetAction() != "GracefulRestart" || !request.GetAcknowledgeAttachedInstance() {
+		writeError(w, http.StatusBadRequest, "GracefulRestart and acknowledgeAttachedInstance are required")
+		return
+	}
+	org, machineID := r.PathValue("org"), r.PathValue("machineID")
+	s.mu.Lock()
+	_, ok := s.machines[resourceKey(org, machineID)]
+	status := s.powerControlStatus
+	s.powerControlCalls++
+	if ok && status == 0 {
+		requestCopy := request
+		s.requests = append(s.requests, requestRecord{
+			Operation: operationMachinePower,
+			Org:       org,
+			MachineID: machineID,
+			Power:     &requestCopy,
+		})
+	}
+	s.mu.Unlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "machine not found")
+		return
+	}
+	if status != 0 {
+		writeError(w, status, "machine power request rejected")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"message": ""})
 }
 
 func (s *Server) updateInstance(w http.ResponseWriter, r *http.Request) {

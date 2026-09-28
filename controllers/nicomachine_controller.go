@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/recorder"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
@@ -41,7 +42,6 @@ import (
 const (
 	nicoMachineFinalizer                 = "infrastructure.cluster.x-k8s.io/nicomachine"
 	nicoMachineCredentialsSecretRefIndex = "nicoMachineCredentialsSecretRef"
-	lastRebootTriggeredAnnotation        = "nico.nvidia.com/last-reboot-triggered-timestamp"
 	machineRequeueFast                   = 15 * time.Second
 	machineRequeueSlow                   = 30 * time.Second
 	machineReadyRequeue                  = 5 * time.Minute
@@ -85,6 +85,7 @@ type NicoMachineReconciler struct {
 	// WorkloadClientFactory overrides workload cluster client construction.
 	// When unset, clients are built from the workload cluster kubeconfig.
 	WorkloadClientFactory workloadClientFactory
+	Recorder              recorder.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -94,6 +95,7 @@ type NicoMachineReconciler struct {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 
 func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
@@ -127,7 +129,21 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
 	}
+	patchBase := nicoMachine.DeepCopy()
 	defer func() {
+		// Reboot dispatch persists its state before the external API call. That
+		// status patch advances resourceVersion. Keep the original patch base's
+		// conditions so changes made before dispatch are still patched.
+		if nicoMachine.ResourceVersion != patchBase.ResourceVersion {
+			patchBase.ResourceVersion = nicoMachine.ResourceVersion
+			patchBase.Status.Reboot = nicoMachine.Status.Reboot.DeepCopy()
+			var helperErr error
+			patchHelper, helperErr = patch.NewHelper(patchBase, r.Client)
+			if helperErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("refresh patch helper after reboot state update: %w", helperErr))
+				return
+			}
+		}
 		if conditionErr := setNicoMachineConditions(&nicoMachine); conditionErr != nil {
 			retErr = errors.Join(retErr, conditionErr)
 		}
@@ -312,6 +328,15 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
 		return ctrl.Result{}, nil
 	}
+	// Recovery must continue if a dispatched power action temporarily makes the
+	// instance read unavailable. New requests still verify the instance first.
+	rebootDispatched := nicoMachine.Status.Reboot != nil &&
+		(nicoMachine.Status.Reboot.Phase == rebootPhaseGracefulDispatched || nicoMachine.Status.Reboot.Phase == rebootPhaseHardDispatched)
+	if rebootDispatched {
+		if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+			return rebootResult, err
+		}
+	}
 
 	instance, err := nicoClient.GetInstance(ctx, instanceID)
 	if err != nil {
@@ -386,8 +411,10 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-		return ctrl.Result{}, err
+	if !rebootDispatched {
+		if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+			return rebootResult, err
+		}
 	}
 
 	if ip := firstIPv4FromInstance(instance); ip != "" {
@@ -719,41 +746,6 @@ func (r *NicoMachineReconciler) reader() client.Reader {
 	return r.Client
 }
 
-// reconcileReboot actuates Machine annotation reboot requests and removes the
-// request annotation once NICo has accepted the reboot trigger.
-func (r *NicoMachineReconciler) reconcileReboot(
-	ctx context.Context,
-	machine *clusterv1.Machine,
-	nicoMachine *infrav1.NicoMachine,
-	nicoClient nico.API,
-	instanceID string,
-) (bool, error) {
-	rebootAnnotation := r.ProviderConfig.RebootAnnotation
-	if machine.GetAnnotations()[rebootAnnotation] == "" {
-		return false, nil
-	}
-
-	if _, err := nicoClient.TriggerInstanceReboot(ctx, instanceID); err != nil {
-		return true, fmt.Errorf("failed to trigger instance reboot: %w", err)
-	}
-
-	nicoMachineAnnotations := nicoMachine.GetAnnotations()
-	if nicoMachineAnnotations == nil {
-		nicoMachineAnnotations = map[string]string{}
-	}
-	nicoMachineAnnotations[lastRebootTriggeredAnnotation] = time.Now().UTC().Format(time.RFC3339)
-	nicoMachine.SetAnnotations(nicoMachineAnnotations)
-
-	machinePatch := client.MergeFrom(machine.DeepCopy())
-	machineAnnotations := machine.GetAnnotations()
-	delete(machineAnnotations, rebootAnnotation)
-	machine.SetAnnotations(machineAnnotations)
-	if err := r.Patch(ctx, machine, machinePatch); err != nil {
-		return true, fmt.Errorf("failed to patch machine reboot request annotation: %w", err)
-	}
-	return true, nil
-}
-
 // deferForControlPlanePriority checks if this worker instance create should be
 // deferred to allow control-plane machines to claim capacity first.
 func (r *NicoMachineReconciler) deferForControlPlanePriority(
@@ -1082,6 +1074,9 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 }
 
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
+	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}

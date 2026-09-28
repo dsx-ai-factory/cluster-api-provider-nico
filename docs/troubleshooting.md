@@ -97,15 +97,19 @@ mechanism.
 Both are annotations on the owning CAPI `Machine`, not fields on either CRD.
 Check three things.
 
-- The annotation key matches the configured flag, which is
-  `--reboot-annotation` (default `nico.nvidia.com/reboot`) or
-  `--repair-annotation` (default `nico.nvidia.com/machine-health-issue`).
+- The annotation key is `nico.nvidia.com/reboot` (configurable with
+  `--reboot-annotation`), `nico.nvidia.com/reboot-soft`,
+  `nico.nvidia.com/reboot-hard`, or the configured repair key.
 - The value is non-empty. Both operations ignore an empty value.
-- The controller logs record that the trigger reached NICo, so read them.
+- Only one reboot annotation is set at a time.
+- `NicoMachine.status.reboot` and the owning Machine's events show the reboot
+  phase and which action NICo accepted.
 
-CAPNICo triggers at most one reboot per observed annotation application, and
-removes the reboot annotation after NICo accepts it. A reboot that already
-fired does not fire again until you reapply the annotation. Refer to the
+CAPNICo removes the reboot annotation after handling the request. If the
+graceful action returns HTTP 403, check the provider credential named by
+`NicoCluster.spec.powerControlIdentityRef`. The default annotation uses a hard
+fallback on a confirmed rejection or after 30 minutes without a changed Node
+boot ID. Refer to the
 [machine repair](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#machine-repair)
 and
 [machine reboot](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#machine-reboot)

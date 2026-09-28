@@ -534,22 +534,38 @@ The key is configurable with a manager flag:
 
 ## Machine Reboot
 
-CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
-`Machine`. A consumer requests a reboot by setting the configured reboot
-annotation on the `Machine`. CAPNICo treats a non-empty annotation value as the
-reboot request; the value itself is consumer-owned metadata and is not
-interpreted.
-CAPNICo triggers at most one NICo instance reboot for each observed annotation
-application. After NICo accepts the reboot trigger, CAPNICo removes the
-configured reboot annotation from the `Machine`.
+Set one of these annotations to a non-empty value on the owning CAPI `Machine`.
+CAPNICo treats the value as consumer-owned metadata and does not interpret it.
+Do not set more than one reboot annotation at a time.
 
-The default annotation key is:
+| Annotation | Behavior |
+|---|---|
+| `nico.nvidia.com/reboot` | Request NICo `GracefulRestart`, then use the existing hard instance reboot if no changed workload Node boot ID is observed within 30 minutes. Configure this key with `--reboot-annotation`. |
+| `nico.nvidia.com/reboot-soft` | Request `GracefulRestart` without an automatic hard fallback. |
+| `nico.nvidia.com/reboot-hard` | Request the existing hard instance reboot immediately. |
 
-* `nico.nvidia.com/reboot`
+The graceful action uses NICo's Machine power API. That API requires a provider
+organization and a credential with the `PROVIDER_ADMIN` role. Set
+`NicoCluster.spec.powerControlIdentityRef.name` to a Secret in the same namespace
+when the regular NICo credential does not have provider access. The Secret uses
+the same keys as `spec.identityRef`, including its own `orgID`. When the power
+control reference is unset, CAPNICo tries the regular credential. If NICo
+rejects the graceful request, the default annotation falls back to hard reboot.
 
-The key is configurable with a manager flag:
+CAPNICo confirms graceful recovery when the workload Node's boot ID changes and
+the Node becomes Ready. It waits 30 minutes to allow the host, DPU, and network
+to return. If it cannot observe a changed boot ID, the default annotation uses
+the hard fallback. This can cause a second reboot if the graceful reboot
+succeeded but the Node remained unreachable. The graceful-only annotation
+avoids that fallback.
 
-* `--reboot-annotation`
+`NicoMachine.status.reboot` records the mode, phase, outcome, and timestamps.
+Kubernetes events report accepted requests and fallback. CAPNICo records each
+power attempt before sending it and does not repeat an uncertain attempt after
+a controller restart. A crash between recording and sending can skip that
+attempt. Reapply the annotation after reviewing the status if an action remains
+uncertain. CAPNICo removes the request annotation after it finishes handling
+the request.
 
 ## Development
 
