@@ -146,10 +146,10 @@ func writeWorkloadNodeDiagnostics() {
 	const kubeProxyStatus = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -n "$id" ]; then crictl inspect --output go-template --template 'exitCode={{.status.exitCode}} reason={{.status.reason}}' "$id"; else printf 'kube-proxy container not found'; fi`
 	const bootstrapFailureClass = `if journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eq '\[ERROR (CRI|ContainerRuntimeVersion)\]|could not connect to the container runtime'; then
 	printf 'bootstrapFailure=container-runtime-preflight\n'
+elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eqi '\[ERROR ImagePull\]|failed to pull (and unpack )?image|imagepullbackoff|errimagepull'; then
+	printf 'bootstrapFailure=image-pull\n'
 elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase preflight'; then
 	printf 'bootstrapFailure=kubeadm-preflight-other\n'
-elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eqi 'failed to pull image|imagepull|pulling image'; then
-	printf 'bootstrapFailure=image-pull\n'
 elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase kubelet-start'; then
 	printf 'bootstrapFailure=kubelet-start\n'
 elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eq 'error execution phase wait-control-plane|timed out waiting for the condition|kubelet is not running or healthy'; then
@@ -163,7 +163,7 @@ elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'fail
 	printf 'kubeletFailure=container-runtime\n'
 elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed.*cgroup|cgroup.*(not found|not supported|invalid|error)|cgroup driver.*mismatch'; then
 	printf 'kubeletFailure=cgroup\n'
-elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'running with swap on is not supported|swap.*enabled'; then
+elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Fqi 'running with swap on is not supported'; then
 	printf 'kubeletFailure=swap\n'
 else
 	printf 'kubeletFailure=unclassified\n'
