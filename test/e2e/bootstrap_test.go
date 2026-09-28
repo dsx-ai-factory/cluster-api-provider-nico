@@ -144,6 +144,7 @@ func backendFailureLogs(logs string) string {
 
 func writeWorkloadNodeDiagnostics() {
 	const kubeProxyStatus = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -n "$id" ]; then crictl inspect --output go-template --template 'exitCode={{.status.exitCode}} reason={{.status.reason}}' "$id"; else printf 'kube-proxy container not found'; fi`
+	const kubeProxyLogs = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -n "$id" ]; then crictl logs --tail 40 "$id"; else printf 'kube-proxy container not found'; fi`
 	const cniConfigStatus = `if [ -f /etc/cni/net.d/10-kindnet.conflist ]; then printf 'cniConfig=present\n'; else printf 'cniConfig=missing\n'; fi`
 	const kindnetLogs = `id=$(crictl ps -a --name '^kindnet-cni$' --latest -q); if [ -n "$id" ]; then crictl logs --tail 40 "$id"; else printf 'kindnet container not found'; fi`
 
@@ -170,6 +171,7 @@ func writeWorkloadNodeDiagnostics() {
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
 			{"crictl", "ps", "-a", "--output", "table"},
 			{"sh", "-c", kubeProxyStatus},
+			{"sh", "-c", kubeProxyLogs},
 			{"sh", "-c", cniConfigStatus},
 			{"sh", "-c", kindnetLogs},
 		} {
