@@ -143,6 +143,8 @@ func backendFailureLogs(logs string) string {
 }
 
 func writeWorkloadNodeDiagnostics() {
+	const kubeProxyStatus = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -n "$id" ]; then crictl inspect --output go-template --template 'exitCode={{.status.exitCode}} reason={{.status.reason}}' "$id"; else printf 'kube-proxy container not found'; fi`
+
 	By("fetching workload node diagnostics")
 	output, err := utils.Run(exec.Command("docker", "ps", "-a", "--filter", "name=capnico-fake-instance-",
 		"--format", "{{.Names}}\t{{.Status}}"))
@@ -163,6 +165,7 @@ func writeWorkloadNodeDiagnostics() {
 			{"systemctl", "show", "kubelet.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
 			{"crictl", "ps", "-a", "--output", "table"},
+			{"sh", "-c", kubeProxyStatus},
 		} {
 			diagnostic, diagnosticErr := utils.Run(exec.Command("docker", append([]string{"exec", parts[0]}, command...)...))
 			if diagnosticErr != nil {
@@ -172,6 +175,29 @@ func writeWorkloadNodeDiagnostics() {
 			_, _ = fmt.Fprintf(GinkgoWriter, "$ %s\n%s\n", strings.Join(command, " "), diagnostic)
 		}
 	}
+}
+
+func writeManagementResourceDiagnostics() {
+	By("fetching management resource diagnostics")
+	cmd := exec.Command("kubectl", "--context", kindContext(), "get",
+		"clusters,machines,machinedeployments,kubeadmcontrolplanes", "-n", "capnico-e2e",
+		"-o", "custom-columns=KIND:.kind,NAME:.metadata.name,CONDITIONS:.status.conditions[*].type,"+
+			"STATUSES:.status.conditions[*].status,REASONS:.status.conditions[*].reason")
+	output, err := utils.Run(cmd)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get management resource diagnostics: %s\n", err)
+		return
+	}
+	_, _ = fmt.Fprintf(GinkgoWriter, "Management resources:\n%s\n", output)
+
+	cmd = exec.Command("kubectl", "--context", kindContext(), "get", "machines", "-n", "capnico-e2e",
+		"-o", `jsonpath={range .items[*]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="NodeReady")]}{.reason}{": "}{.message}{"\n"}{end}{end}`)
+	output, err = utils.Run(cmd)
+	if err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Machine NodeReady messages: %s\n", err)
+		return
+	}
+	_, _ = fmt.Fprintf(GinkgoWriter, "Machine NodeReady messages:\n%s\n", output)
 }
 
 var _ = Describe("Bootstrap", Ordered, func() {
@@ -264,6 +290,7 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		if !CurrentSpecReport().Failed() {
 			return
 		}
+		writeManagementResourceDiagnostics()
 		writeWorkloadNodeDiagnostics()
 
 		By("fetching fake NICo API logs")
