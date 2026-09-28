@@ -549,6 +549,9 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 		}
 	}
 	object.SetOwnerReferences(owners)
+	if err := maskRebootTimestamps(object); err != nil {
+		return err
+	}
 
 	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
 	if err != nil {
@@ -573,6 +576,31 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 	})
 	if err := unstructured.SetNestedSlice(object.Object, conditions, "status", "conditions"); err != nil {
 		return fmt.Errorf("write conditions for %s: %w", object.GetName(), err)
+	}
+	return nil
+}
+
+func maskRebootTimestamps(object *unstructured.Unstructured) error {
+	const timestamp = "1970-01-01T00:00:00Z"
+	annotations := object.GetAnnotations()
+	if _, ok := annotations["nico.nvidia.com/last-reboot-triggered-timestamp"]; ok {
+		annotations["nico.nvidia.com/last-reboot-triggered-timestamp"] = timestamp
+		object.SetAnnotations(annotations)
+	}
+	reboot, found, err := unstructured.NestedMap(object.Object, "status", "reboot")
+	if err != nil {
+		return fmt.Errorf("read reboot status for %s: %w", object.GetName(), err)
+	}
+	if !found {
+		return nil
+	}
+	for _, field := range []string{"startedAt", "deadline", "completedAt"} {
+		if _, ok := reboot[field]; ok {
+			reboot[field] = timestamp
+		}
+	}
+	if err := unstructured.SetNestedMap(object.Object, reboot, "status", "reboot"); err != nil {
+		return fmt.Errorf("normalize reboot timestamps for %s: %w", object.GetName(), err)
 	}
 	return nil
 }

@@ -210,17 +210,24 @@ func startFake(server *fake.Server) string {
 	return endpoint.URL
 }
 
-func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint string) error {
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: "nico-creds"}, secret); err != nil {
-		return client.IgnoreNotFound(err)
+func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
+	for _, name := range []string{"nico-creds", "provider-power"} {
+		secret := &corev1.Secret{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: name}, secret); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				continue
+			}
+			return err
+		}
+		if secret.Data == nil {
+			secret.Data = map[string][]byte{}
+		}
+		secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
+		if err := c.Update(ctx, secret); err != nil {
+			return err
+		}
 	}
-	if secret.Data == nil {
-		secret.Data = map[string][]byte{}
-	}
-	secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
-
-	return c.Update(ctx, secret)
+	return nil
 }
 
 func applyMachineStatusFixture(ctx context.Context, tc *fixture.Case) error {

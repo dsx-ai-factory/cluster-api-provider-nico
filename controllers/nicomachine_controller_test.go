@@ -60,7 +60,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			})
 
 			endpoint := startFake(server)
-			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
+			gomega.Expect(pointIdentitySecretsAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
 			startReconcilers(ctx, tc, workloadFactory)
 		},
 		DefineSteps: defineSteps,
@@ -80,7 +80,7 @@ var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
 				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
 				g.Expect(provisioned).NotTo(gomega.BeNil())
-				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionTrue), "condition: %+v", provisioned)
 				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 1))
 				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())

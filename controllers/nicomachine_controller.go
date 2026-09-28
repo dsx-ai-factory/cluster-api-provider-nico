@@ -206,6 +206,9 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("adopting existing NICo instance", "instanceID", instance.GetId())
 			nicoMachine.Status.InstanceID = instance.GetId()
 			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
+			// Persist providerID and its new generation before a reboot can
+			// interrupt normal status reconciliation.
+			return ctrl.Result{Requeue: true}, nil
 		} else if !errors.Is(err, nico.ErrNotFound) {
 			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to find existing instance before create: %w", err)
@@ -411,12 +414,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if !rebootDispatched {
-		if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-			return rebootResult, err
-		}
-	}
-
 	if ip := firstIPv4FromInstance(instance); ip != "" {
 		nicoMachine.Status.Addresses = []clusterv1.MachineAddress{{
 			Type:    clusterv1.MachineInternalIP,
@@ -438,14 +435,25 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	provisioned := true
 	nicoMachine.Status.Initialization.Provisioned = &provisioned
 
-	if !nico.IsReady(instance) {
+	instanceReady := nico.IsReady(instance)
+	if !instanceReady {
 		log.V(1).Info("NICo instance not ready", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", nico.InstanceStatus(instance))
 		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotReadyReason, fmt.Sprintf("Instance status is %s", nico.InstanceStatus(instance)))
+	} else {
+		log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
+		setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
+	}
+
+	// Publish the observed instance state even when a reboot request is active.
+	if !rebootDispatched {
+		if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+			return rebootResult, err
+		}
+	}
+	if !instanceReady {
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
-	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
-	setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	nodeResult, err := r.reconcileNodeProviderID(ctx, ownerMachine, cluster, &nicoMachine)
 	if err != nil || !nodeResult.IsZero() {
 		return nodeResult, err

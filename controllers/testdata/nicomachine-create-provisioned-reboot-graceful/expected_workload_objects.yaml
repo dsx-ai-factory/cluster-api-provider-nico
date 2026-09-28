@@ -1,0 +1,3 @@
+- name: machine-1
+  providerID: external://machine-1
+- name: node-ref-1

@@ -83,7 +83,7 @@ func (r *NicoMachineReconciler) reconcileReboot(
 		if err := r.persistRebootState(ctx, nicoMachine, freshState); err != nil {
 			return ctrl.Result{}, true, fmt.Errorf("record reboot request: %w", err)
 		}
-		return ctrl.Result{Requeue: true}, true, nil
+		return r.reconcilePreparedReboot(ctx, machine, cluster, nicoCluster, nicoMachine, instanceClient, instanceID)
 	}
 
 	switch state.Phase {
@@ -272,16 +272,16 @@ func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clu
 }
 
 func (r *NicoMachineReconciler) persistRebootState(ctx context.Context, nicoMachine *infrav1.NicoMachine, state *infrav1.NicoMachineRebootStatus) error {
-	before := nicoMachine.DeepCopy()
-	nicoMachine.Status.Reboot = state
-	desiredStatus := nicoMachine.Status.DeepCopy()
-	if err := r.Status().Patch(ctx, nicoMachine, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
-		nicoMachine.Status = before.Status
+	// Patch a copy: the API response can contain an older spec while this
+	// reconcile still has a pending providerID or metadata update in memory.
+	updated := nicoMachine.DeepCopy()
+	before := updated.DeepCopy()
+	updated.Status.Reboot = state.DeepCopy()
+	if err := r.Status().Patch(ctx, updated, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
 		return err
 	}
-	// The status patch response can omit changes still pending in the deferred
-	// CAPI patch helper, such as Paused. Keep those changes in memory.
-	nicoMachine.Status = *desiredStatus
+	nicoMachine.ResourceVersion = updated.ResourceVersion
+	nicoMachine.Status.Reboot = state.DeepCopy()
 	return nil
 }
 
