@@ -58,7 +58,7 @@ type instanceRecord struct {
 
 // Backend provisions compute for fake instances.
 type Backend interface {
-	Create(ctx context.Context, instanceID, userData string, labels map[string]string) error
+	Create(ctx context.Context, instanceID, machineName, userData string, labels map[string]string) error
 	Ready(ctx context.Context, instanceID string) (bool, error)
 	Delete(ctx context.Context, instanceID string) error
 }
@@ -610,7 +610,7 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	if s.backend != nil {
-		if err := s.backend.Create(r.Context(), id, request.GetUserData(), request.GetLabels()); err != nil {
+		if err := s.backend.Create(r.Context(), id, request.GetName(), request.GetUserData(), request.GetLabels()); err != nil {
 			log.Printf("fake: backend create %s: %v", id, err)
 			s.mu.Lock()
 			if s.instances[key] == record {

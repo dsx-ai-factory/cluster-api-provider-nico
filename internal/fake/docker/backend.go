@@ -58,13 +58,13 @@ func (b *Backend) network() string {
 	return defaultNetwork
 }
 
-func (b *Backend) Create(ctx context.Context, instanceID, userData string, labels map[string]string) error {
+func (b *Backend) Create(ctx context.Context, instanceID, machineName, userData string, labels map[string]string) error {
 	name := containerName(instanceID)
 
 	options := client.ContainerCreateOptions{
 		Name: name,
 		Config: &container.Config{
-			Hostname: name,
+			Hostname: machineName,
 			Image:    b.Image,
 			Volumes:  map[string]struct{}{"/var": {}},
 		},

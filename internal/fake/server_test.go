@@ -25,9 +25,13 @@ type testBackend struct {
 	createErr error
 	deleteErr error
 	ready     func(context.Context, string) (bool, error)
+	create    func(context.Context, string, string, string, map[string]string) error
 }
 
-func (b *testBackend) Create(context.Context, string, string, map[string]string) error {
+func (b *testBackend) Create(ctx context.Context, instanceID, machineName, userData string, labels map[string]string) error {
+	if b.create != nil {
+		return b.create(ctx, instanceID, machineName, userData, labels)
+	}
 	return b.createErr
 }
 
@@ -120,6 +124,22 @@ func TestBackendLifecycleFailuresAreReturned(t *testing.T) {
 			t.Fatalf("recorded request count = %d, want only the successful create", requestCount)
 		}
 	})
+}
+
+func TestBackendReceivesMachineName(t *testing.T) {
+	var got string
+	backend := &testBackend{create: func(_ context.Context, _, machineName, _ string, _ map[string]string) error {
+		got = machineName
+		return nil
+	}}
+	_, client := newSeededBackendClient(t, backend)
+	request := testCreateRequest()
+	if _, err := client.CreateInstance(t.Context(), request, nico.InstancePlacement{}); err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	if got != request.GetName() {
+		t.Fatalf("backend machine name = %q, want %q", got, request.GetName())
+	}
 }
 
 func TestBackendReadDoesNotHoldServerLock(t *testing.T) {
