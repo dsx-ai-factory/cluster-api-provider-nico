@@ -129,21 +129,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
 	}
-	patchBase := nicoMachine.DeepCopy()
 	defer func() {
-		// Reboot dispatch persists its state before the external API call. That
-		// status patch advances resourceVersion. Keep the original patch base's
-		// conditions so changes made before dispatch are still patched.
-		if nicoMachine.ResourceVersion != patchBase.ResourceVersion {
-			patchBase.ResourceVersion = nicoMachine.ResourceVersion
-			patchBase.Status.Reboot = nicoMachine.Status.Reboot.DeepCopy()
-			var helperErr error
-			patchHelper, helperErr = patch.NewHelper(patchBase, r.Client)
-			if helperErr != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("refresh patch helper after reboot state update: %w", helperErr))
-				return
-			}
-		}
 		if conditionErr := setNicoMachineConditions(&nicoMachine); conditionErr != nil {
 			retErr = errors.Join(retErr, conditionErr)
 		}
@@ -187,7 +173,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	rebootDispatched := nicoMachine.Status.Reboot != nil &&
 		(nicoMachine.Status.Reboot.Phase == rebootPhaseGracefulDispatched || nicoMachine.Status.Reboot.Phase == rebootPhaseHardDispatched)
 	if rebootDispatched {
-		rebootResult, _, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nil, "")
+		rebootResult, _, err := r.reconcileRebootIsolated(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nil, "")
 		return rebootResult, err
 	}
 
@@ -442,7 +428,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	}
 
-	if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+	if rebootResult, handled, err := r.reconcileRebootIsolated(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
 		return rebootResult, err
 	}
 	if !instanceReady {

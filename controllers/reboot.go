@@ -39,6 +39,28 @@ const (
 	rebootPollInterval    = 15 * time.Second
 )
 
+// Reboot status is persisted before power actions. Keep those writes off the
+// NicoMachine used by Reconcile's deferred patch helper.
+func (r *NicoMachineReconciler) reconcileRebootIsolated(
+	ctx context.Context,
+	machine *clusterv1.Machine,
+	cluster *clusterv1.Cluster,
+	nicoCluster *infrav1.NicoCluster,
+	nicoMachine *infrav1.NicoMachine,
+	instanceClient nico.API,
+	instanceID string,
+) (ctrl.Result, bool, error) {
+	rebootMachine := nicoMachine.DeepCopy()
+	result, handled, err := r.reconcileReboot(ctx, machine, cluster, nicoCluster, rebootMachine, instanceClient, instanceID)
+	if timestamp := rebootMachine.Annotations[lastRebootTriggeredAnnotation]; timestamp != "" && timestamp != nicoMachine.Annotations[lastRebootTriggeredAnnotation] {
+		if nicoMachine.Annotations == nil {
+			nicoMachine.Annotations = map[string]string{}
+		}
+		nicoMachine.Annotations[lastRebootTriggeredAnnotation] = timestamp
+	}
+	return result, handled, err
+}
+
 // reconcileReboot handles one request at a time. The state write preceding each
 // NICo call deliberately favors at-most-once dispatch over retrying an action
 // whose response may have been lost.
