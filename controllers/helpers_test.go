@@ -18,6 +18,7 @@ import (
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -101,6 +102,7 @@ func newEnvironment(*fixture.Case) *envtest.Environment {
 func newScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	gomega.Expect(corev1.AddToScheme(scheme)).To(gomega.Succeed())
+	gomega.Expect(eventsv1.AddToScheme(scheme)).To(gomega.Succeed())
 	gomega.Expect(clusterv1.AddToScheme(scheme)).To(gomega.Succeed())
 	gomega.Expect(infrav1.AddToScheme(scheme)).To(gomega.Succeed())
 

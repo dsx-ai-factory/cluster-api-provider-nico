@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -438,6 +439,26 @@ func compareOrUpdateObjects(
 	compareObjects []client.ObjectList,
 	maskExpectedMetadata bool,
 ) {
+	if os.Getenv(updateExpectedEnv) != "true" {
+		for _, list := range compareObjects {
+			if _, ok := list.(*eventsv1.EventList); !ok {
+				continue
+			}
+			expected, err := os.ReadFile(tc.ExpectedFilepath) // #nosec G304 -- fixture path under testdata
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			newPath := tc.ExpectedFilepath + ".new"
+			gomega.Eventually(ctx, func() (string, error) {
+				actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+				if err != nil {
+					return "", err
+				}
+				return actual, os.WriteFile(newPath, []byte(actual), 0o600)
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(matchers.MatchGolden(string(expected), tc.ExpectedFilepath, newPath))
+			gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
+			return
+		}
+	}
 	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
@@ -492,6 +513,20 @@ func collectObjects(
 		list = list.DeepCopyObject().(client.ObjectList)
 		if err := tc.Client.List(ctx, list); err != nil {
 			return "", fmt.Errorf("list %T: %w", list, err)
+		}
+		if events, ok := list.(*eventsv1.EventList); ok {
+			if len(events.Items) == 0 {
+				continue // An unexpected Event still appears in the golden output.
+			}
+			for i := range events.Items {
+				event := &events.Items[i]
+				event.Name = event.Reason
+				event.EventTime = metav1.MicroTime{Time: time.Unix(0, 0).UTC()}
+				event.ReportingInstance = "<generated>"
+				event.Regarding.UID = types.UID("00000000-0000-0000-0000-000000000000")
+				event.Regarding.ResourceVersion = ""
+				event.Series = nil
+			}
 		}
 
 		unstructuredList := &unstructured.UnstructuredList{}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -38,6 +39,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			return []client.ObjectList{
 				&infrav1.NicoClusterList{},
 				&infrav1.NicoMachineList{},
+				&eventsv1.EventList{},
 			}
 		},
 		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
@@ -102,7 +104,7 @@ var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-// Represents an unprovisioned CR at generation 1 with no providerID.
+// Represents an unprovisioned CR at generation 1.
 var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation ending not provisioned",
 	"nicomachine-create-not-provisioned-",
