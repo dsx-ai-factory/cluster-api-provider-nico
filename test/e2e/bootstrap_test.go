@@ -144,6 +144,13 @@ func backendFailureLogs(logs string) string {
 
 func writeWorkloadNodeDiagnostics() {
 	const kubeProxyStatus = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -n "$id" ]; then crictl inspect --output go-template --template 'exitCode={{.status.exitCode}} reason={{.status.reason}}' "$id"; else printf 'kube-proxy container not found'; fi`
+	const bootstrapFailureClass = `if journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eq '\[ERROR (CRI|ContainerRuntimeVersion)\]|could not connect to the container runtime'; then
+	printf 'bootstrapFailure=container-runtime-preflight\n'
+elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase preflight'; then
+	printf 'bootstrapFailure=kubeadm-preflight-other\n'
+else
+	printf 'bootstrapFailure=unclassified\n'
+fi`
 
 	By("fetching workload node diagnostics")
 	output, err := utils.Run(exec.Command("docker", "ps", "-a", "--filter", "name=capnico-fake-instance-",
@@ -162,6 +169,9 @@ func writeWorkloadNodeDiagnostics() {
 		for _, command := range [][]string{
 			{"systemctl", "show", "capnico-bootstrap.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
+			{"sh", "-c", bootstrapFailureClass},
+			{"systemctl", "show", "containerd.service", "--no-pager",
+				"--property=ActiveState,SubState,Result,ExecMainStatus,NRestarts"},
 			{"systemctl", "show", "kubelet.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
 			{"crictl", "ps", "-a", "--output", "table"},
