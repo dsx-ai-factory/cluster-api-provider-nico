@@ -182,6 +182,14 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForClusterInfrastructureReason, err.Error())
 		return ctrl.Result{}, err
 	}
+	// Recovery only needs the workload Node. Resolve ordinary NICo credentials
+	// later, so a missing Secret cannot block an already-dispatched reboot.
+	rebootDispatched := nicoMachine.Status.Reboot != nil &&
+		(nicoMachine.Status.Reboot.Phase == rebootPhaseGracefulDispatched || nicoMachine.Status.Reboot.Phase == rebootPhaseHardDispatched)
+	if rebootDispatched {
+		rebootResult, _, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nil, "")
+		return rebootResult, err
+	}
 
 	nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
 	if err != nil {
@@ -331,16 +339,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
 		return ctrl.Result{}, nil
 	}
-	// Recovery must continue if a dispatched power action temporarily makes the
-	// instance read unavailable. New requests still verify the instance first.
-	rebootDispatched := nicoMachine.Status.Reboot != nil &&
-		(nicoMachine.Status.Reboot.Phase == rebootPhaseGracefulDispatched || nicoMachine.Status.Reboot.Phase == rebootPhaseHardDispatched)
-	if rebootDispatched {
-		if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-			return rebootResult, err
-		}
-	}
-
 	instance, err := nicoClient.GetInstance(ctx, instanceID)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
@@ -444,11 +442,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	}
 
-	// Publish the observed instance state even when a reboot request is active.
-	if !rebootDispatched {
-		if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-			return rebootResult, err
-		}
+	if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+		return rebootResult, err
 	}
 	if !instanceReady {
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil

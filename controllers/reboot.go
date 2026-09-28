@@ -42,6 +42,8 @@ const (
 // reconcileReboot handles one request at a time. The state write preceding each
 // NICo call deliberately favors at-most-once dispatch over retrying an action
 // whose response may have been lost.
+// instanceClient can be nil during dispatched recovery; hard fallback loads it
+// only after the recovery deadline.
 func (r *NicoMachineReconciler) reconcileReboot(
 	ctx context.Context,
 	machine *clusterv1.Machine,
@@ -113,6 +115,16 @@ func (r *NicoMachineReconciler) reconcileReboot(
 		if state.Mode == rebootModeGracefulOnly {
 			r.rebootEvent(machine, corev1.EventTypeWarning, "GracefulRebootUnconfirmed", "No changed workload Node boot ID was observed before the recovery deadline")
 			return r.completeReboot(ctx, machine, nicoMachine, state, rebootPathGraceful, "Graceful reboot was not confirmed before the recovery deadline")
+		}
+		if instanceClient == nil {
+			instanceID, err = nico.InstanceID(nicoMachine.Spec.ProviderID)
+			if err != nil {
+				return ctrl.Result{}, true, fmt.Errorf("resolve instance ID for hard reboot fallback: %w", err)
+			}
+			instanceClient, err = r.nicoClientForCluster(ctx, nicoCluster)
+			if err != nil {
+				return ctrl.Result{}, true, fmt.Errorf("get NICo client for hard reboot fallback: %w", err)
+			}
 		}
 		r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootFallback", "No changed workload Node boot ID was observed within 30 minutes; using hard reboot")
 		return r.dispatchHardReboot(ctx, machine, nicoMachine, instanceClient, instanceID, state, true)

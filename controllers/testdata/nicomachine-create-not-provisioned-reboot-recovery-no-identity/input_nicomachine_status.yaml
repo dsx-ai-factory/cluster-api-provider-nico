@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachine
+metadata:
+  name: nicomachine-1
+  namespace: default
+status:
+  instanceID: instance-1
+  machineID: machine-id-1
+  reboot:
+    annotation: nico.nvidia.com/reboot
+    mode: graceful-fallback
+    phase: graceful-dispatched
+    startedAt: "2026-01-01T00:00:00Z"
+    deadline: "2099-01-01T00:00:00Z"
+    bootID: boot-before
