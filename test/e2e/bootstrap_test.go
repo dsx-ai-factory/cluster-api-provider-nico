@@ -148,8 +148,25 @@ func writeWorkloadNodeDiagnostics() {
 	printf 'bootstrapFailure=container-runtime-preflight\n'
 elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase preflight'; then
 	printf 'bootstrapFailure=kubeadm-preflight-other\n'
+elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eqi 'failed to pull image|imagepull|pulling image'; then
+	printf 'bootstrapFailure=image-pull\n'
+elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase kubelet-start'; then
+	printf 'bootstrapFailure=kubelet-start\n'
+elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eq 'error execution phase wait-control-plane|timed out waiting for the condition|kubelet is not running or healthy'; then
+	printf 'bootstrapFailure=wait-control-plane\n'
 else
 	printf 'bootstrapFailure=unclassified\n'
+fi`
+	const kubeletFailureClass = `if journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed to load kubelet config|unable to load config file'; then
+	printf 'kubeletFailure=configuration\n'
+elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed to create.*runtime|container runtime.*(not running|unavailable|failed)|validate CRI|connect.*containerd\.sock'; then
+	printf 'kubeletFailure=container-runtime\n'
+elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed.*cgroup|cgroup.*(not found|not supported|invalid|error)|cgroup driver.*mismatch'; then
+	printf 'kubeletFailure=cgroup\n'
+elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'running with swap on is not supported|swap.*enabled'; then
+	printf 'kubeletFailure=swap\n'
+else
+	printf 'kubeletFailure=unclassified\n'
 fi`
 
 	By("fetching workload node diagnostics")
@@ -174,6 +191,7 @@ fi`
 				"--property=ActiveState,SubState,Result,ExecMainStatus,NRestarts"},
 			{"systemctl", "show", "kubelet.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
+			{"sh", "-c", kubeletFailureClass},
 			{"crictl", "ps", "-a", "--output", "table"},
 			{"sh", "-c", kubeProxyStatus},
 		} {
