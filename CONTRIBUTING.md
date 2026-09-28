@@ -6,9 +6,10 @@
 
 - Go 1.26.6, the exact version CI scans with, not a minimum (see `go.mod`)
 - Docker (for building the controller image and running e2e tests)
-- [kind](https://kind.sigs.k8s.io/) — local Kubernetes cluster for integration testing
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl) — for generating cluster manifests
+
+The Makefile downloads the pinned `kind` and `clusterctl` binaries when a
+target requires them.
 
 **Clone and build:**
 

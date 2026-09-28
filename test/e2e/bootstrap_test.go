@@ -144,61 +144,8 @@ func backendFailureLogs(logs string) string {
 
 func writeWorkloadNodeDiagnostics() {
 	const kubeProxyStatus = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -n "$id" ]; then crictl inspect --output go-template --template 'exitCode={{.status.exitCode}} reason={{.status.reason}}' "$id"; else printf 'kube-proxy container not found'; fi`
-	const kubeProxyFailureClass = `id=$(crictl ps -a --name '^kube-proxy$' --latest -q); if [ -z "$id" ]; then
-	printf 'kubeProxyFailure=container-not-found\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'failed to (retrieve|get).*node|node .* not found'; then
-	printf 'kubeProxyFailure=node-lookup\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'connection refused|no route to host|i/o timeout|context deadline exceeded'; then
-	printf 'kubeProxyFailure=api-connectivity\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'fsnotify watcher init|too many open files'; then
-	printf 'kubeProxyFailure=resource-limit\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'failed to (load|decode|unmarshal).*config|configuration.*(error|invalid)'; then
-	printf 'kubeProxyFailure=configuration\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'failed to create.*proxier|proxier.*(error|failed)|iptables.*(error|failed)|nftables.*(error|failed)|ipvs.*(error|failed)'; then
-	printf 'kubeProxyFailure=network-backend\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'panic|fatal|failed to run'; then
-	printf 'kubeProxyFailure=other-fatal\n'
-else
-	printf 'kubeProxyFailure=unclassified\n'
-fi`
 	const cniConfigStatus = `if [ -f /etc/cni/net.d/10-kindnet.conflist ]; then printf 'cniConfig=present\n'; else printf 'cniConfig=missing\n'; fi`
-	const kindnetStatus = `id=$(crictl ps -a --name '^kindnet-cni$' --latest -q); if [ -z "$id" ]; then
-	printf 'kindnetStatus=container-not-found\n'
-elif crictl logs "$id" 2>&1 | grep -Fq 'CNI config file successfully written'; then
-	printf 'kindnetStatus=cni-config-written\n'
-elif crictl logs "$id" 2>&1 | grep -Fq 'Waiting for node parameters'; then
-	printf 'kindnetStatus=waiting-node-parameters\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'connection refused|no route to host|i/o timeout|context deadline exceeded'; then
-	printf 'kindnetStatus=api-connectivity\n'
-elif crictl logs "$id" 2>&1 | grep -Eqi 'panic|fatal|error running routes controller'; then
-	printf 'kindnetStatus=failed\n'
-else
-	printf 'kindnetStatus=unclassified\n'
-fi`
-	const bootstrapFailureClass = `if journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eq '\[ERROR (CRI|ContainerRuntimeVersion)\]|could not connect to the container runtime'; then
-	printf 'bootstrapFailure=container-runtime-preflight\n'
-elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eqi '\[ERROR ImagePull\]|failed to pull (and unpack )?image|imagepullbackoff|errimagepull'; then
-	printf 'bootstrapFailure=image-pull\n'
-elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase preflight'; then
-	printf 'bootstrapFailure=kubeadm-preflight-other\n'
-elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -q 'error execution phase kubelet-start'; then
-	printf 'bootstrapFailure=kubelet-start\n'
-elif journalctl --unit=capnico-bootstrap.service --no-pager --output=cat | grep -Eq 'error execution phase wait-control-plane|timed out waiting for the condition|kubelet is not running or healthy'; then
-	printf 'bootstrapFailure=wait-control-plane\n'
-else
-	printf 'bootstrapFailure=unclassified\n'
-fi`
-	const kubeletFailureClass = `if journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed to load kubelet config|unable to load config file'; then
-	printf 'kubeletFailure=configuration\n'
-elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed to create.*runtime|container runtime.*(not running|unavailable|failed)|validate CRI|connect.*containerd\.sock'; then
-	printf 'kubeletFailure=container-runtime\n'
-elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Eqi 'failed.*cgroup|cgroup.*(not found|not supported|invalid|error)|cgroup driver.*mismatch'; then
-	printf 'kubeletFailure=cgroup\n'
-elif journalctl --unit=kubelet.service --no-pager --output=cat | grep -Fqi 'running with swap on is not supported'; then
-	printf 'kubeletFailure=swap\n'
-else
-	printf 'kubeletFailure=unclassified\n'
-fi`
+	const kindnetLogs = `id=$(crictl ps -a --name '^kindnet-cni$' --latest -q); if [ -n "$id" ]; then crictl logs --tail 40 "$id"; else printf 'kindnet container not found'; fi`
 
 	By("fetching workload node diagnostics")
 	output, err := utils.Run(exec.Command("docker", "ps", "-a", "--filter", "name=capnico-fake-instance-",
@@ -217,17 +164,14 @@ fi`
 		for _, command := range [][]string{
 			{"systemctl", "show", "capnico-bootstrap.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
-			{"sh", "-c", bootstrapFailureClass},
 			{"systemctl", "show", "containerd.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus,NRestarts"},
 			{"systemctl", "show", "kubelet.service", "--no-pager",
 				"--property=ActiveState,SubState,Result,ExecMainStatus"},
-			{"sh", "-c", kubeletFailureClass},
 			{"crictl", "ps", "-a", "--output", "table"},
 			{"sh", "-c", kubeProxyStatus},
-			{"sh", "-c", kubeProxyFailureClass},
 			{"sh", "-c", cniConfigStatus},
-			{"sh", "-c", kindnetStatus},
+			{"sh", "-c", kindnetLogs},
 		} {
 			diagnostic, diagnosticErr := utils.Run(exec.Command("docker", append([]string{"exec", parts[0]}, command...)...))
 			if diagnosticErr != nil {
