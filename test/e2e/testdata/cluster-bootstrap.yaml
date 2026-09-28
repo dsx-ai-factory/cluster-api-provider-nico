@@ -101,6 +101,16 @@ spec:
         kind: NicoMachineTemplate
         name: capnico-e2e-control-plane
   kubeadmConfigSpec:
+    files:
+      - path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.json
+        owner: root:root
+        permissions: "0644"
+        content: |
+          {
+            "apiVersion": "kubelet.config.k8s.io/v1beta1",
+            "kind": "KubeletConfiguration",
+            "failSwapOn": false
+          }
     clusterConfiguration:
       apiServer:
         certSANs:
@@ -110,10 +120,14 @@ spec:
       nodeRegistration:
         ignorePreflightErrors:
           - SystemVerification
+      patches:
+        directory: /etc/kubernetes/patches
     joinConfiguration:
       nodeRegistration:
         ignorePreflightErrors:
           - SystemVerification
+      patches:
+        directory: /etc/kubernetes/patches
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
@@ -123,10 +137,22 @@ metadata:
 spec:
   template:
     spec:
+      files:
+        - path: /etc/kubernetes/patches/kubeletconfiguration0+strategic.json
+          owner: root:root
+          permissions: "0644"
+          content: |
+            {
+              "apiVersion": "kubelet.config.k8s.io/v1beta1",
+              "kind": "KubeletConfiguration",
+              "failSwapOn": false
+            }
       joinConfiguration:
         nodeRegistration:
           ignorePreflightErrors:
             - SystemVerification
+        patches:
+          directory: /etc/kubernetes/patches
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
