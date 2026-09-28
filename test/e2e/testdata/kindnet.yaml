@@ -1,8 +1,9 @@
-# Third-party file, not NVIDIA's. Vendored verbatim (not fetched at test
-# time, so the bootstrap e2e test doesn't depend on a live URL) from:
-# https://github.com/kubernetes-sigs/kindnet/blob/main/install-kindnet.yaml
+# Third-party file, not NVIDIA's. Based on the v1.0.1 manifest, with its image
+# references updated from v1.0.0 to v1.0.1. It is vendored so the bootstrap
+# test does not depend on a live URL:
+# https://github.com/kubernetes-sigs/kindnet/blob/3306fedeed9612096540c65c0d4b560d57a9752a/install-kindnet.yaml
 # Copyright the Kubernetes Authors; licensed Apache-2.0:
-# https://github.com/kubernetes-sigs/kindnet/blob/main/LICENSE
+# https://github.com/kubernetes-sigs/kindnet/blob/3306fedeed9612096540c65c0d4b560d57a9752a/LICENSE
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
