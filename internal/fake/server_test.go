@@ -38,6 +38,32 @@ func TestClientLifecycleThroughHTTPFake(t *testing.T) {
 	assertDeterministicDump(t, server)
 }
 
+func TestGracefulRestartThroughHTTPFake(t *testing.T) {
+	server, client := newSeededClient(t)
+	machine := nicosdk.NewMachine()
+	machine.SetId("machine-1")
+	server.SeedMachine(testOrgID, *machine)
+	if err := client.GracefulRestartMachine(t.Context(), "machine-1"); err != nil {
+		t.Fatalf("graceful restart: %v", err)
+	}
+	if got := server.PowerControlCalls(); got != 1 {
+		t.Fatalf("power requests = %d, want 1", got)
+	}
+	dump, err := server.Dump()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []string{"operation: machine-power", "action: GracefulRestart", "acknowledgeAttachedInstance: true"} {
+		if !strings.Contains(dump, part) {
+			t.Fatalf("fake dump does not contain %q:\n%s", part, dump)
+		}
+	}
+	server.SetPowerControlStatus(http.StatusForbidden)
+	if err := client.GracefulRestartMachine(t.Context(), "machine-1"); !errors.Is(err, nico.ErrForbidden) {
+		t.Fatalf("forbidden request = %v, want ErrForbidden", err)
+	}
+}
+
 func assertSeededResources(t *testing.T, client *nico.Client) {
 	t.Helper()
 

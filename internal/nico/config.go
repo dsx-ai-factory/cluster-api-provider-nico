@@ -35,6 +35,8 @@ const (
 	SecretKeyAPIName               = "apiName"
 	defaultHTTPClientTimeout       = 30 * time.Second
 	DefaultRebootAnnotation        = "nico.nvidia.com/reboot"
+	DefaultSoftRebootAnnotation    = "nico.nvidia.com/reboot-soft"
+	DefaultHardRebootAnnotation    = "nico.nvidia.com/reboot-hard"
 	DefaultRepairAnnotation        = "nico.nvidia.com/machine-health-issue"
 )
 
@@ -44,7 +46,8 @@ type ProviderConfig struct {
 	// a fallback when a NicoCluster does not set spec.identityRef. A zero value
 	// means no provider-level Secret is configured.
 	Credentials types.NamespacedName
-	// RebootAnnotation is the CAPI Machine annotation key used to request a NICo instance reboot.
+	// RebootAnnotation is the CAPI Machine annotation key used to request a
+	// graceful reboot with hard fallback.
 	RebootAnnotation string
 
 	// RepairAnnotation is the annotation key the controller watches on the owner
@@ -72,7 +75,7 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
 		"Name of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.RebootAnnotation, "reboot-annotation", p.RebootAnnotation,
-		"CAPI Machine annotation key used to request a NICo instance reboot.")
+		"CAPI Machine annotation key used to request a graceful reboot with hard fallback.")
 	fs.StringVar(&p.RepairAnnotation, "repair-annotation", p.RepairAnnotation,
 		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The value is parsed as JSON ({category, summary, details}), or treated as a plain summary with category Other. Leave empty to disable.")
 }

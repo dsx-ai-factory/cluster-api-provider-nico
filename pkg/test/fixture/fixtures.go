@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,6 +70,7 @@ type Case struct {
 	Environment      *envtest.Environment
 	Config           *rest.Config
 	Client           client.Client
+	IncludeEvent     func(eventsv1.Event) bool
 
 	additionalGoldens map[string]func(context.Context) (string, error)
 
@@ -438,6 +441,26 @@ func compareOrUpdateObjects(
 	compareObjects []client.ObjectList,
 	maskExpectedMetadata bool,
 ) {
+	if os.Getenv(updateExpectedEnv) != "true" {
+		for _, list := range compareObjects {
+			if _, ok := list.(*eventsv1.EventList); !ok {
+				continue
+			}
+			expected, err := os.ReadFile(tc.ExpectedFilepath) // #nosec G304 -- fixture path under testdata
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			newPath := tc.ExpectedFilepath + ".new"
+			gomega.Eventually(ctx, func() (string, error) {
+				actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+				if err != nil {
+					return "", err
+				}
+				return actual, os.WriteFile(newPath, []byte(actual), 0o600)
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(matchers.MatchGolden(string(expected), tc.ExpectedFilepath, newPath))
+			gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
+			return
+		}
+	}
 	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
@@ -492,6 +515,25 @@ func collectObjects(
 		list = list.DeepCopyObject().(client.ObjectList)
 		if err := tc.Client.List(ctx, list); err != nil {
 			return "", fmt.Errorf("list %T: %w", list, err)
+		}
+		if events, ok := list.(*eventsv1.EventList); ok {
+			if tc.IncludeEvent != nil {
+				events.Items = slices.DeleteFunc(events.Items, func(event eventsv1.Event) bool {
+					return !tc.IncludeEvent(event)
+				})
+			}
+			if len(events.Items) == 0 {
+				continue // An unexpected included Event still appears in the golden output.
+			}
+			for i := range events.Items {
+				event := &events.Items[i]
+				event.Name = event.Reason
+				event.EventTime = metav1.MicroTime{Time: time.Unix(0, 0).UTC()}
+				event.ReportingInstance = "<generated>"
+				event.Regarding.UID = types.UID("00000000-0000-0000-0000-000000000000")
+				event.Regarding.ResourceVersion = ""
+				event.Series = nil
+			}
 		}
 
 		unstructuredList := &unstructured.UnstructuredList{}
@@ -549,6 +591,9 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 		}
 	}
 	object.SetOwnerReferences(owners)
+	if err := maskRebootTimestamps(object); err != nil {
+		return err
+	}
 
 	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
 	if err != nil {
@@ -573,6 +618,31 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 	})
 	if err := unstructured.SetNestedSlice(object.Object, conditions, "status", "conditions"); err != nil {
 		return fmt.Errorf("write conditions for %s: %w", object.GetName(), err)
+	}
+	return nil
+}
+
+func maskRebootTimestamps(object *unstructured.Unstructured) error {
+	const timestamp = "1970-01-01T00:00:00Z"
+	annotations := object.GetAnnotations()
+	if _, ok := annotations["nico.nvidia.com/last-reboot-triggered-timestamp"]; ok {
+		annotations["nico.nvidia.com/last-reboot-triggered-timestamp"] = timestamp
+		object.SetAnnotations(annotations)
+	}
+	reboot, found, err := unstructured.NestedMap(object.Object, "status", "reboot")
+	if err != nil {
+		return fmt.Errorf("read reboot status for %s: %w", object.GetName(), err)
+	}
+	if !found {
+		return nil
+	}
+	for _, field := range []string{"startedAt", "deadline", "completedAt"} {
+		if _, ok := reboot[field]; ok {
+			reboot[field] = timestamp
+		}
+	}
+	if err := unstructured.SetNestedMap(object.Object, reboot, "status", "reboot"); err != nil {
+		return fmt.Errorf("normalize reboot timestamps for %s: %w", object.GetName(), err)
 	}
 	return nil
 }

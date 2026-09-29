@@ -34,6 +34,7 @@ type API interface {
 	CreateInstance(ctx context.Context, req nicosdk.InstanceCreateRequest, placement InstancePlacement) (*nicosdk.Instance, error)
 	DeleteInstance(ctx context.Context, instanceID string, healthIssue *nicosdk.MachineHealthIssue) error
 	TriggerInstanceReboot(ctx context.Context, instanceID string) (*nicosdk.Instance, error)
+	GracefulRestartMachine(ctx context.Context, machineID string) error
 	ApplyInstanceLabels(ctx context.Context, instanceID string, labels map[string]string) (*nicosdk.Instance, error)
 	GetInstance(ctx context.Context, instanceID string) (*nicosdk.Instance, error)
 	GetMachine(ctx context.Context, machineID string) (*nicosdk.Machine, error)

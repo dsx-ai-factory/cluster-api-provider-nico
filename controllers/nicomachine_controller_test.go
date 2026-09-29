@@ -5,12 +5,15 @@ package controllers
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,9 +39,14 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			return []client.ObjectList{
 				&infrav1.NicoClusterList{},
 				&infrav1.NicoMachineList{},
+				&eventsv1.EventList{},
 			}
 		},
 		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
+			tc.IncludeEvent = func(event eventsv1.Event) bool {
+				return event.ReportingController == "nicomachine-controller" &&
+					event.Regarding.Kind == "Machine" && event.Regarding.Name == testOwnerMachine
+			}
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
 			gomega.Expect(applyMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
@@ -48,6 +56,16 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			if tc.HasInput("input_workload_objects.yaml") {
 				tc.AddGolden("expected_workload_objects.yaml", func(ctx context.Context) (string, error) {
 					return dumpWorkloadNodes(ctx, workloadClient)
+				})
+			}
+			if input, ok := tc.Input("input_machine_annotation_key.txt"); ok {
+				annotation := strings.TrimSpace(input)
+				tc.AddGolden("expected_machine_annotation.txt", func(ctx context.Context) (string, error) {
+					machine := &clusterv1.Machine{}
+					if err := tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testOwnerMachine}, machine); err != nil {
+						return "", err
+					}
+					return machine.Annotations[annotation] + "\n", nil
 				})
 			}
 			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
@@ -60,7 +78,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			})
 
 			endpoint := startFake(server)
-			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
+			gomega.Expect(pointIdentitySecretsAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
 			startReconcilers(ctx, tc, workloadFactory)
 		},
 		DefineSteps: defineSteps,
@@ -80,7 +98,7 @@ var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
 				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
 				g.Expect(provisioned).NotTo(gomega.BeNil())
-				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionTrue), "condition: %+v", provisioned)
 				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 1))
 				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
@@ -90,7 +108,7 @@ var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-// Represents an unprovisioned CR at generation 1 with no providerID.
+// Represents an unprovisioned CR at generation 1.
 var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation ending not provisioned",
 	"nicomachine-create-not-provisioned-",

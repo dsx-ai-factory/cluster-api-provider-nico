@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/recorder"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
@@ -41,7 +42,6 @@ import (
 const (
 	nicoMachineFinalizer                 = "infrastructure.cluster.x-k8s.io/nicomachine"
 	nicoMachineCredentialsSecretRefIndex = "nicoMachineCredentialsSecretRef"
-	lastRebootTriggeredAnnotation        = "nico.nvidia.com/last-reboot-triggered-timestamp"
 	machineRequeueFast                   = 15 * time.Second
 	machineRequeueSlow                   = 30 * time.Second
 	machineReadyRequeue                  = 5 * time.Minute
@@ -85,6 +85,7 @@ type NicoMachineReconciler struct {
 	// WorkloadClientFactory overrides workload cluster client construction.
 	// When unset, clients are built from the workload cluster kubeconfig.
 	WorkloadClientFactory workloadClientFactory
+	Recorder              recorder.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch;create;update;patch
@@ -94,6 +95,7 @@ type NicoMachineReconciler struct {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 
 func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:gocyclo
 	log := ctrl.LoggerFrom(ctx)
@@ -166,6 +168,14 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForClusterInfrastructureReason, err.Error())
 		return ctrl.Result{}, err
 	}
+	// Recovery only needs the workload Node. Resolve ordinary NICo credentials
+	// later, so a missing Secret cannot block an already-dispatched reboot.
+	rebootDispatched := nicoMachine.Status.Reboot != nil &&
+		(nicoMachine.Status.Reboot.Phase == rebootPhaseGracefulDispatched || nicoMachine.Status.Reboot.Phase == rebootPhaseHardDispatched)
+	if rebootDispatched {
+		rebootResult, _, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nil, "")
+		return rebootResult, err
+	}
 
 	nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
 	if err != nil {
@@ -190,6 +200,9 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("adopting existing NICo instance", "instanceID", instance.GetId())
 			nicoMachine.Status.InstanceID = instance.GetId()
 			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
+			// Persist providerID and its new generation before a reboot can
+			// interrupt normal status reconciliation.
+			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		} else if !errors.Is(err, nico.ErrNotFound) {
 			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to find existing instance before create: %w", err)
@@ -312,7 +325,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
 		return ctrl.Result{}, nil
 	}
-
 	instance, err := nicoClient.GetInstance(ctx, instanceID)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
@@ -386,10 +398,6 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if handled, err := r.reconcileReboot(ctx, ownerMachine, &nicoMachine, nicoClient, instanceID); handled || err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if ip := firstIPv4FromInstance(instance); ip != "" {
 		nicoMachine.Status.Addresses = []clusterv1.MachineAddress{{
 			Type:    clusterv1.MachineInternalIP,
@@ -411,14 +419,22 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	provisioned := true
 	nicoMachine.Status.Initialization.Provisioned = &provisioned
 
-	if !nico.IsReady(instance) {
+	instanceReady := nico.IsReady(instance)
+	if !instanceReady {
 		log.V(1).Info("NICo instance not ready", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID, "instanceStatus", nico.InstanceStatus(instance))
 		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotReadyReason, fmt.Sprintf("Instance status is %s", nico.InstanceStatus(instance)))
+	} else {
+		log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
+		setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
+	}
+
+	if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+		return rebootResult, err
+	}
+	if !instanceReady {
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
-	log.V(1).Info("reconciled NicoMachine", "instanceID", nicoMachine.Status.InstanceID, "machineID", nicoMachine.Status.MachineID)
-	setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	nodeResult, err := r.reconcileNodeProviderID(ctx, ownerMachine, cluster, &nicoMachine)
 	if err != nil || !nodeResult.IsZero() {
 		return nodeResult, err
@@ -717,41 +733,6 @@ func (r *NicoMachineReconciler) reader() client.Reader {
 		return r.APIReader
 	}
 	return r.Client
-}
-
-// reconcileReboot actuates Machine annotation reboot requests and removes the
-// request annotation once NICo has accepted the reboot trigger.
-func (r *NicoMachineReconciler) reconcileReboot(
-	ctx context.Context,
-	machine *clusterv1.Machine,
-	nicoMachine *infrav1.NicoMachine,
-	nicoClient nico.API,
-	instanceID string,
-) (bool, error) {
-	rebootAnnotation := r.ProviderConfig.RebootAnnotation
-	if machine.GetAnnotations()[rebootAnnotation] == "" {
-		return false, nil
-	}
-
-	if _, err := nicoClient.TriggerInstanceReboot(ctx, instanceID); err != nil {
-		return true, fmt.Errorf("failed to trigger instance reboot: %w", err)
-	}
-
-	nicoMachineAnnotations := nicoMachine.GetAnnotations()
-	if nicoMachineAnnotations == nil {
-		nicoMachineAnnotations = map[string]string{}
-	}
-	nicoMachineAnnotations[lastRebootTriggeredAnnotation] = time.Now().UTC().Format(time.RFC3339)
-	nicoMachine.SetAnnotations(nicoMachineAnnotations)
-
-	machinePatch := client.MergeFrom(machine.DeepCopy())
-	machineAnnotations := machine.GetAnnotations()
-	delete(machineAnnotations, rebootAnnotation)
-	machine.SetAnnotations(machineAnnotations)
-	if err := r.Patch(ctx, machine, machinePatch); err != nil {
-		return true, fmt.Errorf("failed to patch machine reboot request annotation: %w", err)
-	}
-	return true, nil
 }
 
 // deferForControlPlanePriority checks if this worker instance create should be
@@ -1082,6 +1063,9 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 }
 
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
+	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}
