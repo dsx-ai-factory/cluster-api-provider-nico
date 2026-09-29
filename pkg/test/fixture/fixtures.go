@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package fixtures registers file-backed envtest cases as Ginkgo specs.
-package fixtures
+// Package fixture registers file-backed envtest cases as Ginkgo specs.
+package fixture
 
 import (
 	"context"
@@ -126,16 +126,16 @@ func DescribeCaseSet(set CaseSet) bool {
 
 func (c *Case) AddGolden(filename string, source func(context.Context) (string, error)) {
 	if filename == "" || filepath.Base(filename) != filename {
-		panic(fmt.Sprintf("fixtures: golden filename %q must be a file name", filename))
+		panic(fmt.Sprintf("fixture: golden filename %q must be a file name", filename))
 	}
 	if source == nil {
-		panic(fmt.Sprintf("fixtures: golden source %q is nil", filename))
+		panic(fmt.Sprintf("fixture: golden source %q is nil", filename))
 	}
 	if c.additionalGoldens == nil {
 		c.additionalGoldens = map[string]func(context.Context) (string, error){}
 	}
 	if _, ok := c.additionalGoldens[filename]; ok {
-		panic(fmt.Sprintf("fixtures: golden source %q is already registered", filename))
+		panic(fmt.Sprintf("fixture: golden source %q is already registered", filename))
 	}
 	c.additionalGoldens[filename] = source
 }
@@ -275,22 +275,22 @@ func (c *Case) DeleteObjects(ctx context.Context, filename string) ([]client.Obj
 
 func validateCaseSet(set CaseSet) {
 	if strings.TrimSpace(set.Description) == "" {
-		panic("fixtures: CaseSet.Description is required")
+		panic("fixture: CaseSet.Description is required")
 	}
 	if set.SchemeFn == nil {
-		panic(fmt.Sprintf("fixtures: SchemeFn is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: SchemeFn is required for %q", set.Description))
 	}
 	if set.EnvironmentFn == nil {
-		panic(fmt.Sprintf("fixtures: EnvironmentFn is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: EnvironmentFn is required for %q", set.Description))
 	}
 	if set.CompareObjects == nil {
-		panic(fmt.Sprintf("fixtures: CompareObjects is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: CompareObjects is required for %q", set.Description))
 	}
 	if set.Setup == nil {
-		panic(fmt.Sprintf("fixtures: Setup is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: Setup is required for %q", set.Description))
 	}
 	if set.DefineSteps == nil {
-		panic(fmt.Sprintf("fixtures: DefineSteps is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: DefineSteps is required for %q", set.Description))
 	}
 }
 
@@ -432,7 +432,12 @@ func (c *Case) decodeObjects(filename, data string) ([]client.Object, error) {
 	return objects, nil
 }
 
-func compareOrUpdateObjects(ctx context.Context, tc *Case, compareObjects []client.ObjectList, maskExpectedMetadata bool) {
+func compareOrUpdateObjects(
+	ctx context.Context,
+	tc *Case,
+	compareObjects []client.ObjectList,
+	maskExpectedMetadata bool,
+) {
 	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
@@ -473,7 +478,12 @@ func compareOrUpdateGolden(expectedPath, actual string) {
 	gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 }
 
-func collectObjects(ctx context.Context, tc *Case, compareObjects []client.ObjectList, maskExpectedMetadata bool) (string, error) {
+func collectObjects(
+	ctx context.Context,
+	tc *Case,
+	compareObjects []client.ObjectList,
+	maskExpectedMetadata bool,
+) (string, error) {
 	var actual strings.Builder
 	for _, list := range compareObjects {
 		if list == nil {
