@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -69,6 +70,7 @@ type Case struct {
 	Environment      *envtest.Environment
 	Config           *rest.Config
 	Client           client.Client
+	IncludeEvent     func(eventsv1.Event) bool
 
 	additionalGoldens map[string]func(context.Context) (string, error)
 
@@ -515,8 +517,13 @@ func collectObjects(
 			return "", fmt.Errorf("list %T: %w", list, err)
 		}
 		if events, ok := list.(*eventsv1.EventList); ok {
+			if tc.IncludeEvent != nil {
+				events.Items = slices.DeleteFunc(events.Items, func(event eventsv1.Event) bool {
+					return !tc.IncludeEvent(event)
+				})
+			}
 			if len(events.Items) == 0 {
-				continue // An unexpected Event still appears in the golden output.
+				continue // An unexpected included Event still appears in the golden output.
 			}
 			for i := range events.Items {
 				event := &events.Items[i]

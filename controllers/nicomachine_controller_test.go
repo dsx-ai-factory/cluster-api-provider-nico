@@ -43,6 +43,10 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			}
 		},
 		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
+			tc.IncludeEvent = func(event eventsv1.Event) bool {
+				return event.ReportingController == "nicomachine-controller" &&
+					event.Regarding.Kind == "Machine" && event.Regarding.Name == testOwnerMachine
+			}
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
 			gomega.Expect(applyMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
