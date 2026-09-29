@@ -73,7 +73,20 @@ func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *i
 	if !ok {
 		return nil, apierrors.NewNotFound(corev1.Resource("secrets"), "")
 	}
+	return nicoClientForSecret(ctx, c, secretKey)
+}
 
+func powerControlClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, instanceClient nico.API) (nico.API, error) {
+	if nicoCluster.Spec.PowerControlIdentityRef.Name == "" {
+		return instanceClient, nil
+	}
+	return nicoClientForSecret(ctx, c, types.NamespacedName{
+		Namespace: nicoCluster.Namespace,
+		Name:      nicoCluster.Spec.PowerControlIdentityRef.Name,
+	})
+}
+
+func nicoClientForSecret(ctx context.Context, c crclient.Client, secretKey types.NamespacedName) (nico.API, error) {
 	var identitySecret corev1.Secret
 	if err := c.Get(ctx, secretKey, &identitySecret); err != nil {
 		return nil, fmt.Errorf("getting nico credentials secret %s: %w", secretKey, err)

@@ -253,6 +253,20 @@ func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (
 	return instance, nil
 }
 
+// GracefulRestartMachine requests an OS-level reboot through NICo's provider
+// Machine power API. Acceptance does not mean the reboot has completed.
+func (c *Client) GracefulRestartMachine(ctx context.Context, machineID string) error {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return err
+	}
+	req := nicosdk.NewMachinePowerControlRequest("GracefulRestart")
+	req.SetAcknowledgeAttachedInstance(true)
+	_, resp, err := c.api.MachineAPI.MachinePowerControlMachine(authCtx, c.orgID, machineID).
+		MachinePowerControlRequest(*req).Execute()
+	return normalizeError(resp, err)
+}
+
 // ApplyInstanceLabels applies labels to a NICo instance. CAPNICo uses this
 // after create because machine-id and observed topology are not all known when
 // the initial create request is built.

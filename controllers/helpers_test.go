@@ -18,6 +18,7 @@ import (
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -101,6 +102,7 @@ func newEnvironment(*fixture.Case) *envtest.Environment {
 func newScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	gomega.Expect(corev1.AddToScheme(scheme)).To(gomega.Succeed())
+	gomega.Expect(eventsv1.AddToScheme(scheme)).To(gomega.Succeed())
 	gomega.Expect(clusterv1.AddToScheme(scheme)).To(gomega.Succeed())
 	gomega.Expect(infrav1.AddToScheme(scheme)).To(gomega.Succeed())
 
@@ -210,17 +212,24 @@ func startFake(server *fake.Server) string {
 	return endpoint.URL
 }
 
-func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint string) error {
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: "nico-creds"}, secret); err != nil {
-		return client.IgnoreNotFound(err)
+func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
+	for _, name := range []string{"nico-creds", "provider-power"} {
+		secret := &corev1.Secret{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: name}, secret); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				continue
+			}
+			return err
+		}
+		if secret.Data == nil {
+			secret.Data = map[string][]byte{}
+		}
+		secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
+		if err := c.Update(ctx, secret); err != nil {
+			return err
+		}
 	}
-	if secret.Data == nil {
-		secret.Data = map[string][]byte{}
-	}
-	secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
-
-	return c.Update(ctx, secret)
+	return nil
 }
 
 func applyMachineStatusFixture(ctx context.Context, tc *fixture.Case) error {

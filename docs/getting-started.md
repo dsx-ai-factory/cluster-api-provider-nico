@@ -739,7 +739,9 @@ Both annotations in the following table ignore an empty value.
 
 | Annotation | Effect |
 |---|---|
-| `nico.nvidia.com/reboot` | One reboot per application. CAPNICo removes the annotation after NICo accepts it. Configure the key with `--reboot-annotation`. |
+| `nico.nvidia.com/reboot` | Try `GracefulRestart`, then hard reboot after 30 minutes without a confirmed workload Node boot ID change. Configure the key with `--reboot-annotation`. |
+| `nico.nvidia.com/reboot-soft` | Try `GracefulRestart` without a hard fallback. |
+| `nico.nvidia.com/reboot-hard` | Trigger the existing hard instance reboot immediately. |
 | `nico.nvidia.com/machine-health-issue` | Forwarded to NICo as context on the delete request. The value parses as JSON in the form `{"category","summary","details"}`, and otherwise is treated as a plain summary with category `Other`. Configure the key with `--repair-annotation`, and set it empty to disable. |
 
 The support level for this provider is Experimental.
