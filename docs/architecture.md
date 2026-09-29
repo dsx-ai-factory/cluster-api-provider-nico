@@ -297,7 +297,8 @@ Machine restart with hard instance reboot fallback after 30 minutes without a
 confirmed workload Node boot ID change. Configure this key with
 `--reboot-annotation`. `nico.nvidia.com/reboot-soft` requests only the graceful
 action. `nico.nvidia.com/reboot-hard` requests the existing hard action
-immediately. Only one request annotation can be present at a time.
+immediately. Only one request annotation can be present at a time. Each request
+with the same annotation key needs a different non-empty value.
 
 The controller saves the reboot phase in `NicoMachine.status.reboot` at the end
 of reconciliation. A failed status patch after NICo receives the call can cause

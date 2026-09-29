@@ -95,12 +95,13 @@ mechanism.
 ## Reboot and Repair Annotations Not Taking Effect
 
 Both are annotations on the owning CAPI `Machine`, not fields on either CRD.
-Check three things.
+Check the following.
 
 - The annotation key is `nico.nvidia.com/reboot` (configurable with
   `--reboot-annotation`), `nico.nvidia.com/reboot-soft`,
   `nico.nvidia.com/reboot-hard`, or the configured repair key.
 - The value is non-empty. Both operations ignore an empty value.
+- A new reboot value differs from the latest completed request using that key.
 - Only one reboot annotation is set at a time.
 - `NicoMachine.status.reboot` and the owning Machine's events show the reboot
   phase and which action NICo accepted.

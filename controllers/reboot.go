@@ -58,22 +58,14 @@ func (r *NicoMachineReconciler) reconcileReboot(
 		if requestCount == 0 {
 			return ctrl.Result{}, false, nil
 		}
-		// An uncached read avoids treating the annotation we just removed as a
-		// fresh request when the manager cache has not caught up yet.
-		if state != nil {
-			fresh := &clusterv1.Machine{}
-			if err := r.reader().Get(ctx, client.ObjectKeyFromObject(machine), fresh); err != nil {
-				return ctrl.Result{}, true, fmt.Errorf("read reboot request from Machine: %w", err)
-			}
-			machine = fresh
-			requestAnnotation, mode, requestCount = requestedReboot(machine, r.ProviderConfig.RebootAnnotation)
-			if requestCount == 0 {
-				return ctrl.Result{}, false, nil
-			}
-		}
 		if requestCount > 1 {
 			r.rebootEvent(machine, corev1.EventTypeWarning, "RebootRequestConflict", "Only one reboot annotation can be set at a time")
 			return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
+		}
+		// A cached Machine can still show the request after its annotation was
+		// removed. The completed status identifies that request by key and value.
+		if state != nil && state.Annotation == requestAnnotation && state.AnnotationValue == machine.Annotations[requestAnnotation] {
+			return ctrl.Result{}, false, nil
 		}
 		freshState := &infrav1.NicoMachineRebootStatus{
 			Annotation:      requestAnnotation,
@@ -143,11 +135,6 @@ func (r *NicoMachineReconciler) reconcilePreparedReboot(
 	instanceID string,
 ) (ctrl.Result, bool, error) {
 	state := nicoMachine.Status.Reboot
-	fresh := &clusterv1.Machine{}
-	if err := r.reader().Get(ctx, client.ObjectKeyFromObject(machine), fresh); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("read Machine before reboot dispatch: %w", err)
-	}
-	machine = fresh
 	currentValue := machine.Annotations[state.Annotation]
 	if currentValue == "" {
 		return r.completeReboot(ctx, machine, state, "none", "Reboot request removed before dispatch")

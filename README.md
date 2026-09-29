@@ -536,10 +536,12 @@ The key is configurable with a manager flag:
 
 Set one of these annotations to a non-empty value on the owning CAPI `Machine`.
 CAPNICo treats the value as consumer-owned metadata and does not interpret it.
-To replace an active request, set the same annotation to a different non-empty
-value. Reapplying the same value while it remains set does not create a new
-request.
-Do not set more than one reboot annotation at a time.
+Use a new value for each request with the same annotation key. Reapplying the
+latest completed request's value is ignored, even after CAPNICo removes the
+annotation. To replace an active request, set the same annotation to a new
+non-empty value. A removal or replacement can race with dispatch if the
+controller has not observed the change yet. Do not set more than one reboot
+annotation at a time.
 
 | Annotation | Behavior |
 |---|---|
