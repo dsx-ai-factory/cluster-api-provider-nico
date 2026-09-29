@@ -36,7 +36,7 @@ import (
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
-	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/fixtures"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
 )
 
 const (
@@ -49,7 +49,7 @@ const (
 // their own environment, so the state must not be shared between them.
 var caseFakes sync.Map // case name -> *fake.Server
 
-func seedFakeResources(tc *fixtures.Case, server *fake.Server) error {
+func seedFakeResources(tc *fixture.Case, server *fake.Server) error {
 	server.SeedToken("test-token")
 
 	tenant := nicosdk.NewTenant()
@@ -91,7 +91,7 @@ func capiCRDPath() string {
 // newEnvironment builds an envtest environment carrying both this provider's
 // CRDs and Cluster API's, because the reconcilers resolve their owning Machine
 // and Cluster through the API server.
-func newEnvironment(*fixtures.Case) *envtest.Environment {
+func newEnvironment(*fixture.Case) *envtest.Environment {
 	return &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases"), capiCRDPath()},
 		ErrorIfCRDPathMissing: true,
@@ -223,7 +223,7 @@ func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint st
 	return c.Update(ctx, secret)
 }
 
-func applyMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error {
+func applyMachineStatusFixture(ctx context.Context, tc *fixture.Case) error {
 	input, ok := tc.Input("input_machine_status.yaml")
 	if !ok {
 		return nil
@@ -244,7 +244,7 @@ func applyMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error {
 	return nil
 }
 
-func applyNicoMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error {
+func applyNicoMachineStatusFixture(ctx context.Context, tc *fixture.Case) error {
 	input, ok := tc.Input("input_nicomachine_status.yaml")
 	if !ok {
 		return nil
@@ -265,7 +265,7 @@ func applyNicoMachineStatusFixture(ctx context.Context, tc *fixtures.Case) error
 	return nil
 }
 
-func seedWorkloadClient(tc *fixtures.Case) (workloadClientFactory, client.Client, error) {
+func seedWorkloadClient(tc *fixture.Case) (workloadClientFactory, client.Client, error) {
 	builder := crfake.NewClientBuilder().WithScheme(tc.Scheme)
 	if input, ok := tc.Input("input_workload_objects.yaml"); ok {
 		nodes := []corev1.Node{}
@@ -333,7 +333,7 @@ func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
-func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case, workloadFactory workloadClientFactory) {
+func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory workloadClientFactory) {
 	defaultNicoClientCache = nico.NewClientCache()
 	mgr, err := manager.New(tc.Config, manager.Options{
 		Scheme:  tc.Scheme,
