@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -96,7 +97,7 @@ func (b *Backend) Create(ctx context.Context, instanceID, machineName, userData 
 		return fmt.Errorf("create node container: %w", err)
 	}
 	if _, err := b.Client.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
-		_, _ = b.Client.ContainerRemove(ctx, created.ID, client.ContainerRemoveOptions{Force: true})
+		_, _ = b.Client.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		return fmt.Errorf("start node container: %w", err)
 	}
 
@@ -132,7 +133,8 @@ func (b *Backend) Delete(ctx context.Context, instanceID string) error {
 	name := containerName(instanceID)
 	timeout := 10
 	_, _ = b.Client.ContainerStop(ctx, name, client.ContainerStopOptions{Timeout: &timeout})
-	if _, err := b.Client.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true}); err != nil {
+	_, err := b.Client.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
 		return fmt.Errorf("remove node container: %w", err)
 	}
 	return nil

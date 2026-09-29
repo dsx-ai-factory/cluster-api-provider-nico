@@ -9,6 +9,7 @@ module github.com/dsx-ai-factory/cluster-api-provider-nico
 go 1.26.6
 
 require (
+	github.com/containerd/errdefs v1.0.0
 	github.com/golangci/plugin-module-register v0.1.2
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
@@ -29,7 +30,6 @@ require (
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.7.0 // indirect

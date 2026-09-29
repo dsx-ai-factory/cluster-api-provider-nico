@@ -111,7 +111,7 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expect
 cleanup-test-e2e: kind-tool ## Tear down the Kind cluster used for e2e tests
 	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 	@containers="$$(docker ps -aq --filter 'name=^/capnico-fake-')"; \
-		if [ -n "$$containers" ]; then docker rm -f $$containers; fi
+		if [ -n "$$containers" ]; then docker rm -f -v $$containers; fi
 
 # Every source file carries an SPDX header; the check runs in
 # .github/workflows/license.yml.
