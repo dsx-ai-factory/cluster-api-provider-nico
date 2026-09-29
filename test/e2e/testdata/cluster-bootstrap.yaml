@@ -111,6 +111,17 @@ spec:
             "kind": "KubeletConfiguration",
             "failSwapOn": false
           }
+      - path: /run/kubeadm/kube-proxy-configuration.yaml
+        owner: root:root
+        permissions: "0644"
+        content: |
+          ---
+          apiVersion: kubeproxy.config.k8s.io/v1alpha1
+          kind: KubeProxyConfiguration
+          conntrack:
+            maxPerCore: 0
+    preKubeadmCommands:
+      - cat /run/kubeadm/kube-proxy-configuration.yaml >> /run/kubeadm/kubeadm.yaml
     clusterConfiguration:
       apiServer:
         certSANs:
