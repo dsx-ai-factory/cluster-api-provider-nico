@@ -173,7 +173,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	rebootDispatched := nicoMachine.Status.Reboot != nil &&
 		(nicoMachine.Status.Reboot.Phase == rebootPhaseGracefulDispatched || nicoMachine.Status.Reboot.Phase == rebootPhaseHardDispatched)
 	if rebootDispatched {
-		rebootResult, _, err := r.reconcileRebootIsolated(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nil, "")
+		rebootResult, _, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nil, "")
 		return rebootResult, err
 	}
 
@@ -428,7 +428,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedTrue(&nicoMachine, infrav1.InstanceReadyReason)
 	}
 
-	if rebootResult, handled, err := r.reconcileRebootIsolated(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
+	if rebootResult, handled, err := r.reconcileReboot(ctx, ownerMachine, cluster, nicoCluster, &nicoMachine, nicoClient, instanceID); handled || err != nil {
 		return rebootResult, err
 	}
 	if !instanceReady {

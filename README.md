@@ -563,13 +563,12 @@ succeeded but the Node remained unreachable. The graceful-only annotation
 avoids that fallback.
 
 `NicoMachine.status.reboot` records the mode, phase, outcome, and timestamps.
-Kubernetes events report accepted requests and fallback. CAPNICo records each
-power attempt before sending it and does not repeat an uncertain attempt after
-a controller restart. A crash between recording and sending can skip that
-attempt. Reapply the annotation after reviewing the status if an action remains
-uncertain. CAPNICo removes the request annotation after it finishes handling
-the request if its value still matches the accepted request. A replacement
-value remains set for the next request.
+Kubernetes events report accepted requests and fallback. CAPNICo saves the
+reboot status at the end of reconciliation. If the controller stops or the
+status patch fails after NICo receives a reboot request, the next reconcile
+can send it again. CAPNICo removes the request annotation after it finishes
+handling the request if its value still matches the accepted request. A
+replacement value remains set for the next request.
 
 ## Development
 

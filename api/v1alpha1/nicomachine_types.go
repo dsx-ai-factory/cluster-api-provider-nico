@@ -172,8 +172,8 @@ type NicoMachineInitializationStatus struct {
 }
 
 // NicoMachineRebootStatus records the latest annotation-driven reboot request.
-// A phase is persisted before each external power action so retries never
-// repeat an action whose result is uncertain.
+// Reconcile persists dispatched phases after the NICo power call. A failed
+// status patch can cause the action to be repeated.
 type NicoMachineRebootStatus struct {
 	// Annotation is the request annotation on the owning Machine.
 	Annotation string `json:"annotation"`

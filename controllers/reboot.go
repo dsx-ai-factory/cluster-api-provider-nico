@@ -39,31 +39,8 @@ const (
 	rebootPollInterval    = 15 * time.Second
 )
 
-// Reboot status is persisted before power actions. Keep those writes off the
-// NicoMachine used by Reconcile's deferred patch helper.
-func (r *NicoMachineReconciler) reconcileRebootIsolated(
-	ctx context.Context,
-	machine *clusterv1.Machine,
-	cluster *clusterv1.Cluster,
-	nicoCluster *infrav1.NicoCluster,
-	nicoMachine *infrav1.NicoMachine,
-	instanceClient nico.API,
-	instanceID string,
-) (ctrl.Result, bool, error) {
-	rebootMachine := nicoMachine.DeepCopy()
-	result, handled, err := r.reconcileReboot(ctx, machine, cluster, nicoCluster, rebootMachine, instanceClient, instanceID)
-	if timestamp := rebootMachine.Annotations[lastRebootTriggeredAnnotation]; timestamp != "" && timestamp != nicoMachine.Annotations[lastRebootTriggeredAnnotation] {
-		if nicoMachine.Annotations == nil {
-			nicoMachine.Annotations = map[string]string{}
-		}
-		nicoMachine.Annotations[lastRebootTriggeredAnnotation] = timestamp
-	}
-	return result, handled, err
-}
-
-// reconcileReboot handles one request at a time. The state write preceding each
-// NICo call deliberately favors at-most-once dispatch over retrying an action
-// whose response may have been lost.
+// reconcileReboot handles one request at a time. Reconcile's deferred patch
+// saves the status after the NICo call, so a failed patch can repeat the action.
 // instanceClient can be nil during dispatched recovery; hard fallback loads it
 // only after the recovery deadline.
 func (r *NicoMachineReconciler) reconcileReboot(
@@ -105,9 +82,7 @@ func (r *NicoMachineReconciler) reconcileReboot(
 			Phase:           rebootPhasePrepared,
 			StartedAt:       metav1.NewTime(time.Now().UTC()),
 		}
-		if err := r.persistRebootState(ctx, nicoMachine, freshState); err != nil {
-			return ctrl.Result{}, true, fmt.Errorf("record reboot request: %w", err)
-		}
+		nicoMachine.Status.Reboot = freshState
 		return r.reconcilePreparedReboot(ctx, machine, cluster, nicoCluster, nicoMachine, instanceClient, instanceID)
 	}
 
@@ -122,13 +97,13 @@ func (r *NicoMachineReconciler) reconcileReboot(
 		if state.BootID != "" && bootID != "" && bootID != state.BootID {
 			if ready {
 				r.rebootEvent(machine, corev1.EventTypeNormal, "GracefulRebootRecovered", "Workload Node boot ID changed and the Node is Ready")
-				return r.completeReboot(ctx, machine, nicoMachine, state, rebootPathGraceful, "Workload Node rebooted and returned Ready")
+				return r.completeReboot(ctx, machine, state, rebootPathGraceful, "Workload Node rebooted and returned Ready")
 			}
 			// A new boot ID proves the host rebooted. A hard reboot cannot repair
 			// delayed DPU or network recovery and could interrupt it again.
 			if state.Deadline != nil && !time.Now().Before(state.Deadline.Time) {
 				r.rebootEvent(machine, corev1.EventTypeWarning, "NodeRecoveryIncomplete", "Workload Node boot ID changed, but the Node is not Ready after 30 minutes")
-				return r.completeReboot(ctx, machine, nicoMachine, state, rebootPathGraceful, "Host rebooted, but the workload Node did not return Ready within 30 minutes")
+				return r.completeReboot(ctx, machine, state, rebootPathGraceful, "Host rebooted, but the workload Node did not return Ready within 30 minutes")
 			}
 			return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 		}
@@ -137,7 +112,7 @@ func (r *NicoMachineReconciler) reconcileReboot(
 		}
 		if state.Mode == rebootModeGracefulOnly {
 			r.rebootEvent(machine, corev1.EventTypeWarning, "GracefulRebootUnconfirmed", "No changed workload Node boot ID was observed before the recovery deadline")
-			return r.completeReboot(ctx, machine, nicoMachine, state, rebootPathGraceful, "Graceful reboot was not confirmed before the recovery deadline")
+			return r.completeReboot(ctx, machine, state, rebootPathGraceful, "Graceful reboot was not confirmed before the recovery deadline")
 		}
 		if instanceClient == nil {
 			instanceID, err = nico.InstanceID(nicoMachine.Spec.ProviderID)
@@ -152,7 +127,7 @@ func (r *NicoMachineReconciler) reconcileReboot(
 		r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootFallback", "No changed workload Node boot ID was observed within 30 minutes; using hard reboot")
 		return r.dispatchHardReboot(ctx, machine, nicoMachine, instanceClient, instanceID, state, true)
 	case rebootPhaseHardDispatched:
-		return r.completeReboot(ctx, machine, nicoMachine, state, rebootModeHard, state.Message)
+		return r.completeReboot(ctx, machine, state, rebootModeHard, state.Message)
 	default:
 		return ctrl.Result{}, true, fmt.Errorf("unknown reboot phase %q", state.Phase)
 	}
@@ -175,10 +150,10 @@ func (r *NicoMachineReconciler) reconcilePreparedReboot(
 	machine = fresh
 	currentValue := machine.Annotations[state.Annotation]
 	if currentValue == "" {
-		return r.completeReboot(ctx, machine, nicoMachine, state, "none", "Reboot request removed before dispatch")
+		return r.completeReboot(ctx, machine, state, "none", "Reboot request removed before dispatch")
 	}
 	if state.AnnotationValue != "" && currentValue != state.AnnotationValue {
-		return r.completeReboot(ctx, machine, nicoMachine, state, "none", "Reboot request replaced before dispatch")
+		return r.completeReboot(ctx, machine, state, "none", "Reboot request replaced before dispatch")
 	}
 	if _, _, count := requestedReboot(machine, r.ProviderConfig.RebootAnnotation); count > 1 {
 		r.rebootEvent(machine, corev1.EventTypeWarning, "RebootRequestConflict", "Only one reboot annotation can be set at a time")
@@ -225,29 +200,24 @@ func requestedReboot(machine *clusterv1.Machine, configured string) (string, str
 }
 
 func (r *NicoMachineReconciler) dispatchGracefulReboot(ctx context.Context, machine *clusterv1.Machine, cluster *clusterv1.Cluster, nicoMachine *infrav1.NicoMachine, powerClient, instanceClient nico.API, instanceID string, state *infrav1.NicoMachineRebootStatus) (ctrl.Result, bool, error) {
-	copy := *state
-	copy.Phase = rebootPhaseGracefulDispatched
+	state.Phase = rebootPhaseGracefulDispatched
 	bootID, _, err := r.observeRebootNode(ctx, machine, cluster)
 	if err != nil {
 		ctrl.LoggerFrom(ctx).V(1).Info("cannot capture workload Node boot ID before reboot", "error", err)
 	}
-	copy.BootID = bootID
+	state.BootID = bootID
 	deadline := metav1.NewTime(time.Now().UTC().Add(rebootRecoveryTimeout))
-	copy.Deadline = &deadline
-	if err := r.persistRebootState(ctx, nicoMachine, &copy); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("record graceful reboot dispatch: %w", err)
-	}
+	state.Deadline = &deadline
 	if err := powerClient.GracefulRestartMachine(ctx, nicoMachine.Status.MachineID); err != nil {
 		// A concrete HTTP rejection means NICo did not accept the action. An
-		// interrupted request is uncertain and must not be retried or immediately
-		// followed by a hard reboot.
+		// interrupted request is uncertain and should wait for recovery.
 		if definiteRebootRejection(err) {
 			r.rebootEvent(machine, corev1.EventTypeWarning, "GracefulRebootRejected", "NICo rejected GracefulRestart")
 			if state.Mode == rebootModeFallback {
 				r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootFallback", "NICo rejected GracefulRestart; using hard reboot")
-				return r.dispatchHardReboot(ctx, machine, nicoMachine, instanceClient, instanceID, nicoMachine.Status.Reboot, true)
+				return r.dispatchHardReboot(ctx, machine, nicoMachine, instanceClient, instanceID, state, true)
 			}
-			return r.completeReboot(ctx, machine, nicoMachine, nicoMachine.Status.Reboot, "none", "NICo rejected graceful reboot")
+			return r.completeReboot(ctx, machine, state, "none", "NICo rejected graceful reboot")
 		}
 		r.rebootEvent(machine, corev1.EventTypeWarning, "GracefulRebootUnconfirmed", "NICo did not confirm GracefulRestart acceptance")
 		return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
@@ -258,30 +228,23 @@ func (r *NicoMachineReconciler) dispatchGracefulReboot(ctx context.Context, mach
 }
 
 func (r *NicoMachineReconciler) dispatchHardReboot(ctx context.Context, machine *clusterv1.Machine, nicoMachine *infrav1.NicoMachine, instanceClient nico.API, instanceID string, state *infrav1.NicoMachineRebootStatus, fallback bool) (ctrl.Result, bool, error) {
-	copy := *state
-	copy.Phase = rebootPhaseHardDispatched
-	copy.Path = rebootModeHard
-	copy.Message = "Hard reboot result is uncertain; the action will not be repeated automatically"
-	if err := r.persistRebootState(ctx, nicoMachine, &copy); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("record hard reboot dispatch: %w", err)
-	}
+	state.Phase = rebootPhaseHardDispatched
+	state.Path = rebootModeHard
+	state.Message = "Hard reboot result is uncertain"
 	if _, err := instanceClient.TriggerInstanceReboot(ctx, instanceID); err != nil {
 		if definiteRebootRejection(err) {
 			r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootRejected", "NICo rejected hard reboot")
-			return r.completeReboot(ctx, machine, nicoMachine, nicoMachine.Status.Reboot, "none", "NICo rejected hard reboot")
+			return r.completeReboot(ctx, machine, state, "none", "NICo rejected hard reboot")
 		}
-		r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootUnconfirmed", "NICo did not confirm hard reboot acceptance; the action will not be repeated automatically")
+		r.rebootEvent(machine, corev1.EventTypeWarning, "HardRebootUnconfirmed", "NICo did not confirm hard reboot acceptance")
 		return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 	}
-	copy.Message = "NICo accepted hard reboot"
+	state.Message = "NICo accepted hard reboot"
 	if fallback {
-		copy.Message = "NICo accepted hard reboot fallback"
-	}
-	if err := r.persistRebootState(ctx, nicoMachine, &copy); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("record hard reboot acceptance: %w", err)
+		state.Message = "NICo accepted hard reboot fallback"
 	}
 	recordRebootTriggered(nicoMachine)
-	r.rebootEvent(machine, corev1.EventTypeNormal, "HardRebootAccepted", copy.Message)
+	r.rebootEvent(machine, corev1.EventTypeNormal, "HardRebootAccepted", state.Message)
 	return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 }
 
@@ -290,7 +253,7 @@ func definiteRebootRejection(err error) bool {
 		errors.Is(err, nico.ErrBadRequest) || errors.Is(err, nico.ErrNotFound)
 }
 
-func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clusterv1.Machine, nicoMachine *infrav1.NicoMachine, state *infrav1.NicoMachineRebootStatus, path, message string) (ctrl.Result, bool, error) {
+func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clusterv1.Machine, state *infrav1.NicoMachineRebootStatus, path, message string) (ctrl.Result, bool, error) {
 	currentValue := machine.Annotations[state.Annotation]
 	replaced := state.AnnotationValue != "" && currentValue != "" && currentValue != state.AnnotationValue
 	if currentValue != "" && !replaced {
@@ -300,33 +263,15 @@ func (r *NicoMachineReconciler) completeReboot(ctx context.Context, machine *clu
 			return ctrl.Result{}, true, fmt.Errorf("remove Machine reboot annotation: %w", err)
 		}
 	}
-	copy := *state
-	copy.Phase = rebootPhaseCompleted
-	copy.Path = path
-	copy.Message = message
+	state.Phase = rebootPhaseCompleted
+	state.Path = path
+	state.Message = message
 	completed := metav1.NewTime(time.Now().UTC())
-	copy.CompletedAt = &completed
-	if err := r.persistRebootState(ctx, nicoMachine, &copy); err != nil {
-		return ctrl.Result{}, true, fmt.Errorf("record reboot completion: %w", err)
-	}
+	state.CompletedAt = &completed
 	if replaced {
 		return ctrl.Result{RequeueAfter: rebootPollInterval}, true, nil
 	}
 	return ctrl.Result{}, true, nil
-}
-
-func (r *NicoMachineReconciler) persistRebootState(ctx context.Context, nicoMachine *infrav1.NicoMachine, state *infrav1.NicoMachineRebootStatus) error {
-	// Patch a copy: the API response can contain an older spec while this
-	// reconcile still has a pending providerID or metadata update in memory.
-	updated := nicoMachine.DeepCopy()
-	before := updated.DeepCopy()
-	updated.Status.Reboot = state.DeepCopy()
-	if err := r.Status().Patch(ctx, updated, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
-		return err
-	}
-	nicoMachine.ResourceVersion = updated.ResourceVersion
-	nicoMachine.Status.Reboot = state.DeepCopy()
-	return nil
 }
 
 func (r *NicoMachineReconciler) rebootEvent(machine *clusterv1.Machine, eventType, reason, message string) {

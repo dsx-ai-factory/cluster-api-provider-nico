@@ -299,9 +299,10 @@ confirmed workload Node boot ID change. Configure this key with
 action. `nico.nvidia.com/reboot-hard` requests the existing hard action
 immediately. Only one request annotation can be present at a time.
 
-The controller records a reboot phase in `NicoMachine.status.reboot` before
-each NICo call. It does not repeat an uncertain call after a restart. A changed
-workload Node boot ID followed by a Ready condition confirms graceful recovery.
+The controller saves the reboot phase in `NicoMachine.status.reboot` at the end
+of reconciliation. A failed status patch after NICo receives the call can cause
+another reboot. A changed workload Node boot ID followed by a Ready condition
+confirms graceful recovery.
 If the boot ID changes while the Node remains unavailable, the controller waits
 for recovery without sending a hard fallback. The provider removes the request
 annotation after handling it and emits events for acceptance and fallback.
