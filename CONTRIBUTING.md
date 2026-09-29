@@ -6,10 +6,11 @@
 
 - Go 1.26.6, the exact version CI scans with, not a minimum (see `go.mod`)
 - Docker (for building the controller image and running e2e tests)
+- [kind](https://kind.sigs.k8s.io/) on your `PATH` for `make tilt-up`, because `ctlptl` invokes it directly
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 
-The Makefile downloads the pinned `kind` and `clusterctl` binaries when a
-target requires them.
+The Makefile downloads pinned `kind` and `clusterctl` binaries into `bin/` for
+targets such as `make test-e2e`. Those copies are not on your `PATH`.
 
 **Clone and build:**
 
