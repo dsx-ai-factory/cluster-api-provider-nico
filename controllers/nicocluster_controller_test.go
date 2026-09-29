@@ -18,13 +18,13 @@ import (
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
-	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/fixtures"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
 )
 
 const testCluster = "nico-1"
 
-func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
-	return fixtures.CaseSet{
+func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture.Case, fixture.CaseSet)) fixture.CaseSet {
+	return fixture.CaseSet{
 		Description:          description,
 		DirPrefix:            dirPrefix,
 		MaskExpectedMetadata: true,
@@ -36,7 +36,7 @@ func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture
 				&infrav1.NicoMachineList{},
 			}
 		},
-		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
+		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
 			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
@@ -61,10 +61,10 @@ func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents a CR at generation 1 because create reconciliation only writes status.
-var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
+var _ = fixture.DescribeCaseSet(nicoClusterCaseSet(
 	"NicoCluster create reconciliation",
 	"nicocluster-create-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoCluster := &infrav1.NicoCluster{}
@@ -82,10 +82,10 @@ var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents a provisioned CR at generation 2 after a spec update.
-var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
+var _ = fixture.DescribeCaseSet(nicoClusterCaseSet(
 	"NicoCluster update reconciliation ending provisioned",
 	"nicocluster-update-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoCluster := &infrav1.NicoCluster{}
@@ -117,10 +117,10 @@ var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-var _ = fixtures.DescribeCaseSet(nicoClusterCaseSet(
+var _ = fixture.DescribeCaseSet(nicoClusterCaseSet(
 	"NicoCluster delete reconciliation",
 	"nicocluster-delete-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		var deletedObjects []client.Object
 
 		ginkgo.It("reconciles the initial NicoCluster", func(ctx ginkgo.SpecContext) {

@@ -16,7 +16,7 @@ import (
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
-	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/fixtures"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
 )
 
 const (
@@ -25,8 +25,8 @@ const (
 	testOwnerMachine = "machine-1"
 )
 
-func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
-	return fixtures.CaseSet{
+func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture.Case, fixture.CaseSet)) fixture.CaseSet {
+	return fixture.CaseSet{
 		Description:          description,
 		DirPrefix:            dirPrefix,
 		MaskExpectedMetadata: true,
@@ -38,7 +38,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 				&infrav1.NicoMachineList{},
 			}
 		},
-		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
+		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
 			gomega.Expect(applyMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
@@ -70,10 +70,10 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents a provisioned CR at generation 2 after CAPNICo sets providerID.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation ending provisioned",
 	"nicomachine-create-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachine := &infrav1.NicoMachine{}
@@ -91,10 +91,10 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents an unprovisioned CR at generation 1 with no providerID.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation ending not provisioned",
 	"nicomachine-create-not-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachines := &infrav1.NicoMachineList{}
@@ -117,10 +117,10 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents a provisioned CR at generation 2 after a spec update.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine update reconciliation ending provisioned",
 	"nicomachine-update-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachine := &infrav1.NicoMachine{}
@@ -154,10 +154,10 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine delete reconciliation",
 	"nicomachine-delete-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		var deletedObjects []client.Object
 
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
