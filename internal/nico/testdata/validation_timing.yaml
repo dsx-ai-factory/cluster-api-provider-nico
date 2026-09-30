@@ -1,0 +1,28 @@
+already-canceled:
+  message: Credential validation was canceled.
+  reason: ValidationFailed
+  status: Unknown
+tenant-after-slow-token-deadline:
+  message: Current-tenant lookup exceeded the validation deadline.
+  reason: ValidationFailed
+  status: Unknown
+tenant-after-slow-token-parent-cancel:
+  message: Current-tenant lookup was canceled.
+  reason: ValidationFailed
+  status: Unknown
+tenant-after-slow-token-parent-deadline:
+  message: Current-tenant lookup exceeded the validation deadline.
+  reason: ValidationFailed
+  status: Unknown
+token-deadline:
+  message: Token acquisition exceeded the validation deadline.
+  reason: ValidationFailed
+  status: Unknown
+token-parent-cancel:
+  message: Token acquisition was canceled.
+  reason: ValidationFailed
+  status: Unknown
+token-parent-deadline:
+  message: Token acquisition exceeded the validation deadline.
+  reason: ValidationFailed
+  status: Unknown
