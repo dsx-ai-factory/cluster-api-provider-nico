@@ -1,0 +1,17 @@
+custom-ca:
+  message: Authentication and current-tenant lookup succeeded.
+  reason: ValidationSucceeded
+  status: "True"
+skip-verification:
+  message: Authentication and current-tenant lookup succeeded. TLS certificate verification
+    is disabled.
+  reason: ValidationSucceeded
+  status: "True"
+untrusted-backend:
+  message: Current-tenant lookup failed TLS certificate verification.
+  reason: ValidationFailed
+  status: Unknown
+untrusted-issuer:
+  message: Token acquisition failed TLS certificate verification.
+  reason: ValidationFailed
+  status: Unknown

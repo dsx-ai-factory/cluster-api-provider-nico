@@ -50,6 +50,10 @@ func NewClient(ctx context.Context, secretConfig SecretConfig) (*Client, error) 
 	if err != nil {
 		return nil, err
 	}
+	return newClient(ctx, secretConfig, httpClient)
+}
+
+func newClient(ctx context.Context, secretConfig SecretConfig, httpClient *http.Client) (*Client, error) {
 	tokenSource, err := secretConfig.TokenSource(ctx, httpClient)
 	if err != nil {
 		return nil, err
@@ -121,6 +125,11 @@ func (c *Client) GetCurrentTenantID(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return c.getCurrentTenantID(authCtx)
+}
+
+// getCurrentTenantID uses an already authenticated context without acquiring another token.
+func (c *Client) getCurrentTenantID(authCtx context.Context) (string, error) {
 	tenant, resp, err := c.api.TenantAPI.GetCurrentTenant(authCtx, c.orgID).Execute()
 	if err != nil {
 		return "", normalizeError(resp, err)
