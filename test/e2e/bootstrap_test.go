@@ -355,6 +355,16 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		}
 		Eventually(verifyControlPlaneInitialized, 10*time.Minute, 5*time.Second).Should(Succeed())
 
+		By("waiting for the worker MachineDeployment to report Available")
+		verifyWorkersAvailable := func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", kindContext(), "get", "machinedeployment", "capnico-e2e-workers",
+				"-n", "capnico-e2e", "-o", "jsonpath={.status.conditions[?(@.type=='Available')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"), "worker MachineDeployment not Available")
+		}
+		Eventually(verifyWorkersAvailable, 8*time.Minute, 5*time.Second).Should(Succeed())
+
 		By("waiting for the Cluster to report Available")
 		verifyClusterAvailable := func(g Gomega) {
 			cmd := exec.Command("kubectl", "--context", kindContext(), "get", "cluster", "capnico-e2e",
