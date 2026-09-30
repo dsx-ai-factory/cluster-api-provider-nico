@@ -670,7 +670,6 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	key := resourceKey(org, id)
 	s.instances.Resources[key] = record
 	requestCopy := request
-	requestIndex := len(s.requests)
 	s.requests = append(s.requests, requestRecord{
 		Operation:  operationCreateInstance,
 		Org:        org,
@@ -689,9 +688,10 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 			if assignedMachine != nil && assignedMachine.GetInstanceId() == id {
 				assignedMachine.SetInstanceIdNil()
 			}
-			if requestIndex < len(s.requests) && s.requests[requestIndex].Operation == operationCreateInstance &&
-				s.requests[requestIndex].InstanceID == id {
-				s.requests = append(s.requests[:requestIndex], s.requests[requestIndex+1:]...)
+			if requestIndex := slices.IndexFunc(s.requests, func(record requestRecord) bool {
+				return record.Create == &requestCopy
+			}); requestIndex >= 0 {
+				s.requests = slices.Delete(s.requests, requestIndex, requestIndex+1)
 			}
 			s.mu.Unlock()
 			writeError(w, http.StatusServiceUnavailable, "instance backend create failed")
@@ -897,7 +897,6 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 	previousPolls := record.polls
 	record.instance.SetStatus(nicosdk.INSTANCESTATUS_TERMINATING)
 	record.polls = 0
-	requestIndex := len(s.requests)
 	s.requests = append(s.requests, requestRecord{
 		Operation:  operationDeleteInstance,
 		Org:        org,
@@ -910,13 +909,15 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 		if err := s.backend.Delete(r.Context(), instanceID); err != nil {
 			log.Printf("fake: backend delete %s: %v", instanceID, err)
 			s.mu.Lock()
-			if s.instances.Resources[resourceKey(org, instanceID)] == record {
+			if s.instances.Resources[resourceKey(org, instanceID)] == record &&
+				statusEqual(record.instance.GetStatus(), string(nicosdk.INSTANCESTATUS_TERMINATING)) {
 				record.instance.SetStatus(previousStatus)
 				record.polls = previousPolls
 			}
-			if requestIndex < len(s.requests) && s.requests[requestIndex].Operation == operationDeleteInstance &&
-				s.requests[requestIndex].InstanceID == instanceID {
-				s.requests = append(s.requests[:requestIndex], s.requests[requestIndex+1:]...)
+			if requestIndex := slices.IndexFunc(s.requests, func(record requestRecord) bool {
+				return record.Delete == request
+			}); requestIndex >= 0 {
+				s.requests = slices.Delete(s.requests, requestIndex, requestIndex+1)
 			}
 			s.mu.Unlock()
 			writeError(w, http.StatusServiceUnavailable, "instance backend delete failed")
