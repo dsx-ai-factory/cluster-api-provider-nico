@@ -5,11 +5,14 @@ package nico
 
 import (
 	"context"
+	"flag"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 )
@@ -136,5 +139,88 @@ func TestTokenSourceOAuthClientCredentials(t *testing.T) {
 	}
 	if token.AccessToken == "" {
 		t.Fatalf("expected a non-empty access token")
+	}
+}
+
+func TestProviderConfigIdentityFlags(t *testing.T) {
+	credentials := types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}
+	tests := []struct {
+		name        string
+		credentials types.NamespacedName
+		args        []string
+		wantName    string
+		wantTimeout time.Duration
+		wantErr     string
+	}{
+		{
+			name:        "defaults disable observation with a 30-second timeout",
+			credentials: credentials,
+			wantTimeout: 30 * time.Second,
+		},
+		{
+			name:        "explicit selection and timeout",
+			credentials: credentials,
+			args:        []string{"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=45s"},
+			wantName:    "nico-default",
+			wantTimeout: 45 * time.Second,
+		},
+		{
+			name:        "shorter timeout",
+			credentials: credentials,
+			args:        []string{"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=500ms"},
+			wantName:    "nico-default",
+			wantTimeout: 500 * time.Millisecond,
+		},
+		{
+			name:        "zero timeout is rejected even when observation is disabled",
+			credentials: credentials,
+			args:        []string{"--provider-identity-validation-timeout=0s"},
+			wantErr:     "--provider-identity-validation-timeout must be positive",
+		},
+		{
+			name:        "negative timeout is rejected",
+			credentials: credentials,
+			args:        []string{"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=-1s"},
+			wantErr:     "--provider-identity-validation-timeout must be positive",
+		},
+		{
+			name:        "invalid Identity name is rejected",
+			credentials: credentials,
+			args:        []string{"--provider-identity-name=Nico_Default"},
+			wantErr:     `--provider-identity-name "Nico_Default"`,
+		},
+		{
+			name:    "selection requires a default credentials Secret",
+			args:    []string{"--provider-identity-name=nico-default"},
+			wantErr: "requires a provider credentials namespace and Secret name",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := ProviderConfig{Credentials: tc.credentials}
+			fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+			cfg.BindFlags(fs)
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+
+			err := cfg.Validate()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Validate() error = %v, want it to contain %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if cfg.IdentityName != tc.wantName {
+				t.Fatalf("IdentityName = %q, want %q", cfg.IdentityName, tc.wantName)
+			}
+			if cfg.IdentityValidationTimeout != tc.wantTimeout {
+				t.Fatalf("IdentityValidationTimeout = %s, want %s", cfg.IdentityValidationTimeout, tc.wantTimeout)
+			}
+		})
 	}
 }
