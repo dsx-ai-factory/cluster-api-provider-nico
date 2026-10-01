@@ -618,6 +618,18 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 		return err
 	}
 
+	// Steps check a check time's presence and order before goldens compare it.
+	_, checked, err := unstructured.NestedString(object.Object, "status", "lastCheckedTime")
+	if err != nil {
+		return fmt.Errorf("read lastCheckedTime for %s: %w", object.GetName(), err)
+	}
+	if checked {
+		err := unstructured.SetNestedField(object.Object, "1970-01-01T00:00:00Z", "status", "lastCheckedTime")
+		if err != nil {
+			return fmt.Errorf("normalize lastCheckedTime for %s: %w", object.GetName(), err)
+		}
+	}
+
 	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
 	if err != nil {
 		return fmt.Errorf("read conditions for %s: %w", object.GetName(), err)

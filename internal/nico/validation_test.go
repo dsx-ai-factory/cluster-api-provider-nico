@@ -113,7 +113,7 @@ func TestValidateCredentialsResults(t *testing.T) {
 				secret.Data[key] = []byte(value)
 			}
 			original := secret.DeepCopy()
-			results[tc.name] = ValidateCredentials(t.Context(), secret)
+			results[tc.name] = ValidateCredentials(t.Context(), secret, DefaultCredentialValidationTimeout)
 			assert.Equal(t, original, secret, "validation must not mutate its Secret snapshot")
 			var wantRequests []string
 			if !tc.noRequest {
@@ -173,7 +173,7 @@ func TestValidateCredentialsTLSAndOptions(t *testing.T) {
 				secret.Data[SecretKeyScopes] = secret.Data[SecretKeyScope]
 				delete(secret.Data, SecretKeyScope)
 			}
-			results[mode] = ValidateCredentials(t.Context(), secret)
+			results[mode] = ValidateCredentials(t.Context(), secret, DefaultCredentialValidationTimeout)
 			mu.Lock()
 			defer mu.Unlock()
 			if mode == "custom-ca" || mode == "skip-verification" {
@@ -211,13 +211,13 @@ func TestValidateCredentialsFreshness(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, api.TokenRequestCount())
 	for range 2 {
-		require.Equal(t, metav1.ConditionTrue, ValidateCredentials(t.Context(), secret).Status)
+		require.Equal(t, metav1.ConditionTrue, ValidateCredentials(t.Context(), secret, DefaultCredentialValidationTimeout).Status)
 	}
 	assert.Equal(t, 3, api.TokenRequestCount(), "each validation must mint a new token")
 
 	// The fake still accepts its old bearer token after the issuer credentials change.
 	api.SeedClient("client-id", "rotated-client-secret")
-	result := ValidateCredentials(t.Context(), secret)
+	result := ValidateCredentials(t.Context(), secret, DefaultCredentialValidationTimeout)
 	assert.Equal(t, metav1.ConditionFalse, result.Status)
 	assert.Equal(t, "AuthenticationFailed", result.Reason)
 	again, err := cache.GetOrCreate(t.Context(), secret, cfg)
@@ -275,7 +275,7 @@ func TestValidateCredentialsDeadlineAndCancellation(t *testing.T) {
 					budget = 5 * time.Second
 				}
 				done := make(chan CredentialValidation, 1)
-				go func() { done <- validateCredentials(ctx, validationSecret(server.URL, true), budget) }()
+				go func() { done <- ValidateCredentials(ctx, validationSecret(server.URL, true), budget) }()
 				select {
 				case <-entered:
 				case <-time.After(2 * time.Second):
@@ -303,7 +303,7 @@ func TestValidateCredentialsDeadlineAndCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	results["already-canceled"] = ValidateCredentials(ctx, nil)
+	results["already-canceled"] = ValidateCredentials(ctx, nil, DefaultCredentialValidationTimeout)
 	matchValidationGolden(t, "validation_timing.yaml", results)
 }
 
@@ -350,7 +350,7 @@ func TestValidateCredentialsSafeDiagnostics(t *testing.T) {
 					delete(secret.Data, SecretKeyClientSecret)
 				}
 			}
-			result := ValidateCredentials(ctx, secret)
+			result := ValidateCredentials(ctx, secret, DefaultCredentialValidationTimeout)
 			if strings.HasSuffix(stage, "-rejected") || stage == "configuration" {
 				assert.Equal(t, metav1.ConditionFalse, result.Status)
 			} else {

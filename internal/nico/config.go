@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -58,6 +60,14 @@ type ProviderConfig struct {
 	// does not parse becomes the summary with category "Other". An empty string
 	// disables the behaviour.
 	RepairAnnotation string
+
+	// IdentityName selects the NicoIdentity in the Credentials namespace whose
+	// status reports the health of the Credentials Secret. Empty disables the
+	// observation. It never changes which Secret provisioning uses.
+	IdentityName string
+	// IdentityValidationTimeout bounds each NicoIdentity check, from token
+	// acquisition through the current-tenant read.
+	IdentityValidationTimeout time.Duration
 }
 
 // BindFlags binds the provider-level configuration to fs. The current values of
@@ -70,6 +80,9 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 	if p.RepairAnnotation == "" {
 		p.RepairAnnotation = DefaultRepairAnnotation
 	}
+	if p.IdentityValidationTimeout == 0 {
+		p.IdentityValidationTimeout = DefaultCredentialValidationTimeout
+	}
 	fs.StringVar(&p.Credentials.Namespace, "provider-credentials-namespace", p.Credentials.Namespace,
 		"Namespace of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
@@ -78,6 +91,29 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 		"CAPI Machine annotation key used to request a graceful reboot with hard fallback.")
 	fs.StringVar(&p.RepairAnnotation, "repair-annotation", p.RepairAnnotation,
 		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The value is parsed as JSON ({category, summary, details}), or treated as a plain summary with category Other. Leave empty to disable.")
+	fs.StringVar(&p.IdentityName, "provider-identity-name", p.IdentityName,
+		"Name of the NicoIdentity in the provider credentials namespace that reports the health of the provider-level credentials Secret. Leave empty to disable the observation.")
+	fs.DurationVar(&p.IdentityValidationTimeout, "provider-identity-validation-timeout", p.IdentityValidationTimeout,
+		"Maximum duration of one NicoIdentity credential check, from token acquisition through the current-tenant read.")
+}
+
+// Validate reports provider settings that cannot work. It checks only the
+// NicoIdentity settings, so existing flag combinations keep their behavior.
+func (p ProviderConfig) Validate() error {
+	var errs []error
+	if p.IdentityValidationTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("--provider-identity-validation-timeout must be positive, got %s", p.IdentityValidationTimeout))
+	}
+	if p.IdentityName == "" {
+		return errors.Join(errs...)
+	}
+	for _, msg := range validation.IsDNS1123Subdomain(p.IdentityName) {
+		errs = append(errs, fmt.Errorf("--provider-identity-name %q: %s", p.IdentityName, msg))
+	}
+	if p.Credentials.Namespace == "" || p.Credentials.Name == "" {
+		errs = append(errs, errors.New("--provider-identity-name requires a provider credentials namespace and Secret name"))
+	}
+	return errors.Join(errs...)
 }
 
 // SecretConfig contains NICo API connection settings loaded from a Secret.

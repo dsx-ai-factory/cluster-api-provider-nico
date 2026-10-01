@@ -48,7 +48,7 @@ holds.
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
-| `NicoIdentity` | A same-namespace credential Secret reference and optional observation status. The API is installed, but its controller is not yet implemented. It does not change provisioning credential selection. |
+| `NicoIdentity` | A same-namespace credential Secret reference and observation status. When `--provider-identity-name` selects it, a controller periodically checks the provider-level credentials Secret. It does not change provisioning credential selection or gate provisioning. |
 
 `NicoMachine.spec` remains editable until the controller assigns
 `spec.providerID`. After that assignment, the entire spec is immutable because
@@ -104,6 +104,24 @@ helper for acquiring one.
 Refer to the
 [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#nico-credentials-secret)
 for the Secret's key layout and both authentication modes.
+
+### Credential Health Observation
+
+The optional NicoIdentity controller checks the provider-level Secret
+separately from provisioning. Each check reads the Secret directly, builds a new
+client, acquires a new OAuth token instead of reusing a cached one, and calls
+NICo's current-tenant endpoint. One deadline,
+`--provider-identity-validation-timeout`, covers the whole check. Provisioning
+clients, their cached tokens and their tenant cache are not used or changed, so
+a revoked client secret shows up at the next check even while provisioning still
+holds a valid token.
+
+The controller watches only the selected Identity, and only spec changes
+trigger a check. Its own status writes do not, so the five-minute requeue sets
+the cadence. Before publishing, it rereads the Identity and the Secret and
+discards a result whose Identity generation or Secret revision changed during
+the check. Refer to the [API reference](api-reference.md#nicoidentity) for the
+flags and status reasons.
 
 ## Machine Reconciliation
 

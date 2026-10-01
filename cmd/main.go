@@ -4,11 +4,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -45,106 +49,159 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-func main() {
-	var metricsAddr string
-	var probeAddr string
-	var leaderElect bool
-	var watchNamespace string
-	var watchFilterValue string
+// managerConfig holds the manager settings parsed from flags.
+type managerConfig struct {
+	metricsAddr      string
+	probeAddr        string
+	leaderElect      bool
+	watchNamespace   string
+	watchFilterValue string
+	provider         nico.ProviderConfig
+	zapOptions       zap.Options
+}
 
-	defaultProviderNamespace := os.Getenv(podNamespaceEnvVar)
-	if defaultProviderNamespace == "" {
-		defaultProviderNamespace = defaultProviderCredentialsNamespace
+// bindFlags registers the manager flags on fs. The provider credentials
+// namespace defaults to podNamespace, or capnico-system when that is empty.
+func bindFlags(fs *flag.FlagSet, podNamespace string) *managerConfig {
+	if podNamespace == "" {
+		podNamespace = defaultProviderCredentialsNamespace
+	}
+	cfg := &managerConfig{
+		provider: nico.ProviderConfig{
+			Credentials: types.NamespacedName{
+				Namespace: podNamespace,
+				Name:      defaultProviderCredentialsSecretName,
+			},
+		},
 	}
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
-	flag.StringVar(
-		&watchNamespace,
+	fs.StringVar(&cfg.metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	fs.StringVar(&cfg.probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	fs.BoolVar(&cfg.leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
+	fs.StringVar(
+		&cfg.watchNamespace,
 		"namespace",
 		"",
 		"Namespace that the controller watches to reconcile Cluster API objects. "+
 			"If unspecified, the controller watches all namespaces.",
 	)
-	flag.StringVar(
-		&watchFilterValue,
+	fs.StringVar(
+		&cfg.watchFilterValue,
 		"watch-filter",
 		"",
 		"Label value that the controller watches to reconcile Cluster API objects. "+
 			"The label key is cluster.x-k8s.io/watch-filter. "+
 			"If unspecified, the controller watches all objects.",
 	)
+	cfg.provider.BindFlags(fs)
+	cfg.zapOptions.BindFlags(fs)
+	return cfg
+}
 
-	providerConfig := nico.ProviderConfig{
-		Credentials: types.NamespacedName{
-			Namespace: defaultProviderNamespace,
-			Name:      defaultProviderCredentialsSecretName,
-		},
-	}
-	providerConfig.BindFlags(flag.CommandLine)
-
-	zapOpts := zap.Options{}
-	zapOpts.BindFlags(flag.CommandLine)
-
-	flag.Parse()
-
+// managerOptions builds the manager options. The selected NicoIdentity gets its
+// own cache scope so --namespace cannot hide it and no other Identity is cached.
+func (cfg *managerConfig) managerOptions() ctrl.Options {
 	var watchNamespaces map[string]cache.Config
-	if watchNamespace != "" {
-		watchNamespaces = map[string]cache.Config{watchNamespace: {}}
+	if cfg.watchNamespace != "" {
+		watchNamespaces = map[string]cache.Config{cfg.watchNamespace: {}}
+	}
+	cacheOptions := cache.Options{DefaultNamespaces: watchNamespaces}
+	if cfg.provider.IdentityName != "" {
+		cacheOptions.ByObject = map[client.Object]cache.ByObject{
+			&infrav1.NicoIdentity{}: {
+				Namespaces: map[string]cache.Config{cfg.provider.Credentials.Namespace: {}},
+				Field:      fields.OneTermEqualSelector("metadata.name", cfg.provider.IdentityName),
+			},
+		}
 	}
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
-	if providerConfig.RebootAnnotation == nico.DefaultSoftRebootAnnotation ||
-		providerConfig.RebootAnnotation == nico.DefaultHardRebootAnnotation {
-		setupLog.Error(
-			errors.New("reboot annotation key conflicts with an explicit reboot key"),
-			"invalid provider configuration",
-			"annotation", providerConfig.RebootAnnotation,
-		)
-		os.Exit(1)
-	}
-
-	setupLog.Info("provider configuration", "config", providerConfig)
-
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	return ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         leaderElect,
+		Metrics:                metricsserver.Options{BindAddress: cfg.metricsAddr},
+		HealthProbeBindAddress: cfg.probeAddr,
+		LeaderElection:         cfg.leaderElect,
 		LeaderElectionID:       "nico.infrastructure.cluster.x-k8s.io",
-		Cache:                  cache.Options{DefaultNamespaces: watchNamespaces},
+		Cache:                  cacheOptions,
 		Client: client.Options{
 			Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}},
 		},
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
 	}
-	ctx := ctrl.SetupSignalHandler()
+}
 
+// explainManagerError names a missing NicoIdentity CRD, which the Identity
+// cache scope needs when --provider-identity-name selects an Identity.
+func explainManagerError(cfg *managerConfig, err error) error {
+	if cfg.provider.IdentityName != "" && meta.IsNoMatchError(err) {
+		return fmt.Errorf("%w: %w", controllers.ErrNicoIdentityCRDMissing, err)
+	}
+	return err
+}
+
+// setupReconcilers registers the provider controllers. The NicoIdentity
+// controller starts only when --provider-identity-name selects an Identity.
+func setupReconcilers(ctx context.Context, mgr ctrl.Manager, cfg *managerConfig) error {
 	if err := (&controllers.NicoClusterReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		ProviderConfig:   providerConfig,
-		WatchFilterValue: watchFilterValue,
+		ProviderConfig:   cfg.provider,
+		WatchFilterValue: cfg.watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "NicoCluster")
-		os.Exit(1)
+		return fmt.Errorf("NicoCluster controller: %w", err)
 	}
 
 	if err := (&controllers.NicoMachineReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		ProviderConfig:   providerConfig,
-		WatchFilterValue: watchFilterValue,
+		ProviderConfig:   cfg.provider,
+		WatchFilterValue: cfg.watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
+		return fmt.Errorf("NicoMachine controller: %w", err)
+	}
+
+	if cfg.provider.IdentityName != "" {
+		if err := (&controllers.NicoIdentityReconciler{
+			Client:         mgr.GetClient(),
+			ProviderConfig: cfg.provider,
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("NicoIdentity controller: %w", err)
+		}
+	}
+	// +kubebuilder:scaffold:builder
+	return nil
+}
+
+func main() {
+	cfg := bindFlags(flag.CommandLine, os.Getenv(podNamespaceEnvVar))
+	flag.Parse()
+
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&cfg.zapOptions)))
+	if cfg.provider.RebootAnnotation == nico.DefaultSoftRebootAnnotation ||
+		cfg.provider.RebootAnnotation == nico.DefaultHardRebootAnnotation {
+		setupLog.Error(
+			errors.New("reboot annotation key conflicts with an explicit reboot key"),
+			"invalid provider configuration",
+			"annotation", cfg.provider.RebootAnnotation,
+		)
+		os.Exit(1)
+	}
+	if err := cfg.provider.Validate(); err != nil {
+		setupLog.Error(err, "invalid provider configuration")
 		os.Exit(1)
 	}
 
-	// +kubebuilder:scaffold:builder
+	setupLog.Info("provider configuration", "config", cfg.provider)
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), cfg.managerOptions())
+	if err != nil {
+		setupLog.Error(explainManagerError(cfg, err), "unable to start manager")
+		os.Exit(1)
+	}
+	ctx := ctrl.SetupSignalHandler()
+
+	if err := setupReconcilers(ctx, mgr, cfg); err != nil {
+		setupLog.Error(err, "unable to create controller")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

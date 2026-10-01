@@ -11,14 +11,17 @@ ever drift, the Go source is authoritative.
 ## NicoIdentity
 
 `NicoIdentity` is a namespaced credential-observation API. Standard CAPNICo
-installations include its CRD, but this release does not include an Identity
-controller. Creating an Identity does not read its Secret or contact NICo.
-Status remains absent until a controller is implemented; absence is not success.
+installations include its CRD. When the manager selects an Identity with
+`--provider-identity-name`, the NicoIdentity controller periodically checks the
+provider-level credentials Secret and records the result in status. Without that
+flag, nothing reads the Identity or its Secret and status stays absent. Absence
+is not success.
 
 The Identity describes default credential health independently of tenant
 clusters. It does not select provisioning credentials, protect a Secret from
 deletion, or gate cluster or machine reconciliation. Existing
-`NicoCluster.spec.identityRef` values continue to reference Secrets.
+`NicoCluster.spec.identityRef` values continue to reference Secrets, and those
+per-cluster Secrets are not observed.
 
 ### Spec
 
@@ -32,10 +35,42 @@ remain in the Secret.
 Admission validates the reference's shape, not whether the Secret exists or
 contains usable credentials. The API has no cross-namespace reference field.
 
+### Enabling the Observation
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--provider-identity-name` | empty | Name of the Identity to observe. Empty disables the controller. The Identity must be in the provider credentials namespace, and its `credentialsRef.name` must equal `--provider-credentials-secret-name`. |
+| `--provider-identity-validation-timeout` | `30s` | Maximum duration of one check, from token acquisition through the NICo read. Must be positive. |
+
+The manager observes only the selected Identity. It ignores other Identities,
+including same-named ones in other namespaces, and still finds the selected one
+when `--namespace` restricts cluster and machine watches elsewhere. If the flag
+is set but the NicoIdentity CRD is not installed, the manager exits with an
+installation error.
+
+With the Helm chart, add the flag to `manager.args`:
+
+```yaml
+manager:
+  args:
+    - --leader-elect
+    - --provider-identity-name=nico-default
+```
+
+Then create the Identity next to the Secret, for example from the sample below.
+
+A check runs when the Identity is created or its spec changes, when the manager
+starts, and about five minutes after each completed check, including failed
+ones. Secret changes are picked up at the next scheduled check. Each check
+acquires a new OAuth token, or uses the static token, and calls NICo's
+current-tenant endpoint. That endpoint creates the organization's Tenant record
+if none exists. Enabling the observation before any cluster exists can therefore
+create the record that the first cluster would otherwise create.
+
 ### Status
 
-The optional `/status` subresource reserves the following observation fields.
-They have no defaults or observations supplied by the current manager.
+The `/status` subresource holds the following observation fields. Only the
+controller writes them.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -48,6 +83,16 @@ or permission failure; `Unknown` means the result is inconclusive. This baseline
 does not establish all provisioning permissions, capacity, or the intended
 principal. Reasons can be extended; messages are diagnostic text for people.
 
+| Ready | Reason | Meaning |
+|---|---|---|
+| `True` | `ValidationSucceeded` | Authentication and the current-tenant lookup succeeded. The message says so if TLS certificate verification is disabled. |
+| `False` | `CredentialsNotFound` | The referenced Secret does not exist. |
+| `False` | `InvalidConfiguration` | The Secret lacks required keys or has invalid values, or `credentialsRef.name` differs from the manager's default Secret. |
+| `False` | `AuthenticationFailed` | The token issuer or NICo rejected the credentials. |
+| `False` | `AccessDenied` | NICo forbade the current-tenant lookup. |
+| `Unknown` | `SecretReadFailed` | The controller could not read the Secret, for example because of RBAC. |
+| `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got an unexpected response. |
+
 Readers select `Ready` by type and compare its `observedGeneration` with
 `metadata.generation`. They also inspect `lastCheckedTime` for freshness.
 Missing or outdated observations do not establish current health. Condition
@@ -55,9 +100,11 @@ Missing or outdated observations do not establish current health. Condition
 Additional conditions must not change those existing meanings.
 
 The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age.
-Until validation is implemented, Ready and LastChecked are empty. A future
-controller will populate status; creating this API alone does not enable checks
-or notifications. Deleting an Identity removes only the observation object.
+Compare LastChecked with the current time: a stopped manager cannot mark its
+last result stale, and `kubectl wait --for=condition=Ready` does not check age.
+A failed check updates status only; it raises no Event or alert. Deleting an
+Identity removes only the observation object, not its Secret or any NICo
+resource.
 
 Use the desired-only
 [`NicoIdentity sample`](../config/samples/infrastructure_v1alpha1_nicoidentity.yaml)
@@ -205,7 +252,7 @@ For a minimal manifest, refer to
 
 ## Condition Types and Reasons
 
-The two reconcilers publish four condition types.
+The cluster and machine reconcilers publish four condition types. `NicoIdentity` reports its own `Ready` condition, described in [NicoIdentity](#nicoidentity).
 
 | Type | Meaning |
 |---|---|

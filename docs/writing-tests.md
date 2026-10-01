@@ -35,6 +35,9 @@ signal rather than noise.
   writes `spec.providerID`.
 - An unprovisioned `NicoMachine` create case stays at generation 1.
 - A provisioned `NicoMachine` spec update reaches generation 3.
+- `NicoIdentity` create cases stay at generation 1, and update cases reach
+  generation 2. A completed check can be `Unknown`, so steps wait for `Ready`'s
+  `observedGeneration` and a `lastCheckedTime`, not for a `Ready` value.
 
 ## Extending the Fake NICo Backend
 
