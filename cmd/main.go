@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -58,6 +59,9 @@ type managerConfig struct {
 	watchFilterValue string
 	provider         nico.ProviderConfig
 	zapOptions       zap.Options
+	// identityCheckInterval shortens the Identity recheck for runtime tests. It
+	// has no flag; zero keeps the controller's five-minute default.
+	identityCheckInterval time.Duration
 }
 
 // bindFlags registers the manager flags on fs. The provider credentials
@@ -162,6 +166,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, cfg *managerConfig)
 		if err := (&controllers.NicoIdentityReconciler{
 			Client:         mgr.GetClient(),
 			ProviderConfig: cfg.provider,
+			CheckInterval:  cfg.identityCheckInterval,
 		}).SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("NicoIdentity controller: %w", err)
 		}

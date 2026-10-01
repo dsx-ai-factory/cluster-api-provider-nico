@@ -1,0 +1,22 @@
+---
+items:
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoIdentity
+  metadata:
+    creationTimestamp: null
+    generation: 1
+    name: nico-default
+    namespace: capnico-system
+  spec:
+    credentialsRef:
+      name: nico-credentials
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: Token issuer rejected the client credentials.
+      observedGeneration: 1
+      reason: AuthenticationFailed
+      status: "False"
+      type: Ready
+    lastCheckedTime: "1970-01-01T00:00:00Z"
+metadata: {}

@@ -10,7 +10,7 @@ state, not workflow scripts. Four rules follow from that.
 - A step only waits for the case-set invariant, which is the current
   `observedGeneration`, the expected generation, or deletion. Goldens assert
   every field and condition.
-- Use end-to-end tests for timing, watches, and interactions across
+- Use runtime scenarios for timing, watches, and interactions across
   controllers. Use envtest cases for individual state-machine states.
 
 ## Fixtures and Goldens
@@ -23,6 +23,26 @@ Two rules govern where golden state lives and how you regenerate it.
 - `make test-update` regenerates the goldens. Read the resulting diff before
   you commit it, because an unexpected change there usually means a behavior
   change.
+
+## Runtime Scenarios
+
+A runtime scenario changes inputs while the manager runs, for behavior that no
+single settled snapshot can show. `cmd/identity_runtime_test.go` covers the
+`NicoIdentity` controller this way. Each scenario follows four rules.
+
+- Start the full manager through `bindFlags`, `managerOptions`, and
+  `setupReconcilers` against envtest and the authenticated fake. Shorten timers
+  through `managerConfig`, never through a flag or CRD field.
+- Compare each settled stage with goldens under
+  `cmd/testdata/identity-runtime/<scenario>-<stage>/`, using `fixture.Snapshot`
+  and `fixture.ExpectGolden`. `make test-update` regenerates them.
+- Assert directly only what a masked snapshot cannot show, such as request
+  counts and spacing, results that must never be published, unchanged
+  timestamps, and reconcile errors.
+- To test an RBAC denial, run the manager as an envtest `AddUser` user bound to
+  the generated manager role minus only the permission under test.
+
+Runtime scenarios run in `make test`.
 
 ## CAPNICo Generation Invariants
 
