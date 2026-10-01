@@ -1,0 +1,22 @@
+---
+items:
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoIdentity
+  metadata:
+    creationTimestamp: null
+    generation: 1
+    name: nico-default
+    namespace: capnico-system
+  spec:
+    credentialsRef:
+      name: nico-credentials
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: Credential Secret was not found.
+      observedGeneration: 1
+      reason: CredentialsNotFound
+      status: "False"
+      type: Ready
+    lastCheckedTime: "1970-01-01T00:00:00Z"
+metadata: {}
