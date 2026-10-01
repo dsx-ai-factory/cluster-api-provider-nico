@@ -109,9 +109,11 @@ UNASSIGNED_COUNT="$(jq 'length' <<<"${UNASSIGNED_IDS}")"
 if [[ "${UNASSIGNED_COUNT}" -gt 0 ]]; then
     log "associating ${UNASSIGNED_COUNT} unassigned Machine(s)"
     # A brand-new instance type can 400 on the first attempt; idempotent retry.
+    # jq needs -n here. Without null input it reads stdin, which is the
+    # terminal, so the body is never produced and the request never fires.
     for attempt in 1 2 3; do
         api POST "instance/type/${INSTANCE_TYPE_ID}/machine" \
-            "$(jq -c --argjson ids "${UNASSIGNED_IDS}" '{machineIds: $ids}')" >/dev/null && break
+            "$(jq -cn --argjson ids "${UNASSIGNED_IDS}" '{machineIds: $ids}')" >/dev/null && break
         [[ "${attempt}" != 3 ]] || die "could not associate Machines with instance type ${INSTANCE_TYPE_ID}."
         sleep 2
     done
