@@ -42,7 +42,9 @@ func TestNicoIdentityAPI(t *testing.T) {
 	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "identity-api"}}
 	require.NoError(t, c.Create(ctx, namespace))
 
-	t.Run("admission and absent initial status", func(t *testing.T) {
+	// Accepted objects' initial generation and absent status, finalizers and
+	// owners are asserted by the nicoidentity-create-ready controller golden.
+	t.Run("admission", func(t *testing.T) {
 		type admissionCase struct {
 			name  string
 			spec  map[string]any
@@ -77,11 +79,6 @@ func TestNicoIdentityAPI(t *testing.T) {
 					return
 				}
 				require.NoError(t, err)
-				require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(object), object))
-				require.EqualValues(t, 1, object.GetGeneration())
-				require.NotContains(t, object.Object, "status")
-				require.Empty(t, object.GetFinalizers())
-				require.Empty(t, object.GetOwnerReferences())
 			})
 		}
 	})

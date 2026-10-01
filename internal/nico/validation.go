@@ -16,7 +16,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const credentialValidationTimeout = 30 * time.Second
+// DefaultCredentialValidationTimeout bounds one validation attempt unless the
+// manager configures another value.
+const DefaultCredentialValidationTimeout = 30 * time.Second
 
 // CredentialValidation contains only safe diagnostics for an Identity observation.
 // Success proves authentication and a current-tenant read, not provisioning permissions
@@ -28,13 +30,11 @@ type CredentialValidation struct {
 }
 
 // ValidateCredentials checks one Secret snapshot without provisioning or using cached
-// clients, tokens, or tenant IDs. The caller owns Secret selection and status publication.
-// Raw client errors must not cross this boundary because they can contain credentials.
-func ValidateCredentials(ctx context.Context, secret *corev1.Secret) CredentialValidation {
-	return validateCredentials(ctx, secret, credentialValidationTimeout)
-}
-
-func validateCredentials(ctx context.Context, secret *corev1.Secret, timeout time.Duration) CredentialValidation {
+// clients, tokens, or tenant IDs. Timeout bounds the whole attempt, from client
+// construction through the current-tenant read; an earlier parent deadline still applies.
+// The caller owns Secret selection and status publication. Raw client errors must not
+// cross this boundary because they can contain credentials.
+func ValidateCredentials(ctx context.Context, secret *corev1.Secret, timeout time.Duration) CredentialValidation {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if ctx.Err() != nil {
