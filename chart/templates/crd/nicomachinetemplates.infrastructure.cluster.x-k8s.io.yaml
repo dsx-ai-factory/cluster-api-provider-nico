@@ -191,8 +191,9 @@ spec:
                         minItems: 1
                         type: array
                       ipxeScript:
-                        description: IpxeScript is the iPXE script used to boot this
-                          instance.
+                        description: |-
+                          IpxeScript is the iPXE script used to boot this instance.
+                          Mutually exclusive with OperatingSystemID.
                         type: string
                       labels:
                         additionalProperties:
@@ -237,6 +238,12 @@ spec:
                           Set this instead of NVLinkInterfaces when every device should use the same logical partition.
                         minLength: 1
                         type: string
+                      operatingSystemID:
+                        description: |-
+                          OperatingSystemID is the ID of a registered NICo operating system used to boot this instance.
+                          Mutually exclusive with IpxeScript.
+                        minLength: 1
+                        type: string
                       providerID:
                         description: ProviderID is set to `nico://<instance-id>` after
                           the NICo instance is created.
@@ -274,6 +281,8 @@ spec:
                       rule: '!(has(self.nvLinkLogicalPartitionID) && has(self.nvLinkInterfaces))'
                     - message: nvLinkLogicalPartitionID requires instanceTypeID
                       rule: '!has(self.nvLinkLogicalPartitionID) || has(self.instanceTypeID)'
+                    - message: ipxeScript and operatingSystemID are mutually exclusive
+                      rule: '!(has(self.ipxeScript) && has(self.operatingSystemID))'
                 required:
                 - spec
                 type: object
