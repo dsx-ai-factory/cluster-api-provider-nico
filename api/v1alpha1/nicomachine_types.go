@@ -90,6 +90,7 @@ type NicoMachineNVLinkInterface struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.infinibandPartitionID) || has(self.instanceTypeID)",message="infinibandPartitionID requires instanceTypeID"
 // +kubebuilder:validation:XValidation:rule="!(has(self.nvLinkLogicalPartitionID) && has(self.nvLinkInterfaces))",message="nvLinkLogicalPartitionID and nvLinkInterfaces are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!has(self.nvLinkLogicalPartitionID) || has(self.instanceTypeID)",message="nvLinkLogicalPartitionID requires instanceTypeID"
+// +kubebuilder:validation:XValidation:rule="!(has(self.ipxeScript) && has(self.operatingSystemID))",message="ipxeScript and operatingSystemID are mutually exclusive"
 type NicoMachineSpec struct {
 	// VPCID is the VPC where this provider should create the instance.
 	// +kubebuilder:validation:MinLength=1
@@ -135,8 +136,15 @@ type NicoMachineSpec struct {
 	SSHKeyGroupIDs []string `json:"sshKeyGroupIDs,omitempty"`
 
 	// IpxeScript is the iPXE script used to boot this instance.
+	// Mutually exclusive with OperatingSystemID.
 	// +optional
 	IpxeScript string `json:"ipxeScript,omitempty"`
+
+	// OperatingSystemID is the ID of a registered NICo operating system used to boot this instance.
+	// Mutually exclusive with IpxeScript.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	OperatingSystemID string `json:"operatingSystemID,omitempty"`
 
 	// CloudInitInjectHostname prepends hostname directives to the bootstrap cloud-config.
 	// +optional
@@ -288,6 +296,7 @@ type NicoMachineStatus struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.nvLinkLogicalPartitionID) == has(oldSelf.spec.nvLinkLogicalPartitionID) && (!has(self.spec.nvLinkLogicalPartitionID) || self.spec.nvLinkLogicalPartitionID == oldSelf.spec.nvLinkLogicalPartitionID))",message="spec.nvLinkLogicalPartitionID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.sshKeyGroupIDs) == has(oldSelf.spec.sshKeyGroupIDs) && (!has(self.spec.sshKeyGroupIDs) || self.spec.sshKeyGroupIDs == oldSelf.spec.sshKeyGroupIDs))",message="spec.sshKeyGroupIDs is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.ipxeScript) == has(oldSelf.spec.ipxeScript) && (!has(self.spec.ipxeScript) || self.spec.ipxeScript == oldSelf.spec.ipxeScript))",message="spec.ipxeScript is immutable after providerID is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.operatingSystemID) == has(oldSelf.spec.operatingSystemID) && (!has(self.spec.operatingSystemID) || self.spec.operatingSystemID == oldSelf.spec.operatingSystemID))",message="spec.operatingSystemID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.cloudInitInjectHostname) == has(oldSelf.spec.cloudInitInjectHostname) && (!has(self.spec.cloudInitInjectHostname) || self.spec.cloudInitInjectHostname == oldSelf.spec.cloudInitInjectHostname))",message="spec.cloudInitInjectHostname is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.labels) == has(oldSelf.spec.labels) && (!has(self.spec.labels) || self.spec.labels == oldSelf.spec.labels))",message="spec.labels is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.machineID) == has(oldSelf.spec.machineID) && (!has(self.spec.machineID) || self.spec.machineID == oldSelf.spec.machineID))",message="spec.machineID is immutable after providerID is set"
