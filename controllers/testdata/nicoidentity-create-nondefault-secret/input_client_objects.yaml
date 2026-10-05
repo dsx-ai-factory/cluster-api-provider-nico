@@ -9,6 +9,17 @@ stringData:
   orgID: org-1
   token: test-token
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tenant-creds
+  namespace: default
+type: Opaque
+stringData:
+  endpoint: https://nico.example
+  orgID: org-1
+  token: test-token
+---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoIdentity
 metadata:
@@ -16,4 +27,4 @@ metadata:
   namespace: default
 spec:
   credentialsRef:
-    name: other-creds
+    name: tenant-creds

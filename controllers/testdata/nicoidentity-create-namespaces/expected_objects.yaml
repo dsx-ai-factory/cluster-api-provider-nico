@@ -24,18 +24,38 @@ items:
   metadata:
     creationTimestamp: null
     generation: 1
-    name: other-identity
-    namespace: default
+    name: incomplete-identity
+    namespace: tenants
+  spec:
+    credentialsRef:
+      name: incomplete-creds
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: Credential configuration is missing required fields or contains incompatible
+        or invalid values.
+      observedGeneration: 1
+      reason: InvalidConfiguration
+      status: "False"
+      type: Ready
+    lastCheckedTime: "1970-01-01T00:00:00Z"
+- apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+  kind: NicoIdentity
+  metadata:
+    creationTimestamp: null
+    generation: 1
+    name: nico-identity
+    namespace: tenants
   spec:
     credentialsRef:
       name: nico-creds
   status:
     conditions:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Authentication and current-tenant lookup succeeded.
+      message: Credential Secret was not found.
       observedGeneration: 1
-      reason: ValidationSucceeded
-      status: "True"
+      reason: CredentialsNotFound
+      status: "False"
       type: Ready
     lastCheckedTime: "1970-01-01T00:00:00Z"
 metadata: {}
