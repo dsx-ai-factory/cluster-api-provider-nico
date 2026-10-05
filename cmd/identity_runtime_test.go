@@ -120,11 +120,11 @@ func TestIdentityRuntimeRecoversFromDeletion(t *testing.T) {
 	rt.startManager(rt.config)
 	rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
 
-	require.NoError(t, rt.admin.Delete(t.Context(), rt.secret(runtimeClientSecret)))
+	require.NoError(t, rt.admin.Delete(t.Context(), rt.secret()))
 	rt.waitForReady(metav1.ConditionFalse, "CredentialsNotFound")
 	rt.expectGoldens("secret-deleted")
 
-	require.NoError(t, rt.admin.Create(t.Context(), rt.secret(runtimeClientSecret)))
+	require.NoError(t, rt.admin.Create(t.Context(), rt.secret()))
 	rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
 	rt.expectGoldens("secret-recreated")
 
@@ -261,7 +261,7 @@ func TestIdentityRuntimeChecksIdentitiesIndependently(t *testing.T) {
 	ctx := t.Context()
 	tenant := types.NamespacedName{Namespace: runtimeTenants, Name: runtimeIdentity.Name}
 	require.NoError(t, rt.admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: runtimeTenants}}))
-	require.NoError(t, rt.admin.Create(ctx, rt.secretIn(runtimeTenants, runtimeClientSecret)))
+	require.NoError(t, rt.admin.Create(ctx, rt.secretIn(runtimeTenants)))
 	rt.createIdentity()
 	require.NoError(t, rt.admin.Create(ctx, newIdentity(tenant)))
 	rt.startManager(rt.config)
@@ -281,6 +281,50 @@ func TestIdentityRuntimeChecksIdentitiesIndependently(t *testing.T) {
 	after := rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
 	assert.True(t, readyCondition(before).LastTransitionTime.Equal(&readyCondition(after).LastTransitionTime))
 	rt.expectGoldens("independent-identities")
+}
+
+// A Secret change checks exactly the Identities that name it, long before
+// the periodic recheck could. Changing an unrelated Secret, or a same-named
+// Secret in another namespace, checks nothing else.
+func TestIdentityRuntimeRechecksOnSecretChange(t *testing.T) {
+	rt := newIdentityRuntime(t)
+	ctx := t.Context()
+	tenant := types.NamespacedName{Namespace: runtimeTenants, Name: runtimeIdentity.Name}
+	require.NoError(t, rt.admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: runtimeTenants}}))
+	require.NoError(t, rt.admin.Create(ctx, rt.secretIn(runtimeTenants)))
+	unrelated := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: runtimeNamespace, Name: "unrelated"},
+		StringData: map[string]string{"key": "value"},
+	}
+	require.NoError(t, rt.admin.Create(ctx, unrelated))
+	rt.createIdentity()
+	require.NoError(t, rt.admin.Create(ctx, newIdentity(tenant)))
+	// The periodic recheck cannot fire during the test, so every later check
+	// comes from a Secret event.
+	rt.startManagerEvery(rt.config, time.Hour)
+	rt.waitFor(tenant, metav1.ConditionTrue, "ValidationSucceeded")
+	rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
+	rt.expectTokens(2)
+
+	unrelated.StringData = map[string]string{"key": "changed"}
+	require.NoError(t, rt.admin.Update(ctx, unrelated))
+	rt.expectTokens(2)
+
+	// One token for the one Identity naming the changed Secret.
+	rt.setClientSecret("wrong-secret")
+	rt.waitForReady(metav1.ConditionFalse, "AuthenticationFailed")
+	rt.expectTokens(3)
+	rt.expectGoldens("secret-event-updated")
+
+	// A missing Secret is reported without a backend call.
+	require.NoError(t, rt.admin.Delete(ctx, rt.secret()))
+	rt.waitForReady(metav1.ConditionFalse, "CredentialsNotFound")
+	rt.expectTokens(3)
+
+	require.NoError(t, rt.admin.Create(ctx, rt.secret()))
+	rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
+	rt.expectTokens(4)
+	rt.expectGoldens("secret-event-recreated")
 }
 
 // identityRuntime is one envtest API server, the authenticated fake behind a
@@ -327,7 +371,7 @@ func newIdentityRuntime(t *testing.T) *identityRuntime {
 		endpoint:    endpoint.URL,
 	}
 	require.NoError(t, admin.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: runtimeNamespace}}))
-	require.NoError(t, admin.Create(t.Context(), rt.secret(runtimeClientSecret)))
+	require.NoError(t, admin.Create(t.Context(), rt.secret()))
 	return rt
 }
 
@@ -335,17 +379,23 @@ func newIdentityRuntime(t *testing.T) *identityRuntime {
 // at most every runtimeCheckInterval.
 func (rt *identityRuntime) startManager(config *rest.Config) {
 	rt.t.Helper()
+	rt.startManagerEvery(config, runtimeCheckInterval)
+}
+
+func (rt *identityRuntime) startManagerEvery(config *rest.Config, interval time.Duration) {
+	rt.t.Helper()
 	mgr, cfg := newTestManager(rt.t, config, runtimeNamespace)
-	cfg.identityCheckInterval = runtimeCheckInterval
+	cfg.identityCheckInterval = interval
 	require.NoError(rt.t, setupReconcilers(rt.t.Context(), mgr, cfg))
 	startManager(rt.t, mgr)
 }
 
-func (rt *identityRuntime) secret(clientSecret string) *corev1.Secret {
-	return rt.secretIn(runtimeNamespace, clientSecret)
+// secret is the runtime Secret with the client secret the fake accepts.
+func (rt *identityRuntime) secret() *corev1.Secret {
+	return rt.secretIn(runtimeNamespace)
 }
 
-func (rt *identityRuntime) secretIn(namespace, clientSecret string) *corev1.Secret {
+func (rt *identityRuntime) secretIn(namespace string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: runtimeSecretName},
 		StringData: map[string]string{
@@ -353,7 +403,7 @@ func (rt *identityRuntime) secretIn(namespace, clientSecret string) *corev1.Secr
 			nico.SecretKeyOrgID:        runtimeOrg,
 			nico.SecretKeyTokenURL:     rt.endpoint + "/token",
 			nico.SecretKeyClientID:     runtimeClientID,
-			nico.SecretKeyClientSecret: clientSecret,
+			nico.SecretKeyClientSecret: runtimeClientSecret,
 		},
 	}
 }
@@ -408,6 +458,20 @@ func (rt *identityRuntime) waitFor(
 		identity = current
 	}, runtimeTimeout, 100*time.Millisecond)
 	return identity
+}
+
+// expectTokens waits for the fake to have received tokens token requests, one
+// per check that read a usable Secret, and shows that no further check follows.
+func (rt *identityRuntime) expectTokens(tokens int) {
+	rt.t.Helper()
+	require.EventuallyWithT(rt.t, func(collect *assert.CollectT) {
+		actual, _ := rt.backend.counts()
+		assert.Equal(collect, tokens, actual)
+	}, runtimeTimeout, 100*time.Millisecond)
+	require.Never(rt.t, func() bool {
+		actual, _ := rt.backend.counts()
+		return actual != tokens
+	}, 2*time.Second, 100*time.Millisecond)
 }
 
 func (rt *identityRuntime) waitHeld(held <-chan struct{}) {
