@@ -26,8 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -82,27 +82,24 @@ func TestCredentialSelection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			args := append([]string{"--provider-identity-name=nico-default"}, tc.args...)
-			cfg := parseManagerFlags(t, tc.podNamespace, args...)
+			cfg := parseManagerFlags(t, tc.podNamespace, tc.args...)
 			require.Equal(t, tc.want, cfg.provider.Credentials)
-
-			// The selected Identity is cached only in the default Secret's namespace.
-			byObjects := cfg.managerOptions().Cache.ByObject
-			require.Len(t, byObjects, 1)
-			var byObject cache.ByObject
-			for object, value := range byObjects {
-				require.IsType(t, &infrav1.NicoIdentity{}, object)
-				byObject = value
-			}
-			require.Equal(t, []string{tc.want.Namespace}, slices.Collect(maps.Keys(byObject.Namespaces)))
-			require.Equal(t, "metadata.name=nico-default", byObject.Field.String())
 		})
 	}
+}
 
-	t.Run("disabled observation caches no Identities", func(t *testing.T) {
-		cfg := parseManagerFlags(t, "")
-		require.Empty(t, cfg.managerOptions().Cache.ByObject)
-	})
+func TestIdentityCacheScope(t *testing.T) {
+	// Identities share the NicoCluster and NicoMachine cache scope; the default
+	// credentials namespace adds nothing to it.
+	cfg := parseManagerFlags(t, "provider-system")
+	options := cfg.managerOptions()
+	require.Empty(t, options.Cache.ByObject)
+	require.Empty(t, options.Cache.DefaultNamespaces)
+
+	cfg = parseManagerFlags(t, "provider-system", "--namespace=tenants")
+	options = cfg.managerOptions()
+	require.Empty(t, options.Cache.ByObject)
+	require.Equal(t, []string{"tenants"}, slices.Collect(maps.Keys(options.Cache.DefaultNamespaces)))
 }
 
 func TestManagerWithoutIdentityCRD(t *testing.T) {
@@ -117,35 +114,77 @@ func TestManagerWithoutIdentityCRD(t *testing.T) {
 	require.Len(t, withoutIdentity, len(providerCRDs))
 	config := startEnvironment(t, withoutIdentity)
 
-	t.Run("disabled observation starts the manager", func(t *testing.T) {
-		mgr, cfg := newTestManager(t, config, "")
-		require.NoError(t, setupReconcilers(t.Context(), mgr, cfg))
-		done := startManager(t, mgr)
-		// Every controller must sync before CacheSyncTimeout, or Start returns an error.
-		require.Never(t, func() bool {
-			select {
-			case err := <-done:
-				t.Logf("manager stopped: %v", err)
-				return true
-			default:
-				return false
-			}
-		}, 2*testCacheSyncTimeout, 100*time.Millisecond)
-	})
+	// The Identity controller is skipped, so no controller waits on an informer
+	// for the missing kind.
+	mgr, cfg := newTestManager(t, config, "")
+	require.NoError(t, setupReconcilers(t.Context(), mgr, cfg))
+	done := startManager(t, mgr)
+	// Every controller must sync before CacheSyncTimeout, or Start returns an error.
+	require.Never(t, func() bool {
+		select {
+		case err := <-done:
+			t.Logf("manager stopped: %v", err)
+			return true
+		default:
+			return false
+		}
+	}, 2*testCacheSyncTimeout, 100*time.Millisecond)
 
-	t.Run("enabled observation reports the missing CRD", func(t *testing.T) {
-		cfg := parseManagerFlags(t, "", "--provider-identity-name=nico-default")
-		_, err := ctrl.NewManager(config, cfg.managerOptions())
-		require.ErrorIs(t, explainManagerError(cfg, err), controllers.ErrNicoIdentityCRDMissing)
-	})
+	reconciler := &controllers.NicoIdentityReconciler{Client: mgr.GetClient()}
+	require.ErrorIs(t, reconciler.SetupWithManager(t.Context(), mgr), controllers.ErrNicoIdentityCRDMissing)
 }
 
-func TestManagerObservesSelectedIdentity(t *testing.T) {
+// TestManagerObservesIdentities shows the manager checking Identities the way it
+// reconciles NicoClusters: every namespace by default, only --namespace when
+// set, and only labeled Identities when --watch-filter is set. Subtests share
+// one API server, so each uses its own namespaces and deletes its Identities.
+func TestManagerObservesIdentities(t *testing.T) {
 	config := startEnvironment(t, []string{filepath.Join("..", "config", "crd", "bases"), capiCRDPath(t)})
 	c, err := client.New(config, client.Options{Scheme: scheme})
 	require.NoError(t, err)
-	ctx := t.Context()
 
+	t.Run("every namespace by default", func(t *testing.T) {
+		server, endpoint := newIdentityBackend(t)
+		first := createScopedIdentity(t, c, endpoint, "every-a", nil)
+		second := createScopedIdentity(t, c, endpoint, "every-b", nil)
+		startIdentityManager(t, config)
+
+		expectIdentitiesReady(t, c, first, second)
+		expectOnlyChecked(t, c, server, 2)
+	})
+
+	t.Run("--namespace limits the scope", func(t *testing.T) {
+		server, endpoint := newIdentityBackend(t)
+		watched := createScopedIdentity(t, c, endpoint, "scope-in", nil)
+		outside := createScopedIdentity(t, c, endpoint, "scope-out", nil)
+		startIdentityManager(t, config, "--namespace="+watched.Namespace)
+
+		expectIdentitiesReady(t, c, watched)
+		expectOnlyChecked(t, c, server, 1, outside)
+	})
+
+	t.Run("--watch-filter limits the scope to labeled Identities", func(t *testing.T) {
+		server, endpoint := newIdentityBackend(t)
+		labeled := createScopedIdentity(t, c, endpoint, "filter-labeled", map[string]string{clusterv1.WatchLabel: "team-a"})
+		unlabeled := createScopedIdentity(t, c, endpoint, "filter-unlabeled", nil)
+		startIdentityManager(t, config, "--watch-filter=team-a")
+
+		expectIdentitiesReady(t, c, labeled)
+		expectOnlyChecked(t, c, server, 1, unlabeled)
+
+		// Adding the label brings an Identity into the filter without a spec change.
+		identity := &infrav1.NicoIdentity{}
+		require.NoError(t, c.Get(t.Context(), unlabeled, identity))
+		identity.Labels = map[string]string{clusterv1.WatchLabel: "team-a"}
+		require.NoError(t, c.Update(t.Context(), identity))
+		expectIdentitiesReady(t, c, unlabeled)
+		expectOnlyChecked(t, c, server, 2)
+	})
+}
+
+// newIdentityBackend serves a fake that accepts one OAuth client.
+func newIdentityBackend(t *testing.T) (*fake.Server, string) {
+	t.Helper()
 	server := fake.New()
 	server.SeedClient("identity-client", "identity-secret")
 	tenant := nicosdk.NewTenant()
@@ -154,32 +193,75 @@ func TestManagerObservesSelectedIdentity(t *testing.T) {
 	server.SeedTenant("org-1", *tenant)
 	endpoint := httptest.NewServer(server.Handler())
 	t.Cleanup(endpoint.Close)
+	return server, endpoint.URL
+}
 
-	for _, namespace := range []string{"capnico-system", "tenants"} {
-		require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
-	}
+// createScopedIdentity creates a namespace holding a Secret for endpoint and an
+// Identity naming it. The Identity is deleted after the subtest's manager stops.
+func createScopedIdentity(
+	t *testing.T, c client.Client, endpoint, namespace string, labels map[string]string,
+) types.NamespacedName {
+	t.Helper()
+	ctx := t.Context()
+	require.NoError(t, c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "capnico-system", Name: "nico-credentials"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "nico-credentials"},
 		StringData: map[string]string{
-			nico.SecretKeyEndpoint:     endpoint.URL,
+			nico.SecretKeyEndpoint:     endpoint,
 			nico.SecretKeyOrgID:        "org-1",
-			nico.SecretKeyTokenURL:     endpoint.URL + "/token",
+			nico.SecretKeyTokenURL:     endpoint + "/token",
 			nico.SecretKeyClientID:     "identity-client",
 			nico.SecretKeyClientSecret: "identity-secret",
 		},
 	}))
-	selected := types.NamespacedName{Namespace: "capnico-system", Name: "nico-default"}
-	unselected := []types.NamespacedName{
-		{Namespace: "capnico-system", Name: "unselected"},
-		{Namespace: "tenants", Name: "nico-default"},
-	}
-	for _, key := range unselected {
-		require.NoError(t, c.Create(ctx, newIdentity(key)))
-	}
-	unselectedObserved := func() bool {
-		for _, key := range unselected {
+	key := types.NamespacedName{Namespace: namespace, Name: "nico-default"}
+	identity := newIdentity(key)
+	identity.Labels = labels
+	require.NoError(t, c.Create(ctx, identity))
+	t.Cleanup(func() { require.NoError(t, client.IgnoreNotFound(c.Delete(context.Background(), identity))) })
+	return key
+}
+
+func startIdentityManager(t *testing.T, config *rest.Config, args ...string) {
+	t.Helper()
+	mgr, cfg := newTestManager(t, config, "capnico-system", args...)
+	require.NoError(t, setupReconcilers(t.Context(), mgr, cfg))
+	startManager(t, mgr)
+}
+
+func expectIdentitiesReady(t *testing.T, c client.Client, keys ...types.NamespacedName) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		for _, key := range keys {
 			identity := &infrav1.NicoIdentity{}
-			if err := c.Get(ctx, key, identity); err != nil {
+			if !assert.NoError(collect, c.Get(t.Context(), key, identity)) {
+				continue
+			}
+			ready := meta.FindStatusCondition(identity.Status.Conditions, "Ready")
+			if !assert.NotNil(collect, ready, "%s has no Ready condition", key) {
+				continue
+			}
+			assert.Equal(collect, metav1.ConditionTrue, ready.Status)
+			assert.Equal(collect, "ValidationSucceeded", ready.Reason)
+			assert.Equal(collect, identity.Generation, ready.ObservedGeneration)
+			assert.NotNil(collect, identity.Status.LastCheckedTime)
+		}
+	}, time.Minute, 100*time.Millisecond)
+}
+
+// expectOnlyChecked shows that the fake minted exactly tokens fresh tokens, one
+// per in-scope check, and that the ignored Identities get no status.
+func expectOnlyChecked(
+	t *testing.T, c client.Client, server *fake.Server, tokens int, ignored ...types.NamespacedName,
+) {
+	t.Helper()
+	require.Never(t, func() bool {
+		if server.TokenRequestCount() != tokens {
+			return true
+		}
+		for _, key := range ignored {
+			identity := &infrav1.NicoIdentity{}
+			if err := c.Get(t.Context(), key, identity); err != nil {
 				return true
 			}
 			if len(identity.Status.Conditions) > 0 || identity.Status.LastCheckedTime != nil {
@@ -187,39 +269,6 @@ func TestManagerObservesSelectedIdentity(t *testing.T) {
 			}
 		}
 		return false
-	}
-
-	// --namespace restricts cluster and machine watches to tenants; the selected
-	// Identity lives with the default Secret in capnico-system.
-	mgr, cfg := newTestManager(t, config, "capnico-system", "--namespace=tenants", "--provider-identity-name=nico-default")
-	require.NoError(t, setupReconcilers(ctx, mgr, cfg))
-	startManager(t, mgr)
-
-	// Until the selected Identity exists, nothing is checked or reported.
-	require.Never(t, func() bool {
-		return server.TokenRequestCount() != 0 || unselectedObserved()
-	}, 2*time.Second, 100*time.Millisecond)
-
-	require.NoError(t, c.Create(ctx, newIdentity(selected)))
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		identity := &infrav1.NicoIdentity{}
-		if !assert.NoError(collect, c.Get(ctx, selected, identity)) {
-			return
-		}
-		ready := meta.FindStatusCondition(identity.Status.Conditions, "Ready")
-		if !assert.NotNil(collect, ready) {
-			return
-		}
-		assert.Equal(collect, metav1.ConditionTrue, ready.Status)
-		assert.Equal(collect, "ValidationSucceeded", ready.Reason)
-		assert.Equal(collect, identity.Generation, ready.ObservedGeneration)
-		assert.NotNil(collect, identity.Status.LastCheckedTime)
-	}, time.Minute, 100*time.Millisecond)
-
-	// One fresh token for the one selected check; unselected objects get no
-	// check, no backend call and no status.
-	require.Never(t, func() bool {
-		return server.TokenRequestCount() != 1 || unselectedObserved()
 	}, 3*time.Second, 100*time.Millisecond)
 }
 
@@ -258,17 +307,16 @@ func TestManagerAppliesValidationTimeout(t *testing.T) {
 			nico.SecretKeyToken:    "static-token",
 		},
 	}))
-	selected := types.NamespacedName{Namespace: "capnico-system", Name: "nico-default"}
-	require.NoError(t, c.Create(ctx, newIdentity(selected)))
+	key := types.NamespacedName{Namespace: "capnico-system", Name: "nico-default"}
+	require.NoError(t, c.Create(ctx, newIdentity(key)))
 
-	mgr, cfg := newTestManager(t, config, "capnico-system",
-		"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=500ms")
+	mgr, cfg := newTestManager(t, config, "capnico-system", "--provider-identity-validation-timeout=500ms")
 	require.NoError(t, setupReconcilers(ctx, mgr, cfg))
 	startManager(t, mgr)
 
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		identity := &infrav1.NicoIdentity{}
-		if !assert.NoError(collect, c.Get(ctx, selected, identity)) {
+		if !assert.NoError(collect, c.Get(ctx, key, identity)) {
 			return
 		}
 		ready := meta.FindStatusCondition(identity.Status.Conditions, "Ready")

@@ -29,8 +29,8 @@ import (
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
 )
 
-// testIdentity is the Identity every case's reconciler selects. Other names in
-// a case are unselected and must never receive an observation.
+// testIdentity is the Identity whose generation each case's steps track. The
+// reconciler checks every Identity in a case.
 const testIdentity = "nico-identity"
 
 func nicoIdentityCaseSet(description, dirPrefix string, defineSteps func(*fixture.Case, fixture.CaseSet)) fixture.CaseSet {
@@ -73,7 +73,7 @@ var _ = fixture.DescribeCaseSet(nicoIdentityCaseSet(
 	"NicoIdentity create reconciliation",
 	"nicoidentity-create-",
 	func(tc *fixture.Case, _ fixture.CaseSet) {
-		ginkgo.It("checks the selected NicoIdentity", func(ctx ginkgo.SpecContext) {
+		ginkgo.It("checks every NicoIdentity", func(ctx ginkgo.SpecContext) {
 			expectNicoIdentityChecked(ctx, tc, 1)
 		})
 	},
@@ -130,28 +130,36 @@ var _ = fixture.DescribeCaseSet(nicoIdentityCaseSet(
 	},
 ))
 
-// expectNicoIdentityChecked waits for a completed check of the selected
-// Identity at generation. A completed check can be Unknown, so it waits for
-// Ready's observedGeneration and lastCheckedTime rather than a Ready value.
+// expectNicoIdentityChecked waits until testIdentity is at generation and every
+// Identity in the case has a completed check of its current generation. A
+// completed check can be Unknown, so it waits for Ready's observedGeneration
+// and lastCheckedTime rather than a Ready value.
 func expectNicoIdentityChecked(ctx context.Context, tc *fixture.Case, generation int64) {
 	gomega.Eventually(func(g gomega.Gomega) {
-		identity := &infrav1.NicoIdentity{}
-		g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testIdentity}, identity)).To(gomega.Succeed())
-		g.Expect(identity.Generation).To(gomega.Equal(generation))
-		ready := meta.FindStatusCondition(identity.Status.Conditions, nicoIdentityReadyCondition)
-		g.Expect(ready).NotTo(gomega.BeNil())
-		g.Expect(ready.ObservedGeneration).To(gomega.Equal(identity.Generation))
+		tracked := &infrav1.NicoIdentity{}
+		g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testIdentity}, tracked)).To(gomega.Succeed())
+		g.Expect(tracked.Generation).To(gomega.Equal(generation))
 
-		// Goldens normalize the check time, so prove here that it exists and is plausible.
-		checked := identity.Status.LastCheckedTime
-		g.Expect(checked).NotTo(gomega.BeNil())
-		g.Expect(checked.Before(&ready.LastTransitionTime)).To(gomega.BeFalse())
-		g.Expect(checked.Time).To(gomega.BeTemporally("<=", time.Now()))
+		identities := &infrav1.NicoIdentityList{}
+		g.Expect(tc.Client.List(ctx, identities)).To(gomega.Succeed())
+		for i := range identities.Items {
+			identity := &identities.Items[i]
+			ready := meta.FindStatusCondition(identity.Status.Conditions, nicoIdentityReadyCondition)
+			g.Expect(ready).NotTo(gomega.BeNil(), "%s/%s has no Ready condition", identity.Namespace, identity.Name)
+			g.Expect(ready.ObservedGeneration).To(gomega.Equal(identity.Generation))
+
+			// Goldens normalize the check time, so prove here that it exists and is plausible.
+			checked := identity.Status.LastCheckedTime
+			g.Expect(checked).NotTo(gomega.BeNil())
+			g.Expect(checked.Before(&ready.LastTransitionTime)).To(gomega.BeFalse())
+			g.Expect(checked.Time).To(gomega.BeTemporally("<=", time.Now()))
+		}
 	}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 }
 
-// startIdentityReconciler runs only the Identity controller, selecting
-// testIdentity and the nico-creds default Secret in the case namespace.
+// startIdentityReconciler runs only the Identity controller. Its provider
+// default is nico-creds in the case namespace, which the Identity controller
+// does not use: every Identity is checked against the Secret it names.
 func startIdentityReconciler(ctx ginkgo.SpecContext, tc *fixture.Case) {
 	mgr, err := manager.New(tc.Config, manager.Options{
 		Scheme:  tc.Scheme,
@@ -164,10 +172,9 @@ func startIdentityReconciler(ctx ginkgo.SpecContext, tc *fixture.Case) {
 	gomega.Expect((&NicoIdentityReconciler{
 		Client: mgr.GetClient(),
 		ProviderConfig: nico.ProviderConfig{
-			Credentials:  types.NamespacedName{Namespace: testNamespace, Name: "nico-creds"},
-			IdentityName: testIdentity,
+			Credentials: types.NamespacedName{Namespace: testNamespace, Name: "nico-creds"},
 		},
-	}).SetupWithManager(mgr)).To(gomega.Succeed())
+	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
 }

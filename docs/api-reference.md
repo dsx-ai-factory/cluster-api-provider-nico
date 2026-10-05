@@ -11,17 +11,18 @@ ever drift, the Go source is authoritative.
 ## NicoIdentity
 
 `NicoIdentity` is a namespaced credential-observation API. Standard CAPNICo
-installations include its CRD. When the manager selects an Identity with
-`--provider-identity-name`, the NicoIdentity controller periodically checks the
-provider-level credentials Secret and records the result in status. Without that
-flag, nothing reads the Identity or its Secret and status stays absent. Absence
-is not success.
+installations include its CRD. The NicoIdentity controller periodically checks
+the Secret each Identity names and records the result in status, reconciling
+every Identity in the manager's scope the same way it reconciles NicoClusters.
+Creating an Identity enrolls its Secret, and deleting the Identity stops the
+checks. Status stays absent until a check completes, and on Identities outside
+the manager's scope. Absence is not success.
 
-The Identity describes default credential health independently of tenant
-clusters. It does not select provisioning credentials, protect a Secret from
-deletion, or gate cluster or machine reconciliation. Existing
-`NicoCluster.spec.identityRef` values continue to reference Secrets, and those
-per-cluster Secrets are not observed.
+The Identity describes credential health independently of tenant clusters. It
+does not select provisioning credentials, protect a Secret from deletion, or
+gate cluster or machine reconciliation. Existing `NicoCluster.spec.identityRef`
+values continue to reference Secrets. To observe one of those per-cluster
+Secrets, create an Identity that names it in the same namespace.
 
 ### Spec
 
@@ -37,31 +38,33 @@ contains usable credentials. The API has no cross-namespace reference field.
 
 ### Enabling the Observation
 
+No flag is needed. The manager checks every Identity in its cache scope, as it
+does NicoClusters: all namespaces, or only the namespace given by `--namespace`.
+With `--watch-filter`, it checks only Identities whose
+`cluster.x-k8s.io/watch-filter` label has that value. With the chart's
+`rbac.namespaced=true`, set `--namespace` to the release namespace, as
+NicoCluster and NicoMachine already require.
+
 | Flag | Default | Meaning |
 |---|---|---|
-| `--provider-identity-name` | empty | Name of the Identity to observe. Empty disables the controller. The Identity must be in the provider credentials namespace, and its `credentialsRef.name` must equal `--provider-credentials-secret-name`. |
 | `--provider-identity-validation-timeout` | `30s` | Maximum duration of one check, from token acquisition through the NICo read. Must be positive. |
 
-The manager observes only the selected Identity. It ignores other Identities,
-including same-named ones in other namespaces, and still finds the selected one
-when `--namespace` restricts cluster and machine watches elsewhere. If the flag
-is set but the NicoIdentity CRD is not installed, the manager exits with an
-installation error.
+The controller starts when the NicoIdentity CRD is installed. If the CRD is
+missing, the manager logs that credential observation is off and starts
+normally. After installing the CRD, restart the manager.
 
-With the Helm chart, add the flag to `manager.args`:
+To observe the provider-level credentials, create an Identity that names the
+default Secret in its namespace, for example from the sample below. `Ready`
+describes only the Secret the Identity names, which need not be the provider's
+default.
 
-```yaml
-manager:
-  args:
-    - --leader-elect
-    - --provider-identity-name=nico-default
-```
-
-Then create the Identity next to the Secret, for example from the sample below.
-
-A check runs when the Identity is created or its spec changes, when the manager
-starts, and about five minutes after each completed check, including failed
-ones. Secret changes are picked up at the next scheduled check. Each check
+A check runs when the Identity is created, when its spec or labels change, and
+when the manager starts. Another runs four to five minutes after each completed
+check, including failed ones. The interval is fixed, and each Identity gets a
+stable offset within the last minute, so Identities do not all recheck at once.
+Secret changes are picked up at the next scheduled check. Checks run one at a
+time, so during a NICo outage, when each check can take the full timeout, a
+round over many Identities takes proportionally longer. Each check
 acquires a new OAuth token, or uses the static token, and calls NICo's
 current-tenant endpoint. That endpoint creates the organization's Tenant record
 if none exists. Enabling the observation before any cluster exists can therefore
@@ -87,7 +90,7 @@ principal. Reasons can be extended; messages are diagnostic text for people.
 |---|---|---|
 | `True` | `ValidationSucceeded` | Authentication and the current-tenant lookup succeeded. The message says so if TLS certificate verification is disabled. |
 | `False` | `CredentialsNotFound` | The referenced Secret does not exist. |
-| `False` | `InvalidConfiguration` | The Secret lacks required keys or has invalid values, or `credentialsRef.name` differs from the manager's default Secret. |
+| `False` | `InvalidConfiguration` | The Secret lacks required keys or has invalid values. |
 | `False` | `AuthenticationFailed` | The token issuer or NICo rejected the credentials. |
 | `False` | `AccessDenied` | NICo forbade the current-tenant lookup. |
 | `Unknown` | `SecretReadFailed` | The controller could not read the Secret, for example because of RBAC. |
