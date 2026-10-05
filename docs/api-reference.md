@@ -62,7 +62,9 @@ A check runs when the Identity is created, when its spec or labels change, and
 when the manager starts. Another runs four to five minutes after each completed
 check, including failed ones. The interval is fixed, and each Identity gets a
 stable offset within the last minute, so Identities do not all recheck at once.
-Secret changes are picked up at the next scheduled check. Checks run one at a
+Creating, changing or deleting a Secret triggers a check of the Identities in
+its namespace that name it within seconds, and the scheduled check still runs
+if that event is missed. Checks run one at a
 time, so during a NICo outage, when each check can take the full timeout, a
 round over many Identities takes proportionally longer. Each check
 acquires a new OAuth token, or uses the static token, and calls NICo's

@@ -118,9 +118,11 @@ holds a valid token.
 
 Like the NicoCluster controller, it reconciles every Identity in the manager's
 cache scope, narrowed only by the watch-filter label, and it starts only when
-the NicoIdentity CRD is installed. Spec and label changes trigger a check. Its
-own status writes do not, so a requeue of four to five minutes, offset by each
-Identity's UID, sets the cadence. Before publishing, it rereads the Identity and the Secret and
+the NicoIdentity CRD is installed. Spec and label changes trigger a check, and
+an index from each Identity to its Secret lets a Secret change recheck exactly
+the Identities that name it. Its own status writes do not trigger a check, so
+a requeue of four to five minutes, offset by each Identity's UID, sets the
+cadence when nothing changes. Before publishing, it rereads the Identity and the Secret and
 discards a result whose Identity generation or Secret revision changed during
 the check. Refer to the [API reference](api-reference.md#nicoidentity) for
 enabling the observation and the status reasons.

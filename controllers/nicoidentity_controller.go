@@ -13,11 +13,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
@@ -25,6 +28,8 @@ import (
 
 const (
 	nicoIdentityReadyCondition = "Ready"
+	// nicoIdentityCredentialsRefIndex indexes Identities by the Secret they name.
+	nicoIdentityCredentialsRefIndex = "nicoIdentityCredentialsRef"
 
 	// defaultIdentityCheckInterval is the longest nominal delay after each completed check.
 	defaultIdentityCheckInterval = 5 * time.Minute
@@ -60,7 +65,7 @@ type NicoIdentityReconciler struct {
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -185,10 +190,10 @@ func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
 }
 
 // SetupWithManager watches every Identity in the manager's cache scope, narrowed
-// only by the watch-filter label. Status-only updates, including this
-// controller's own lastCheckedTime writes, do not trigger checks; the timed
-// requeue does. It returns ErrNicoIdentityCRDMissing when the API server does
-// not serve NicoIdentity.
+// only by the watch-filter label, and the Secrets they name. Status-only
+// updates, including this controller's own lastCheckedTime writes, do not
+// trigger checks; Secret changes and the timed requeue do. It returns
+// ErrNicoIdentityCRDMissing when the API server does not serve NicoIdentity.
 func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	gvk := infrav1.GroupVersion.WithKind("NicoIdentity")
 	if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
@@ -201,6 +206,14 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 		r.APIReader = mgr.GetAPIReader()
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, func(object client.Object) []string {
+		return []string{object.(*infrav1.NicoIdentity).Spec.CredentialsRef.Name}
+	}); err != nil {
+		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
+	}
+
+	// The watch filter applies to Identities only. As a global event filter it
+	// would also drop events for Secrets that lack the label.
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoIdentity")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoIdentity{}, builder.WithPredicates(
@@ -208,5 +221,29 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 			// A label change can bring an Identity into the watch filter.
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}),
 		)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.identitiesForSecret)).
 		Complete(r)
+}
+
+// identitiesForSecret maps a Secret event to the Identities in its namespace
+// that name it and pass the watch filter.
+func (r *NicoIdentityReconciler) identitiesForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
+	identities := &infrav1.NicoIdentityList{}
+	if err := r.List(ctx, identities,
+		client.InNamespace(secret.GetNamespace()),
+		client.MatchingFields{nicoIdentityCredentialsRefIndex: secret.GetName()},
+	); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoIdentities for credentials Secret", "secret", client.ObjectKeyFromObject(secret))
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(identities.Items))
+	for i := range identities.Items {
+		identity := &identities.Items[i]
+		if r.WatchFilterValue != "" && identity.Labels[clusterv1.WatchLabel] != r.WatchFilterValue {
+			continue
+		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(identity)})
+	}
+	return requests
 }
