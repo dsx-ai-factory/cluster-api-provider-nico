@@ -6,9 +6,11 @@
 
 - Go 1.26.6, the exact version CI scans with, not a minimum (see `go.mod`)
 - Docker (for building the controller image and running e2e tests)
-- [kind](https://kind.sigs.k8s.io/) — local Kubernetes cluster for integration testing
+- [kind](https://kind.sigs.k8s.io/) on your `PATH` for `make tilt-up`, because `ctlptl` invokes it directly
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
-- [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start#install-clusterctl) — for generating cluster manifests
+
+The Makefile downloads pinned `kind` and `clusterctl` binaries into `bin/` for
+targets such as `make test-e2e`. Those copies are not on your `PATH`.
 
 **Clone and build:**
 
@@ -36,7 +38,7 @@ the expected state intentionally changes.
 **Run the full local CI gate** (mirrors what runs in GitHub Actions):
 
 ```bash
-make generate manifests fmt test build
+make generate manifests fmt test test-e2e build
 ```
 
 **Run the controller locally** (requires a running cluster with CAPI installed):
@@ -88,6 +90,7 @@ make generate
 make manifests
 make fmt
 make test
+make test-e2e
 make build
 ```
 
@@ -207,8 +210,8 @@ Copilot, Cursor, and so on). When using AI assistance:
 - **You are responsible** for reviewing and understanding all AI-generated code
   before submitting it. Do not submit code you cannot explain or defend in review.
 - **Run the full local gate**, not just the tests: `make generate manifests fmt
-  test build`. An assistant will usually run the tests and skip regeneration,
-  which is what leaves `config/crd/bases/` stale.
+  test test-e2e build`. An assistant will usually run the tests and skip
+  regeneration, which is what leaves `config/crd/bases/` stale.
 - **Say so in the pull request description** if a substantial part of the change
   was generated, so reviewers can calibrate how closely to read it.
 - **Point your assistant at [AGENTS.md](AGENTS.md)** first. It carries the rules

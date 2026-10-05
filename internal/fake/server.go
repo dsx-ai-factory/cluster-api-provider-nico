@@ -10,9 +10,11 @@
 package fake
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net/http"
 	"reflect"
@@ -52,6 +54,13 @@ type instanceRecord struct {
 	instance    nicosdk.Instance
 	polls       int
 	rebootCount int
+}
+
+// Backend provisions compute for fake instances.
+type Backend interface {
+	Create(ctx context.Context, instanceID, machineName, userData string, labels map[string]string) error
+	Ready(ctx context.Context, instanceID string) (bool, error)
+	Delete(ctx context.Context, instanceID string) error
 }
 
 type requestRecord struct {
@@ -133,6 +142,8 @@ type Server struct {
 	nextID             int
 	powerControlStatus int
 	powerControlCalls  int
+
+	backend Backend
 }
 
 // New returns a Server seeded with the resources needed by the worked example.
@@ -176,6 +187,11 @@ func New() *Server {
 	s.SeedVPC(defaultOrgID, *vpc)
 
 	return s
+}
+
+// SetBackend must be called before Handler serves any traffic.
+func (s *Server) SetBackend(b Backend) {
+	s.backend = b
 }
 
 // Handler returns the HTTP surface used by controller envtests.
@@ -581,7 +597,8 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 	instance.SetInterfaces(interfaces)
 
 	record := &instanceRecord{org: org, instance: *instance}
-	s.instances[resourceKey(org, id)] = record
+	key := resourceKey(org, id)
+	s.instances[key] = record
 	requestCopy := request
 	s.requests = append(s.requests, requestRecord{
 		Operation:  operationCreateInstance,
@@ -589,9 +606,32 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 		InstanceID: id,
 		Create:     &requestCopy,
 	})
-	response := cloneInstance(record.instance)
 	s.mu.Unlock()
 
+	if s.backend != nil {
+		if err := s.backend.Create(r.Context(), id, request.GetName(), request.GetUserData(), request.GetLabels()); err != nil {
+			log.Printf("fake: backend create %s: %v", id, err)
+			s.mu.Lock()
+			if s.instances[key] == record {
+				delete(s.instances, key)
+			}
+			if assignedMachine != nil && assignedMachine.GetInstanceId() == id {
+				assignedMachine.SetInstanceIdNil()
+			}
+			if requestIndex := slices.IndexFunc(s.requests, func(record requestRecord) bool {
+				return record.Create == &requestCopy
+			}); requestIndex >= 0 {
+				s.requests = slices.Delete(s.requests, requestIndex, requestIndex+1)
+			}
+			s.mu.Unlock()
+			writeError(w, http.StatusServiceUnavailable, "instance backend create failed")
+			return
+		}
+	}
+
+	s.mu.Lock()
+	response := cloneInstance(record.instance)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, &response)
 }
 
@@ -614,16 +654,39 @@ func (s *Server) listInstances(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getInstance(w http.ResponseWriter, r *http.Request) {
 	org, instanceID := r.PathValue("org"), r.PathValue("instanceID")
+	key := resourceKey(org, instanceID)
 	s.mu.Lock()
-	record, ok := s.instances[resourceKey(org, instanceID)]
-	if ok {
+	record, ok := s.instances[key]
+	if !ok {
+		s.mu.Unlock()
+		writeError(w, http.StatusNotFound, "instance not found")
+		return
+	}
+	backend := s.backend
+	if backend == nil || !statusEqual(record.instance.GetStatus(), string(nicosdk.INSTANCESTATUS_PENDING)) {
 		s.advanceInstance(record)
+		response := cloneInstance(record.instance)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, &response)
+		return
+	}
+	s.mu.Unlock()
+
+	ready, err := backend.Ready(r.Context(), instanceID)
+	s.mu.Lock()
+	record, ok = s.instances[key]
+	if ok && err == nil && ready && statusEqual(record.instance.GetStatus(), string(nicosdk.INSTANCESTATUS_PENDING)) {
+		record.instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
+		assignInstanceAddresses(&record.instance, defaultIPAddress)
 	}
 	var response nicosdk.Instance
 	if ok {
 		response = cloneInstance(record.instance)
 	}
 	s.mu.Unlock()
+	if err != nil {
+		log.Printf("fake: backend ready %s: %v", instanceID, err)
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "instance not found")
 		return
@@ -760,6 +823,8 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "instance not found")
 		return
 	}
+	previousStatus := record.instance.GetStatus()
+	previousPolls := record.polls
 	record.instance.SetStatus(nicosdk.INSTANCESTATUS_TERMINATING)
 	record.polls = 0
 	s.requests = append(s.requests, requestRecord{
@@ -769,6 +834,26 @@ func (s *Server) deleteInstance(w http.ResponseWriter, r *http.Request) {
 		Delete:     request,
 	})
 	s.mu.Unlock()
+
+	if s.backend != nil {
+		if err := s.backend.Delete(r.Context(), instanceID); err != nil {
+			log.Printf("fake: backend delete %s: %v", instanceID, err)
+			s.mu.Lock()
+			if s.instances[resourceKey(org, instanceID)] == record &&
+				statusEqual(record.instance.GetStatus(), string(nicosdk.INSTANCESTATUS_TERMINATING)) {
+				record.instance.SetStatus(previousStatus)
+				record.polls = previousPolls
+			}
+			if requestIndex := slices.IndexFunc(s.requests, func(record requestRecord) bool {
+				return record.Delete == request
+			}); requestIndex >= 0 {
+				s.requests = slices.Delete(s.requests, requestIndex, requestIndex+1)
+			}
+			s.mu.Unlock()
+			writeError(w, http.StatusServiceUnavailable, "instance backend delete failed")
+			return
+		}
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
