@@ -142,63 +142,42 @@ func TestTokenSourceOAuthClientCredentials(t *testing.T) {
 	}
 }
 
-func TestProviderConfigIdentityFlags(t *testing.T) {
-	credentials := types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}
+func TestProviderConfigIdentityValidationTimeout(t *testing.T) {
 	tests := []struct {
 		name        string
-		credentials types.NamespacedName
 		args        []string
-		wantName    string
 		wantTimeout time.Duration
 		wantErr     string
 	}{
 		{
-			name:        "defaults disable observation with a 30-second timeout",
-			credentials: credentials,
+			name:        "defaults to 30 seconds",
 			wantTimeout: 30 * time.Second,
 		},
 		{
-			name:        "explicit selection and timeout",
-			credentials: credentials,
-			args:        []string{"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=45s"},
-			wantName:    "nico-default",
+			name:        "longer timeout",
+			args:        []string{"--provider-identity-validation-timeout=45s"},
 			wantTimeout: 45 * time.Second,
 		},
 		{
 			name:        "shorter timeout",
-			credentials: credentials,
-			args:        []string{"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=500ms"},
-			wantName:    "nico-default",
+			args:        []string{"--provider-identity-validation-timeout=500ms"},
 			wantTimeout: 500 * time.Millisecond,
 		},
 		{
-			name:        "zero timeout is rejected even when observation is disabled",
-			credentials: credentials,
-			args:        []string{"--provider-identity-validation-timeout=0s"},
-			wantErr:     "--provider-identity-validation-timeout must be positive",
+			name:    "zero timeout is rejected",
+			args:    []string{"--provider-identity-validation-timeout=0s"},
+			wantErr: "--provider-identity-validation-timeout must be positive",
 		},
 		{
-			name:        "negative timeout is rejected",
-			credentials: credentials,
-			args:        []string{"--provider-identity-name=nico-default", "--provider-identity-validation-timeout=-1s"},
-			wantErr:     "--provider-identity-validation-timeout must be positive",
-		},
-		{
-			name:        "invalid Identity name is rejected",
-			credentials: credentials,
-			args:        []string{"--provider-identity-name=Nico_Default"},
-			wantErr:     `--provider-identity-name "Nico_Default"`,
-		},
-		{
-			name:    "selection requires a default credentials Secret",
-			args:    []string{"--provider-identity-name=nico-default"},
-			wantErr: "requires a provider credentials namespace and Secret name",
+			name:    "negative timeout is rejected",
+			args:    []string{"--provider-identity-validation-timeout=-1s"},
+			wantErr: "--provider-identity-validation-timeout must be positive",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := ProviderConfig{Credentials: tc.credentials}
+			cfg := ProviderConfig{Credentials: types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}}
 			fs := flag.NewFlagSet("manager", flag.ContinueOnError)
 			cfg.BindFlags(fs)
 			if err := fs.Parse(tc.args); err != nil {
@@ -214,9 +193,6 @@ func TestProviderConfigIdentityFlags(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("Validate() error = %v", err)
-			}
-			if cfg.IdentityName != tc.wantName {
-				t.Fatalf("IdentityName = %q, want %q", cfg.IdentityName, tc.wantName)
 			}
 			if cfg.IdentityValidationTimeout != tc.wantTimeout {
 				t.Fatalf("IdentityValidationTimeout = %s, want %s", cfg.IdentityValidationTimeout, tc.wantTimeout)

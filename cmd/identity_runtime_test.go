@@ -50,6 +50,7 @@ const (
 	runtimeCheckInterval = 2 * time.Second
 	runtimeTimeout       = 30 * time.Second
 	runtimeNamespace     = "capnico-system"
+	runtimeTenants       = "tenants"
 	runtimeSecretName    = "nico-credentials"
 	runtimeClientID      = "identity-client"
 	runtimeClientSecret  = "identity-secret"
@@ -176,7 +177,7 @@ func TestIdentityRuntimeDiscardsResultForChangedSpec(t *testing.T) {
 	require.NoError(t, rt.admin.Update(t.Context(), identity))
 	release()
 
-	current := rt.waitForReady(metav1.ConditionFalse, "InvalidConfiguration")
+	current := rt.waitForReady(metav1.ConditionFalse, "CredentialsNotFound")
 	assert.Equal(t, int64(2), current.Generation)
 	assert.Equal(t, int64(2), readyCondition(current).ObservedGeneration)
 	for _, ready := range readies() {
@@ -252,8 +253,38 @@ func TestIdentityRuntimeKeepsStatusWhenWriteFails(t *testing.T) {
 	rt.expectGoldens("status-write-denied")
 }
 
+// Identities in different namespaces are checked independently. Breaking
+// one Identity's Secret turns only that Identity False, while the other keeps
+// its result and keeps being rechecked.
+func TestIdentityRuntimeChecksIdentitiesIndependently(t *testing.T) {
+	rt := newIdentityRuntime(t)
+	ctx := t.Context()
+	tenant := types.NamespacedName{Namespace: runtimeTenants, Name: runtimeIdentity.Name}
+	require.NoError(t, rt.admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: runtimeTenants}}))
+	require.NoError(t, rt.admin.Create(ctx, rt.secretIn(runtimeTenants, runtimeClientSecret)))
+	rt.createIdentity()
+	require.NoError(t, rt.admin.Create(ctx, newIdentity(tenant)))
+	rt.startManager(rt.config)
+	rt.waitFor(tenant, metav1.ConditionTrue, "ValidationSucceeded")
+	before := rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
+
+	secret := &corev1.Secret{}
+	require.NoError(t, rt.admin.Get(ctx, types.NamespacedName{Namespace: runtimeTenants, Name: runtimeSecretName}, secret))
+	secret.Data[nico.SecretKeyClientSecret] = []byte("wrong-secret")
+	require.NoError(t, rt.admin.Update(ctx, secret))
+	rt.waitFor(tenant, metav1.ConditionFalse, "AuthenticationFailed")
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		current := rt.getIdentity()
+		assert.True(collect, current.Status.LastCheckedTime.After(before.Status.LastCheckedTime.Time))
+	}, 2*runtimeCheckInterval+runtimeTimeout, 100*time.Millisecond)
+	after := rt.waitForReady(metav1.ConditionTrue, "ValidationSucceeded")
+	assert.True(t, readyCondition(before).LastTransitionTime.Equal(&readyCondition(after).LastTransitionTime))
+	rt.expectGoldens("independent-identities")
+}
+
 // identityRuntime is one envtest API server, the authenticated fake behind a
-// recording handler, and the selected Identity's namespace and Secret.
+// recording handler, and the runtime Identity's namespace and Secret.
 type identityRuntime struct {
 	t           *testing.T
 	environment *envtest.Environment
@@ -300,19 +331,23 @@ func newIdentityRuntime(t *testing.T) *identityRuntime {
 	return rt
 }
 
-// startManager runs the full manager as config's user, selecting the runtime
-// Identity and rechecking every runtimeCheckInterval.
+// startManager runs the full manager as config's user, checking every Identity
+// at most every runtimeCheckInterval.
 func (rt *identityRuntime) startManager(config *rest.Config) {
 	rt.t.Helper()
-	mgr, cfg := newTestManager(rt.t, config, runtimeNamespace, "--provider-identity-name="+runtimeIdentity.Name)
+	mgr, cfg := newTestManager(rt.t, config, runtimeNamespace)
 	cfg.identityCheckInterval = runtimeCheckInterval
 	require.NoError(rt.t, setupReconcilers(rt.t.Context(), mgr, cfg))
 	startManager(rt.t, mgr)
 }
 
 func (rt *identityRuntime) secret(clientSecret string) *corev1.Secret {
+	return rt.secretIn(runtimeNamespace, clientSecret)
+}
+
+func (rt *identityRuntime) secretIn(namespace, clientSecret string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: runtimeSecret.Namespace, Name: runtimeSecret.Name},
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: runtimeSecretName},
 		StringData: map[string]string{
 			nico.SecretKeyEndpoint:     rt.endpoint,
 			nico.SecretKeyOrgID:        runtimeOrg,
@@ -343,14 +378,21 @@ func (rt *identityRuntime) getIdentity() *infrav1.NicoIdentity {
 	return identity
 }
 
-// waitForReady waits for a completed check at the current generation with the
-// given outcome and returns the Identity.
+// waitForReady waits for a completed check of the runtime Identity at its
+// current generation with the given outcome and returns the Identity.
 func (rt *identityRuntime) waitForReady(status metav1.ConditionStatus, reason string) *infrav1.NicoIdentity {
+	rt.t.Helper()
+	return rt.waitFor(runtimeIdentity, status, reason)
+}
+
+func (rt *identityRuntime) waitFor(
+	key types.NamespacedName, status metav1.ConditionStatus, reason string,
+) *infrav1.NicoIdentity {
 	rt.t.Helper()
 	var identity *infrav1.NicoIdentity
 	require.EventuallyWithT(rt.t, func(collect *assert.CollectT) {
 		current := &infrav1.NicoIdentity{}
-		if !assert.NoError(collect, rt.admin.Get(rt.t.Context(), runtimeIdentity, current)) {
+		if !assert.NoError(collect, rt.admin.Get(rt.t.Context(), key, current)) {
 			return
 		}
 		ready := readyCondition(current)

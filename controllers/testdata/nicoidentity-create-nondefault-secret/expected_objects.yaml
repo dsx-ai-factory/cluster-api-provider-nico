@@ -9,15 +9,14 @@ items:
     namespace: default
   spec:
     credentialsRef:
-      name: other-creds
+      name: tenant-creds
   status:
     conditions:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Credentials reference does not match the provider's configured default
-        Secret.
+      message: Authentication and current-tenant lookup succeeded.
       observedGeneration: 1
-      reason: InvalidConfiguration
-      status: "False"
+      reason: ValidationSucceeded
+      status: "True"
       type: Ready
     lastCheckedTime: "1970-01-01T00:00:00Z"
 metadata: {}

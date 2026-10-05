@@ -12,8 +12,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -102,21 +100,12 @@ func bindFlags(fs *flag.FlagSet, podNamespace string) *managerConfig {
 	return cfg
 }
 
-// managerOptions builds the manager options. The selected NicoIdentity gets its
-// own cache scope so --namespace cannot hide it and no other Identity is cached.
+// managerOptions builds the manager options. NicoIdentities share the cache
+// scope of NicoClusters and NicoMachines: every namespace, or --namespace.
 func (cfg *managerConfig) managerOptions() ctrl.Options {
 	var watchNamespaces map[string]cache.Config
 	if cfg.watchNamespace != "" {
 		watchNamespaces = map[string]cache.Config{cfg.watchNamespace: {}}
-	}
-	cacheOptions := cache.Options{DefaultNamespaces: watchNamespaces}
-	if cfg.provider.IdentityName != "" {
-		cacheOptions.ByObject = map[client.Object]cache.ByObject{
-			&infrav1.NicoIdentity{}: {
-				Namespaces: map[string]cache.Config{cfg.provider.Credentials.Namespace: {}},
-				Field:      fields.OneTermEqualSelector("metadata.name", cfg.provider.IdentityName),
-			},
-		}
 	}
 
 	return ctrl.Options{
@@ -125,24 +114,16 @@ func (cfg *managerConfig) managerOptions() ctrl.Options {
 		HealthProbeBindAddress: cfg.probeAddr,
 		LeaderElection:         cfg.leaderElect,
 		LeaderElectionID:       "nico.infrastructure.cluster.x-k8s.io",
-		Cache:                  cacheOptions,
+		Cache:                  cache.Options{DefaultNamespaces: watchNamespaces},
 		Client: client.Options{
 			Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}},
 		},
 	}
 }
 
-// explainManagerError names a missing NicoIdentity CRD, which the Identity
-// cache scope needs when --provider-identity-name selects an Identity.
-func explainManagerError(cfg *managerConfig, err error) error {
-	if cfg.provider.IdentityName != "" && meta.IsNoMatchError(err) {
-		return fmt.Errorf("%w: %w", controllers.ErrNicoIdentityCRDMissing, err)
-	}
-	return err
-}
-
 // setupReconcilers registers the provider controllers. The NicoIdentity
-// controller starts only when --provider-identity-name selects an Identity.
+// controller starts when the API server serves its CRD, so installations that
+// manage CRDs separately still start without it.
 func setupReconcilers(ctx context.Context, mgr ctrl.Manager, cfg *managerConfig) error {
 	if err := (&controllers.NicoClusterReconciler{
 		Client:           mgr.GetClient(),
@@ -162,14 +143,18 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, cfg *managerConfig)
 		return fmt.Errorf("NicoMachine controller: %w", err)
 	}
 
-	if cfg.provider.IdentityName != "" {
-		if err := (&controllers.NicoIdentityReconciler{
-			Client:         mgr.GetClient(),
-			ProviderConfig: cfg.provider,
-			CheckInterval:  cfg.identityCheckInterval,
-		}).SetupWithManager(mgr); err != nil {
-			return fmt.Errorf("NicoIdentity controller: %w", err)
-		}
+	err := (&controllers.NicoIdentityReconciler{
+		Client:           mgr.GetClient(),
+		ProviderConfig:   cfg.provider,
+		WatchFilterValue: cfg.watchFilterValue,
+		CheckInterval:    cfg.identityCheckInterval,
+	}).SetupWithManager(ctx, mgr)
+	switch {
+	case errors.Is(err, controllers.ErrNicoIdentityCRDMissing):
+		setupLog.Info("NicoIdentity CRD is not installed; credential observation stays off " +
+			"until it is installed and the manager restarts")
+	case err != nil:
+		return fmt.Errorf("NicoIdentity controller: %w", err)
 	}
 	// +kubebuilder:scaffold:builder
 	return nil
@@ -198,7 +183,7 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), cfg.managerOptions())
 	if err != nil {
-		setupLog.Error(explainManagerError(cfg, err), "unable to start manager")
+		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 	ctx := ctrl.SetupSignalHandler()

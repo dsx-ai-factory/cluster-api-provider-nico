@@ -16,7 +16,7 @@ each requested machine into a NICo instance on real hardware.
 * `NicoCluster` holds the target site, and may optionally reference a per-cluster credentials Secret.
 * `NicoMachine` represents one NICo instance managed by Cluster API, and carries the VPC.
 * `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
-* `NicoIdentity` reports the health of the provider-level credentials Secret when the manager selects it with `--provider-identity-name`.
+* `NicoIdentity` reports the health of the credentials Secret it names. The manager checks every Identity in its watch scope.
 
 ## Features
 

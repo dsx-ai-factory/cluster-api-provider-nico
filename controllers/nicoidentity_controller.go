@@ -13,7 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,18 +26,17 @@ import (
 const (
 	nicoIdentityReadyCondition = "Ready"
 
-	// defaultIdentityCheckInterval is the nominal delay after each completed check.
+	// defaultIdentityCheckInterval is the longest nominal delay after each completed check.
 	defaultIdentityCheckInterval = 5 * time.Minute
 	// identitySupersededRequeue retries soon after discarding a result for changed inputs.
 	identitySupersededRequeue = time.Second
 
-	identityCredentialsNotFoundReason  = "CredentialsNotFound"
-	identityInvalidConfigurationReason = "InvalidConfiguration"
-	identitySecretReadFailedReason     = "SecretReadFailed"
+	identityCredentialsNotFoundReason = "CredentialsNotFound"
+	identitySecretReadFailedReason    = "SecretReadFailed"
 )
 
-// ErrNicoIdentityCRDMissing reports an enabled Identity observation without its CRD.
-var ErrNicoIdentityCRDMissing = errors.New("--provider-identity-name is set, but the NicoIdentity CRD is not installed; install the provider CRDs or remove the flag")
+// ErrNicoIdentityCRDMissing reports that the API server does not serve NicoIdentity.
+var ErrNicoIdentityCRDMissing = errors.New("the NicoIdentity CRD is not installed")
 
 // Secret states recorded for a check that did not read Secret contents.
 const (
@@ -45,15 +44,17 @@ const (
 	secretRevisionUnreadable = "unreadable"
 )
 
-// NicoIdentityReconciler reports whether the provider-level credentials Secret
-// passes NICo's baseline check. It observes only the NicoIdentity selected by
-// ProviderConfig.IdentityName and never changes which credentials provisioning uses.
+// NicoIdentityReconciler reports whether the Secret each NicoIdentity names
+// passes NICo's baseline check. Like the cluster controller, it reconciles every
+// Identity in the manager's cache scope. It never changes which credentials
+// provisioning uses.
 type NicoIdentityReconciler struct {
 	client.Client
 	// APIReader reads the Identity and its Secret directly from the API server.
-	APIReader      client.Reader
-	ProviderConfig nico.ProviderConfig
-	// CheckInterval is the delay after each completed check. Zero means five minutes.
+	APIReader        client.Reader
+	ProviderConfig   nico.ProviderConfig
+	WatchFilterValue string
+	// CheckInterval is the longest delay after each completed check. Zero means five minutes.
 	CheckInterval time.Duration
 }
 
@@ -62,9 +63,6 @@ type NicoIdentityReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
 func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if req.NamespacedName != r.selected() {
-		return ctrl.Result{}, nil
-	}
 	log := ctrl.LoggerFrom(ctx)
 
 	tested := &infrav1.NicoIdentity{}
@@ -105,21 +103,12 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	log.Info("checked NicoIdentity credentials", "ready", result.Status, "reason", result.Reason)
-	return ctrl.Result{RequeueAfter: r.checkInterval()}, nil
+	return ctrl.Result{RequeueAfter: r.recheckAfter(current)}, nil
 }
 
-// check validates the Identity's Secret and reports which Secret state it used.
-// A reference that disagrees with the provider default is rejected before any
-// Secret read or backend call, so it can never borrow the default's health.
+// check validates the Secret the Identity names in its own namespace and
+// reports which Secret state it used.
 func (r *NicoIdentityReconciler) check(ctx context.Context, identity *infrav1.NicoIdentity) (nico.CredentialValidation, string) {
-	if identity.Spec.CredentialsRef.Name != r.ProviderConfig.Credentials.Name {
-		return nico.CredentialValidation{
-			Status:  metav1.ConditionFalse,
-			Reason:  identityInvalidConfigurationReason,
-			Message: "Credentials reference does not match the provider's configured default Secret.",
-		}, ""
-	}
-
 	secret := &corev1.Secret{}
 	err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: identity.Namespace, Name: identity.Spec.CredentialsRef.Name}, secret)
 	revision := secretRevision(secret, err)
@@ -176,15 +165,16 @@ func secretRevision(secret *corev1.Secret, err error) string {
 	}
 }
 
-func (r *NicoIdentityReconciler) selected() types.NamespacedName {
-	return types.NamespacedName{Namespace: r.ProviderConfig.Credentials.Namespace, Name: r.ProviderConfig.IdentityName}
-}
-
-func (r *NicoIdentityReconciler) checkInterval() time.Duration {
+// recheckAfter spreads Identities across the last fifth of the check interval,
+// as the cluster controller spreads clusters. It subtracts the jitter rather
+// than adding it, so no Identity's nominal interval exceeds five minutes, the
+// age at which readers treat an observation as stale.
+func (r *NicoIdentityReconciler) recheckAfter(identity *infrav1.NicoIdentity) time.Duration {
+	interval := defaultIdentityCheckInterval
 	if r.CheckInterval > 0 {
-		return r.CheckInterval
+		interval = r.CheckInterval
 	}
-	return defaultIdentityCheckInterval
+	return interval - deterministicJitter(string(identity.UID), interval/5)
 }
 
 func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
@@ -194,13 +184,12 @@ func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
 	return nico.DefaultCredentialValidationTimeout
 }
 
-// SetupWithManager watches only the selected Identity. Status-only updates,
-// including this controller's own lastCheckedTime writes, do not trigger checks;
-// the timed requeue does.
-func (r *NicoIdentityReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if r.ProviderConfig.IdentityName == "" {
-		return errors.New("NicoIdentity observation requires --provider-identity-name")
-	}
+// SetupWithManager watches every Identity in the manager's cache scope, narrowed
+// only by the watch-filter label. Status-only updates, including this
+// controller's own lastCheckedTime writes, do not trigger checks; the timed
+// requeue does. It returns ErrNicoIdentityCRDMissing when the API server does
+// not serve NicoIdentity.
+func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	gvk := infrav1.GroupVersion.WithKind("NicoIdentity")
 	if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
 		if meta.IsNoMatchError(err) {
@@ -212,13 +201,12 @@ func (r *NicoIdentityReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.APIReader = mgr.GetAPIReader()
 	}
 
-	selected := r.selected()
+	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoIdentity")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoIdentity{}, builder.WithPredicates(
-			predicate.NewPredicateFuncs(func(object client.Object) bool {
-				return client.ObjectKeyFromObject(object) == selected
-			}),
-			predicate.GenerationChangedPredicate{},
+			predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue),
+			// A label change can bring an Identity into the watch filter.
+			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}),
 		)).
 		Complete(r)
 }

@@ -29,4 +29,13 @@ items:
   spec:
     credentialsRef:
       name: nico-creds
+  status:
+    conditions:
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: Authentication and current-tenant lookup succeeded.
+      observedGeneration: 1
+      reason: ValidationSucceeded
+      status: "True"
+      type: Ready
+    lastCheckedTime: "1970-01-01T00:00:00Z"
 metadata: {}
