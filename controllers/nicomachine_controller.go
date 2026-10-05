@@ -919,6 +919,9 @@ func buildInstanceCreateRequest(
 	if nicoMachine.Spec.IpxeScript != "" {
 		createReq.SetIpxeScript(nicoMachine.Spec.IpxeScript)
 	}
+	if nicoMachine.Spec.OperatingSystemID != "" {
+		createReq.SetOperatingSystemId(nicoMachine.Spec.OperatingSystemID)
+	}
 	if len(nicoMachine.Spec.SSHKeyGroupIDs) > 0 {
 		createReq.SetSshKeyGroupIds(nicoMachine.Spec.SSHKeyGroupIDs)
 	}

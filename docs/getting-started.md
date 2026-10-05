@@ -626,12 +626,13 @@ right to do so.
 ### The Contract
 
 The following table lists six requirements. All of them come from the two things
-CAPNICo actually sets on the create request, `ipxeScript` and `userData`, where
+CAPNICo actually sets on the create request, a boot source (`ipxeScript` or
+`operatingSystemId`) and `userData`, where
 `controllers/nicomachine_controller.go:902` sets the latter.
 
 | Number | Requirement | Why |
 |---|---|---|
-| 1 | It boots from your iPXE script. | `NicoMachine.spec.ipxeScript` is chained verbatim, and CAPNICo does not host it. |
+| 1 | It boots from your iPXE script or registered operating system. | `NicoMachine.spec.ipxeScript` is chained verbatim, and CAPNICo does not host it. Set `spec.operatingSystemID` instead to boot an operating system already registered in NICo. |
 | 2 | It runs cloud-init, reading NICo's datasource. | The kubeadm bootstrap provider writes a `#cloud-config`, and CAPNICo passes it through untouched as instance user data. |
 | 3 | It has `kubeadm`, `kubelet`, and a container runtime. | The cloud-config runs `kubeadm init` or `kubeadm join`. It does not install them. |
 | 4 | It has `curl`. | `preKubeadmCommands` shells out to it before kubeadm runs. |
