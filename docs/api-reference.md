@@ -51,7 +51,8 @@ NicoCluster and NicoMachine already require.
 
 The controller starts when the NicoIdentity CRD is installed. If the CRD is
 missing, the manager logs that credential observation is off and starts
-normally. After installing the CRD, restart the manager.
+normally. After installing the CRD, restart the manager. For installation,
+upgrade and rollback steps, see [Credential Health](credential-health.md).
 
 To observe the provider-level credentials, create an Identity that names the
 default Secret in its namespace, for example from the sample below. `Ready`
