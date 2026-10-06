@@ -25,6 +25,11 @@ on:
       - "config/**"
       - "hack/helm-chart-fixups.sh"
       - "hack/release-manifests.sh"
+      - "Dockerfile.fake"
+      - "hack/tilt/fake-nico-api.yaml"
+      - "examples/cluster-fake.yaml"
+      - "metadata.yaml"
+      - "test/e2e/installation/**"
       - ".github/workflows/test-chart.yml"
   workflow_dispatch:
 
@@ -87,3 +92,39 @@ jobs:
       - name: Check Helm release status
         run: |
           make helm-status
+
+  # Installs the chart and the clusterctl release bundle into a Kind cluster
+  # running Cluster API, upgrades from the previous release, and checks
+  # NicoIdentity through each. The same target runs locally.
+  installation:
+    permissions:
+      contents: read
+    name: installation
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
+    timeout-minutes: 90
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The upgrade specs build the previous release from its tag.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Helm
+        run: make install-helm
+
+      - name: Create the Kind cluster with Cluster API
+        run: make setup-test-e2e
+
+      - name: Qualify NicoIdentity installation and upgrade
+        run: make test-e2e-installation
+
+      - name: Delete the Kind cluster
+        if: always()
+        run: make cleanup-test-e2e
