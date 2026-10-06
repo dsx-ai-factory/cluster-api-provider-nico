@@ -118,12 +118,12 @@ func TestManagerWithoutIdentityCRD(t *testing.T) {
 	// for the missing kind.
 	mgr, cfg := newTestManager(t, config, "")
 	require.NoError(t, setupReconcilers(t.Context(), mgr, cfg))
-	done := startManager(t, mgr)
+	run := startManager(t, mgr)
 	// Every controller must sync before CacheSyncTimeout, or Start returns an error.
 	require.Never(t, func() bool {
 		select {
-		case err := <-done:
-			t.Logf("manager stopped: %v", err)
+		case <-run.done:
+			t.Logf("manager stopped: %v", run.err)
 			return true
 		default:
 			return false
@@ -355,21 +355,40 @@ func newTestManager(
 	return mgr, cfg
 }
 
-func startManager(t *testing.T, mgr ctrl.Manager) <-chan error {
+// managerStopTimeout bounds how long cleanup waits for a canceled manager, so a
+// manager that never stops fails the test instead of hanging it.
+const managerStopTimeout = time.Minute
+
+// managerRun reports a started manager's exit. done closes when Start returns,
+// so any number of waiters observe the exit; err is Start's result and may be
+// read once done is closed.
+type managerRun struct {
+	done chan struct{}
+	err  error
+}
+
+func startManager(t *testing.T, mgr ctrl.Manager) *managerRun {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- mgr.Start(ctx) }()
+	run := &managerRun{done: make(chan struct{})}
+	go func() {
+		run.err = mgr.Start(ctx)
+		close(run.done)
+	}()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		select {
+		case <-run.done:
+		case <-time.After(managerStopTimeout):
+			t.Errorf("manager did not stop within %s", managerStopTimeout)
+		}
 	})
 	select {
 	case <-mgr.Elected():
-	case err := <-done:
-		t.Fatalf("manager stopped before starting: %v", err)
+	case <-run.done:
+		t.Fatalf("manager stopped before starting: %v", run.err)
 	}
-	return done
+	return run
 }
 
 func startEnvironment(t *testing.T, crdPaths []string) *rest.Config {
