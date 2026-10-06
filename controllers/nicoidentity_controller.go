@@ -13,7 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/labels"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -77,6 +77,12 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if !tested.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
+	if !r.inWatchScope(tested) {
+		// Scheduled rechecks bypass the event filter, so an Identity that left
+		// the watch filter stops here and keeps its last status.
+		log.V(1).Info("stopped checking NicoIdentity outside the watch filter")
+		return ctrl.Result{}, nil
+	}
 
 	result, revision := r.check(ctx, tested)
 	completed := metav1.Now()
@@ -88,6 +94,10 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	current, superseded, err := r.superseded(ctx, tested, revision)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	if current != nil && !r.inWatchScope(current) {
+		log.V(1).Info("discarded NicoIdentity check after it left the watch filter", "reason", result.Reason)
+		return ctrl.Result{}, nil
 	}
 	if superseded {
 		log.V(1).Info("discarded NicoIdentity check for changed inputs", "reason", result.Reason)
@@ -240,10 +250,16 @@ func (r *NicoIdentityReconciler) identitiesForSecret(ctx context.Context, secret
 	requests := make([]reconcile.Request, 0, len(identities.Items))
 	for i := range identities.Items {
 		identity := &identities.Items[i]
-		if r.WatchFilterValue != "" && identity.Labels[clusterv1.WatchLabel] != r.WatchFilterValue {
+		if !r.inWatchScope(identity) {
 			continue
 		}
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(identity)})
 	}
 	return requests
+}
+
+// inWatchScope reports whether the Identity carries the manager's watch-filter
+// label. Without a filter, every Identity is in scope.
+func (r *NicoIdentityReconciler) inWatchScope(identity *infrav1.NicoIdentity) bool {
+	return r.WatchFilterValue == "" || labels.HasWatchLabel(identity, r.WatchFilterValue)
 }

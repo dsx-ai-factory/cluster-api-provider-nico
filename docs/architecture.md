@@ -124,8 +124,11 @@ the Identities that name it. Its own status writes do not trigger a check, so
 a requeue of four to five minutes, offset by each Identity's UID, sets the
 cadence when nothing changes. Before publishing, it rereads the Identity and the Secret and
 discards a result whose Identity generation or Secret revision changed during
-the check. Refer to the [API reference](api-reference.md#nicoidentity) for
-enabling the observation and the status reasons.
+the check. It also checks the watch-filter label on every reconcile, including
+the timed requeues that bypass the event filter, so an Identity whose label
+stops matching is no longer checked and keeps its last status. Refer to the
+[API reference](api-reference.md#nicoidentity) for enabling the observation and
+the status reasons.
 
 ## Machine Reconciliation
 

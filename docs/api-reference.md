@@ -41,9 +41,10 @@ contains usable credentials. The API has no cross-namespace reference field.
 No flag is needed. The manager checks every Identity in its cache scope, as it
 does NicoClusters: all namespaces, or only the namespace given by `--namespace`.
 With `--watch-filter`, it checks only Identities whose
-`cluster.x-k8s.io/watch-filter` label has that value. With the chart's
-`rbac.namespaced=true`, set `--namespace` to the release namespace, as
-NicoCluster and NicoMachine already require.
+`cluster.x-k8s.io/watch-filter` label has that value. Changing or removing the
+label stops the checks, and the last published status remains and ages. With
+the chart's `rbac.namespaced=true`, set `--namespace` to the release namespace,
+as NicoCluster and NicoMachine already require.
 
 | Flag | Default | Meaning |
 |---|---|---|
