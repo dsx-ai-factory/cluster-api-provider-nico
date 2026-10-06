@@ -13,6 +13,8 @@ navigation:
     path: architecture.md
   - page: API Reference
     path: api-reference.md
+  - page: Credential Health
+    path: credential-health.md
   - page: Troubleshooting
     path: troubleshooting.md
   - page: Development

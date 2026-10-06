@@ -5,11 +5,14 @@ package nico
 
 import (
 	"context"
+	"flag"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 )
@@ -136,5 +139,64 @@ func TestTokenSourceOAuthClientCredentials(t *testing.T) {
 	}
 	if token.AccessToken == "" {
 		t.Fatalf("expected a non-empty access token")
+	}
+}
+
+func TestProviderConfigIdentityValidationTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantTimeout time.Duration
+		wantErr     string
+	}{
+		{
+			name:        "defaults to 30 seconds",
+			wantTimeout: 30 * time.Second,
+		},
+		{
+			name:        "longer timeout",
+			args:        []string{"--provider-identity-validation-timeout=45s"},
+			wantTimeout: 45 * time.Second,
+		},
+		{
+			name:        "shorter timeout",
+			args:        []string{"--provider-identity-validation-timeout=500ms"},
+			wantTimeout: 500 * time.Millisecond,
+		},
+		{
+			name:    "zero timeout is rejected",
+			args:    []string{"--provider-identity-validation-timeout=0s"},
+			wantErr: "--provider-identity-validation-timeout must be positive",
+		},
+		{
+			name:    "negative timeout is rejected",
+			args:    []string{"--provider-identity-validation-timeout=-1s"},
+			wantErr: "--provider-identity-validation-timeout must be positive",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := ProviderConfig{Credentials: types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}}
+			fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+			cfg.BindFlags(fs)
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+
+			err := cfg.Validate()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Validate() error = %v, want it to contain %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if cfg.IdentityValidationTimeout != tc.wantTimeout {
+				t.Fatalf("IdentityValidationTimeout = %s, want %s", cfg.IdentityValidationTimeout, tc.wantTimeout)
+			}
+		})
 	}
 }

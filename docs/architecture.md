@@ -39,7 +39,7 @@ and its subnet or VPC prefix must already exist.
 
 ## The Resources
 
-The provider defines four kinds, and the following table shows what each one
+CAPNICo defines five kinds, and the following table shows what each one
 holds.
 
 | Kind | Holds |
@@ -48,6 +48,7 @@ holds.
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
+| `NicoIdentity` | A same-namespace credential Secret reference and observation status. A controller periodically checks the Secret each Identity names. It does not change provisioning credential selection or gate provisioning. |
 
 `NicoMachine.spec` remains editable until the controller assigns
 `spec.providerID`. After that assignment, the entire spec is immutable because
@@ -103,6 +104,28 @@ helper for acquiring one.
 Refer to the
 [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#nico-credentials-secret)
 for the Secret's key layout and both authentication modes.
+
+### Credential Health Observation
+
+The NicoIdentity controller checks the Secret each Identity names, separately
+from provisioning. Each check reads the Secret directly, builds a new
+client, acquires a new OAuth token instead of reusing a cached one, and calls
+NICo's current-tenant endpoint. One deadline,
+`--provider-identity-validation-timeout`, covers the whole check. Provisioning
+clients, their cached tokens and their tenant cache are not used or changed, so
+a revoked client secret shows up at the next check even while provisioning still
+holds a valid token.
+
+Like the NicoCluster controller, it reconciles every Identity in the manager's
+cache scope, narrowed only by the watch-filter label, and it starts only when
+the NicoIdentity CRD is installed. Spec and label changes trigger a check, and
+an index from each Identity to its Secret lets a Secret change recheck exactly
+the Identities that name it. Its own status writes do not trigger a check, so
+a requeue of four to five minutes, offset by each Identity's UID, sets the
+cadence when nothing changes. Before publishing, it rereads the Identity and the Secret and
+discards a result whose Identity generation or Secret revision changed during
+the check. Refer to the [API reference](api-reference.md#nicoidentity) for
+enabling the observation and the status reasons.
 
 ## Machine Reconciliation
 
@@ -313,7 +336,7 @@ annotation after handling it and emits events for acceptance and fallback.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps, the credentials Secret, and the worked
   `clusterctl` examples.
-- The [API Reference](api-reference.md) documents all four CRDs, field by field.
+- The [API Reference](api-reference.md) documents all five CRDs, field by field.
 - [Troubleshooting](troubleshooting.md) gives the symptom, cause, and fix for
   problems beyond the stall-reason table in Getting Started.
 - The [contributing guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md)

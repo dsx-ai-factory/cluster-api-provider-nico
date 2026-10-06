@@ -44,6 +44,9 @@ const (
 	// testNamespace is where every case's objects live.
 	testNamespace       = "default"
 	testWorkloadCluster = "cluster-1"
+	// testDefaultCredentials is the provider-level Secret the reconcilers fall
+	// back to when a NicoCluster sets no identityRef.
+	testDefaultCredentials = "nico-default-creds"
 )
 
 // caseFakes keeps each case's fake reachable from its assertions. Cases run in
@@ -213,7 +216,7 @@ func startFake(server *fake.Server) string {
 }
 
 func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
-	for _, name := range []string{"nico-creds", "provider-power"} {
+	for _, name := range []string{"nico-creds", "provider-power", "tenant-creds", testDefaultCredentials} {
 		secret := &corev1.Secret{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: name}, secret); err != nil {
 			if client.IgnoreNotFound(err) == nil {
@@ -352,10 +355,12 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory 
 	})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+	providerConfig := nico.ProviderConfig{Credentials: types.NamespacedName{Namespace: testNamespace, Name: testDefaultCredentials}}
+	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme, ProviderConfig: providerConfig}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 	gomega.Expect((&NicoMachineReconciler{
 		Client:                mgr.GetClient(),
 		Scheme:                tc.Scheme,
+		ProviderConfig:        providerConfig,
 		WorkloadClientFactory: workloadFactory,
 	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 
