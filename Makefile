@@ -113,6 +113,17 @@ cleanup-test-e2e: kind-tool ## Tear down the Kind cluster used for e2e tests
 	@containers="$$(docker ps -aq --filter 'name=^/capnico-fake-')"; \
 		if [ -n "$$containers" ]; then docker rm -f -v $$containers; fi
 
+# The installation suite runs against the cluster setup-test-e2e creates and
+# leaves it in place, so it can be rerun. Narrow it with a Ginkgo label filter,
+# for example E2E_LABEL_FILTER=helm.
+E2E_LABEL_FILTER ?=
+
+.PHONY: test-e2e-installation
+test-e2e-installation: manifests generate fmt vet kind-tool clusterctl ## Qualify NicoIdentity through the Helm chart and release bundle on the existing e2e Kind cluster.
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) CLUSTERCTL=$(CLUSTERCTL) \
+		go test -timeout 70m -tags=e2e ./test/e2e/installation/ -v -ginkgo.v -ginkgo.timeout=65m \
+		-ginkgo.label-filter="$(E2E_LABEL_FILTER)"
+
 # Every source file carries an SPDX header; the check runs in
 # .github/workflows/license.yml.
 # config/ and chart/ hold generated output that `make manifests` and
