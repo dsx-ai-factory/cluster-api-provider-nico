@@ -314,4 +314,4 @@ do about it. [Troubleshooting](troubleshooting.md) covers the rest.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps and the credentials Secret.
 - [`config/samples/`](https://github.com/dsx-ai-factory/cluster-api-provider-nico/tree/main/config/samples)
-  holds minimal worked manifests for all four CRDs.
+  holds minimal worked manifests for all five CRDs.

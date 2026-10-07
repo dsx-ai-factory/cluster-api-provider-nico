@@ -46,7 +46,7 @@ type NicoIdentityStatus struct {
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // NicoIdentity is an observation of NICo credentials, not a provisioning dependency.
-// The API is available before its controller; absent status is not a successful check.
+// Status stays absent until the controller completes a check; absent status is not a successful check.
 type NicoIdentity struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

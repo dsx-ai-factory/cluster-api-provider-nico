@@ -109,8 +109,8 @@ for the Secret's key layout and both authentication modes.
 
 The NicoIdentity controller checks the Secret each Identity names, separately
 from provisioning. Each check reads the Secret directly, builds a new
-client, acquires a new OAuth token instead of reusing a cached one, and calls
-NICo's current-tenant endpoint. One deadline,
+client, acquires a new OAuth token instead of reusing a cached one (or uses the
+Secret's static token), and calls NICo's current-tenant endpoint. One deadline,
 `--provider-identity-validation-timeout`, covers the whole check. Provisioning
 clients, their cached tokens and their tenant cache are not used or changed, so
 a revoked client secret shows up at the next check even while provisioning still
