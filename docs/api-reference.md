@@ -15,8 +15,9 @@ installations include its CRD. The NicoIdentity controller periodically checks
 the Secret each Identity names and records the result in status, reconciling
 every Identity in the manager's scope the same way it reconciles NicoClusters.
 Creating an Identity enrolls its Secret, and deleting the Identity stops the
-checks. Status stays absent until a check completes, and on Identities outside
-the manager's scope. Absence is not success.
+checks. Status stays absent until a check completes, and Identities outside the
+manager's scope are not checked. An Identity that leaves the scope keeps its
+last published status, which then ages. Absence is not success.
 
 The Identity describes credential health independently of tenant clusters. It
 does not select provisioning credentials, protect a Secret from deletion, or
