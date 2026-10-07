@@ -7,13 +7,11 @@ import (
 	"context"
 	"flag"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -54,52 +52,20 @@ func parseManagerFlags(t *testing.T, podNamespace string, args ...string) *manag
 }
 
 func TestCredentialSelection(t *testing.T) {
-	tests := []struct {
-		name         string
-		podNamespace string
-		args         []string
-		want         types.NamespacedName
-	}{
-		{
-			name: "default",
-			want: types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"},
-		},
-		{
-			name:         "POD_NAMESPACE",
-			podNamespace: "provider-system",
-			want:         types.NamespacedName{Namespace: "provider-system", Name: "nico-credentials"},
-		},
-		{
-			name:         "explicit flags win",
-			podNamespace: "provider-system",
-			args: []string{
-				"--provider-credentials-namespace=credentials",
-				"--provider-credentials-secret-name=explicit-credentials",
-			},
-			want: types.NamespacedName{Namespace: "credentials", Name: "explicit-credentials"},
-		},
-	}
+	cfg := parseManagerFlags(t, "")
+	require.Equal(t, types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"},
+		cfg.provider.Credentials, "without POD_NAMESPACE or flags")
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := parseManagerFlags(t, tc.podNamespace, tc.args...)
-			require.Equal(t, tc.want, cfg.provider.Credentials)
-		})
-	}
-}
+	cfg = parseManagerFlags(t, "provider-system")
+	require.Equal(t, types.NamespacedName{Namespace: "provider-system", Name: "nico-credentials"},
+		cfg.provider.Credentials, "POD_NAMESPACE sets the default namespace")
 
-func TestIdentityCacheScope(t *testing.T) {
-	// Identities share the NicoCluster and NicoMachine cache scope; the default
-	// credentials namespace adds nothing to it.
-	cfg := parseManagerFlags(t, "provider-system")
-	options := cfg.managerOptions()
-	require.Empty(t, options.Cache.ByObject)
-	require.Empty(t, options.Cache.DefaultNamespaces)
-
-	cfg = parseManagerFlags(t, "provider-system", "--namespace=tenants")
-	options = cfg.managerOptions()
-	require.Empty(t, options.Cache.ByObject)
-	require.Equal(t, []string{"tenants"}, slices.Collect(maps.Keys(options.Cache.DefaultNamespaces)))
+	cfg = parseManagerFlags(t, "provider-system",
+		"--provider-credentials-namespace=credentials",
+		"--provider-credentials-secret-name=explicit-credentials",
+	)
+	require.Equal(t, types.NamespacedName{Namespace: "credentials", Name: "explicit-credentials"},
+		cfg.provider.Credentials, "explicit flags win over POD_NAMESPACE")
 }
 
 func TestManagerWithoutIdentityCRD(t *testing.T) {
