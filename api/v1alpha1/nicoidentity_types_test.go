@@ -45,35 +45,44 @@ func TestNicoIdentityAPI(t *testing.T) {
 	// Accepted objects' initial generation and absent status, finalizers and
 	// owners are asserted by the nicoidentity-create-ready controller golden.
 	t.Run("admission", func(t *testing.T) {
-		type admissionCase struct {
+		create := func(spec map[string]any) error {
+			object := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": GroupVersion.String(),
+				"kind":       "NicoIdentity",
+				"metadata":   map[string]any{"generateName": "identity-", "namespace": namespace.Name},
+			}}
+			if spec != nil {
+				object.Object["spec"] = spec
+			}
+			return c.Create(ctx, object)
+		}
+		reference := func(name string) map[string]any {
+			return map[string]any{"credentialsRef": map[string]any{"name": name}}
+		}
+		requireRejected := func(t *testing.T, names ...string) {
+			t.Helper()
+			for _, name := range names {
+				err := create(reference(name))
+				require.True(t, apierrors.IsInvalid(err), "name %q: expected admission rejection, got %v", name, err)
+			}
+		}
+
+		cases := []struct {
 			name  string
 			spec  map[string]any
 			valid bool
-		}
-		cases := make([]admissionCase, 0, 18)
-		cases = append(cases,
-			admissionCase{name: "missing spec"},
-			admissionCase{name: "missing reference", spec: map[string]any{}},
-			admissionCase{name: "missing name", spec: map[string]any{"credentialsRef": map[string]any{}}},
-			admissionCase{name: "null reference", spec: map[string]any{"credentialsRef": nil}},
-		)
-		for _, name := range []string{"nico-credentials", "nico.credentials", "0", strings.Repeat("a", 253)} {
-			cases = append(cases, admissionCase{name: "valid " + name, spec: map[string]any{"credentialsRef": map[string]any{"name": name}}, valid: true})
-		}
-		for _, name := range []string{"", "Nico", "nico_credentials", "nico/credentials", "-nico", "nico-", ".nico", "nico.", "nico..credentials", strings.Repeat("a", 254)} {
-			cases = append(cases, admissionCase{name: "invalid " + name, spec: map[string]any{"credentialsRef": map[string]any{"name": name}}})
+		}{
+			{name: "missing spec"},
+			{name: "missing reference", spec: map[string]any{}},
+			{name: "missing name", spec: map[string]any{"credentialsRef": map[string]any{}}},
+			{name: "null reference", spec: map[string]any{"credentialsRef": nil}},
+			{name: "valid 253-character name", spec: reference(strings.Repeat("a", 253)), valid: true},
+			{name: "invalid empty name", spec: reference("")},
+			{name: "invalid 254-character name", spec: reference(strings.Repeat("a", 254))},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				object := &unstructured.Unstructured{Object: map[string]any{
-					"apiVersion": GroupVersion.String(),
-					"kind":       "NicoIdentity",
-					"metadata":   map[string]any{"generateName": "identity-", "namespace": namespace.Name},
-				}}
-				if tc.spec != nil {
-					object.Object["spec"] = tc.spec
-				}
-				err := c.Create(ctx, object)
+				err := create(tc.spec)
 				if !tc.valid {
 					require.True(t, apierrors.IsInvalid(err), "expected admission rejection, got %v", err)
 					return
@@ -81,6 +90,18 @@ func TestNicoIdentityAPI(t *testing.T) {
 				require.NoError(t, err)
 			})
 		}
+
+		t.Run("accepts valid Secret-name forms", func(t *testing.T) {
+			for _, name := range []string{"nico-credentials", "nico.credentials", "0"} {
+				require.NoError(t, create(reference(name)), "name %q", name)
+			}
+		})
+		t.Run("rejects characters outside lowercase alphanumerics, dash and dot", func(t *testing.T) {
+			requireRejected(t, "Nico", "nico_credentials", "nico/credentials")
+		})
+		t.Run("rejects empty dot-separated segments", func(t *testing.T) {
+			requireRejected(t, ".nico", "nico.", "nico..credentials")
+		})
 	})
 
 	newIdentity := func(name string) *NicoIdentity {
