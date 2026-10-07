@@ -216,7 +216,7 @@ func startFake(server *fake.Server) string {
 }
 
 func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
-	for _, name := range []string{"nico-creds", "provider-power", "tenant-creds", testDefaultCredentials} {
+	for _, name := range []string{"nico-creds", "provider-power", testDefaultCredentials} {
 		secret := &corev1.Secret{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: name}, secret); err != nil {
 			if client.IgnoreNotFound(err) == nil {
