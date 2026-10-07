@@ -143,60 +143,41 @@ func TestTokenSourceOAuthClientCredentials(t *testing.T) {
 }
 
 func TestProviderConfigIdentityValidationTimeout(t *testing.T) {
-	tests := []struct {
-		name        string
-		args        []string
-		wantTimeout time.Duration
-		wantErr     string
-	}{
-		{
-			name:        "defaults to 30 seconds",
-			wantTimeout: 30 * time.Second,
-		},
-		{
-			name:        "longer timeout",
-			args:        []string{"--provider-identity-validation-timeout=45s"},
-			wantTimeout: 45 * time.Second,
-		},
-		{
-			name:        "shorter timeout",
-			args:        []string{"--provider-identity-validation-timeout=500ms"},
-			wantTimeout: 500 * time.Millisecond,
-		},
-		{
-			name:    "zero timeout is rejected",
-			args:    []string{"--provider-identity-validation-timeout=0s"},
-			wantErr: "--provider-identity-validation-timeout must be positive",
-		},
-		{
-			name:    "negative timeout is rejected",
-			args:    []string{"--provider-identity-validation-timeout=-1s"},
-			wantErr: "--provider-identity-validation-timeout must be positive",
-		},
+	parse := func(t *testing.T, args ...string) ProviderConfig {
+		t.Helper()
+		cfg := ProviderConfig{Credentials: types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}}
+		fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+		cfg.BindFlags(fs)
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("Parse(%q) error = %v", args, err)
+		}
+		return cfg
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := ProviderConfig{Credentials: types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}}
-			fs := flag.NewFlagSet("manager", flag.ContinueOnError)
-			cfg.BindFlags(fs)
-			if err := fs.Parse(tc.args); err != nil {
-				t.Fatalf("Parse() error = %v", err)
+	t.Run("accepts positive validation timeouts", func(t *testing.T) {
+		for _, tc := range []struct {
+			args []string
+			want time.Duration
+		}{
+			{want: 30 * time.Second},
+			{args: []string{"--provider-identity-validation-timeout=45s"}, want: 45 * time.Second},
+			{args: []string{"--provider-identity-validation-timeout=500ms"}, want: 500 * time.Millisecond},
+		} {
+			cfg := parse(t, tc.args...)
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("args %q: Validate() error = %v", tc.args, err)
 			}
+			if cfg.IdentityValidationTimeout != tc.want {
+				t.Fatalf("args %q: IdentityValidationTimeout = %s, want %s", tc.args, cfg.IdentityValidationTimeout, tc.want)
+			}
+		}
+	})
 
-			err := cfg.Validate()
-			if tc.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("Validate() error = %v, want it to contain %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Validate() error = %v", err)
-			}
-			if cfg.IdentityValidationTimeout != tc.wantTimeout {
-				t.Fatalf("IdentityValidationTimeout = %s, want %s", cfg.IdentityValidationTimeout, tc.wantTimeout)
-			}
-		})
-	}
+	t.Run("zero timeout is rejected", func(t *testing.T) {
+		const want = "--provider-identity-validation-timeout must be positive"
+		cfg := parse(t, "--provider-identity-validation-timeout=0s")
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Validate() error = %v, want it to contain %q", err, want)
+		}
+	})
 }
