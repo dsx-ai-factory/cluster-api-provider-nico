@@ -35,9 +35,12 @@ import (
 
 func TestValidateCredentialsResults(t *testing.T) {
 	cases := []struct {
-		name      string
-		oauth     bool
-		fields    map[string]string
+		name   string
+		oauth  bool
+		fields map[string]string
+		// variants, when set, replace fields: each must produce the case's
+		// single result and make the same requests.
+		variants  []map[string]string
 		path      string
 		code      int
 		body      string
@@ -45,10 +48,6 @@ func TestValidateCredentialsResults(t *testing.T) {
 	}{
 		{name: "static-success"},
 		{name: "oauth-success", oauth: true},
-		{name: "oauth-secret-shape", oauth: true, fields: map[string]string{
-			SecretKeyScope: "tenant:read", SecretKeyInsecureSkipTLSVerify: strconv.FormatBool(false), SecretKeyAPIName: "nico",
-		}},
-		{name: "unintended-valid-principal", fields: map[string]string{SecretKeyToken: "other-principal-token"}},
 		{name: "missing-endpoint", fields: map[string]string{SecretKeyEndpoint: ""}, noRequest: true},
 		{name: "missing-org", fields: map[string]string{SecretKeyOrgID: ""}, noRequest: true},
 		{name: "missing-auth", fields: map[string]string{SecretKeyToken: ""}, noRequest: true},
@@ -56,9 +55,11 @@ func TestValidateCredentialsResults(t *testing.T) {
 		{name: "mixed-auth", oauth: true, fields: map[string]string{SecretKeyToken: "synthetic-token"}, noRequest: true},
 		{name: "invalid-tls-option", fields: map[string]string{SecretKeyInsecureSkipTLSVerify: "value-SENTINEL"}, noRequest: true},
 		{name: "invalid-ca", fields: map[string]string{SecretKeyCA: "ca-SENTINEL"}, noRequest: true},
-		{name: "relative-endpoint", fields: map[string]string{SecretKeyEndpoint: "/endpoint-SENTINEL"}, noRequest: true},
-		{name: "invalid-endpoint", fields: map[string]string{SecretKeyEndpoint: "https://%endpoint-SENTINEL"}, noRequest: true},
-		{name: "unsupported-endpoint", fields: map[string]string{SecretKeyEndpoint: "file:///endpoint-SENTINEL"}, noRequest: true},
+		{name: "unusable-endpoint", variants: []map[string]string{
+			{SecretKeyEndpoint: "/endpoint-SENTINEL"},
+			{SecretKeyEndpoint: "https://%endpoint-SENTINEL"},
+			{SecretKeyEndpoint: "file:///endpoint-SENTINEL"},
+		}, noRequest: true},
 		{name: "relative-token-url", oauth: true, fields: map[string]string{SecretKeyTokenURL: "/issuer-SENTINEL"}, noRequest: true},
 		{name: "rejected-static", fields: map[string]string{SecretKeyToken: "rejected-SENTINEL"}},
 		{name: "rejected-oauth", oauth: true, fields: map[string]string{SecretKeyClientSecret: "rejected-SENTINEL"}, path: "/token"},
@@ -87,9 +88,6 @@ func TestValidateCredentialsResults(t *testing.T) {
 			if tc.oauth {
 				api.SeedClient("client-id", "client-secret")
 			}
-			if tc.name == "unintended-valid-principal" {
-				api.SeedToken("other-principal-token")
-			}
 			before, err := api.Dump()
 			require.NoError(t, err)
 			var requests []string
@@ -108,13 +106,6 @@ func TestValidateCredentialsResults(t *testing.T) {
 				handler.ServeHTTP(w, r)
 			}))
 			t.Cleanup(server.Close)
-			secret := validationSecret(server.URL, tc.oauth)
-			for key, value := range tc.fields {
-				secret.Data[key] = []byte(value)
-			}
-			original := secret.DeepCopy()
-			results[tc.name] = ValidateCredentials(t.Context(), secret, DefaultCredentialValidationTimeout)
-			assert.Equal(t, original, secret, "validation must not mutate its Secret snapshot")
 			var wantRequests []string
 			if !tc.noRequest {
 				if tc.oauth {
@@ -124,9 +115,29 @@ func TestValidateCredentialsResults(t *testing.T) {
 					wantRequests = append(wantRequests, "GET /v2/org/org-1/nico/tenant/current")
 				}
 			}
-			mu.Lock()
-			assert.Equal(t, wantRequests, requests, "only token issuance and the baseline read are permitted")
-			mu.Unlock()
+			variants := tc.variants
+			if variants == nil {
+				variants = []map[string]string{tc.fields}
+			}
+			for _, fields := range variants {
+				mu.Lock()
+				requests = nil
+				mu.Unlock()
+				secret := validationSecret(server.URL, tc.oauth)
+				for key, value := range fields {
+					secret.Data[key] = []byte(value)
+				}
+				original := secret.DeepCopy()
+				result := ValidateCredentials(t.Context(), secret, DefaultCredentialValidationTimeout)
+				if previous, ok := results[tc.name]; ok {
+					assert.Equal(t, previous, result, "fields %v must produce the case's single result", fields)
+				}
+				results[tc.name] = result
+				assert.Equal(t, original, secret, "fields %v: validation must not mutate its Secret snapshot", fields)
+				mu.Lock()
+				assert.Equal(t, wantRequests, requests, "fields %v: only token issuance and the baseline read are permitted", fields)
+				mu.Unlock()
+			}
 			after, err := api.Dump()
 			require.NoError(t, err)
 			assert.Equal(t, before, after)

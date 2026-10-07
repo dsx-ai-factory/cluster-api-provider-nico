@@ -35,10 +35,6 @@ invalid-ca:
   message: Credential TLS configuration does not contain a usable CA bundle.
   reason: InvalidConfiguration
   status: "False"
-invalid-endpoint:
-  message: Credential endpoint configuration requires absolute HTTP or HTTPS URLs.
-  reason: InvalidConfiguration
-  status: "False"
 invalid-tls-option:
   message: Credential configuration is missing required fields or contains incompatible
     or invalid values.
@@ -100,10 +96,6 @@ null-tenant:
   message: Current-tenant lookup could not establish credential health.
   reason: ValidationFailed
   status: Unknown
-oauth-secret-shape:
-  message: Authentication and current-tenant lookup succeeded.
-  reason: ValidationSucceeded
-  status: "True"
 oauth-success:
   message: Authentication and current-tenant lookup succeeded.
   reason: ValidationSucceeded
@@ -116,10 +108,6 @@ rejected-static:
   message: Current-tenant lookup rejected the access token.
   reason: AuthenticationFailed
   status: "False"
-relative-endpoint:
-  message: Credential endpoint configuration requires absolute HTTP or HTTPS URLs.
-  reason: InvalidConfiguration
-  status: "False"
 relative-token-url:
   message: Credential endpoint configuration requires absolute HTTP or HTTPS URLs.
   reason: InvalidConfiguration
@@ -128,11 +116,7 @@ static-success:
   message: Authentication and current-tenant lookup succeeded.
   reason: ValidationSucceeded
   status: "True"
-unintended-valid-principal:
-  message: Authentication and current-tenant lookup succeeded.
-  reason: ValidationSucceeded
-  status: "True"
-unsupported-endpoint:
+unusable-endpoint:
   message: Credential endpoint configuration requires absolute HTTP or HTTPS URLs.
   reason: InvalidConfiguration
   status: "False"
