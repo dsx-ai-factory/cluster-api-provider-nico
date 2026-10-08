@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/cluster-api/util/labels"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -59,6 +60,8 @@ type NicoIdentityReconciler struct {
 	APIReader        client.Reader
 	ProviderConfig   nico.ProviderConfig
 	WatchFilterValue string
+	// clock dates each completed check. SetupWithManager defaults it to the real clock.
+	clock clock.PassiveClock
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
@@ -83,7 +86,7 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	result, revision := r.check(ctx, tested)
-	completed := metav1.Now()
+	completed := metav1.NewTime(r.clock.Now())
 	if ctx.Err() != nil {
 		// The manager is stopping; a canceled check is not an observation.
 		return ctrl.Result{}, nil
@@ -208,6 +211,9 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
+	}
+	if r.clock == nil {
+		r.clock = clock.RealClock{}
 	}
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, func(object client.Object) []string {

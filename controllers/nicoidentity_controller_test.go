@@ -17,6 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -168,6 +169,8 @@ func startIdentityReconciler(ctx ginkgo.SpecContext, tc *fixture.Case) {
 		ProviderConfig: nico.ProviderConfig{
 			Credentials: types.NamespacedName{Namespace: testNamespace, Name: "nico-creds"},
 		},
+		// Goldens record lastCheckedTime, so every check is dated at the epoch.
+		clock: clocktesting.NewFakePassiveClock(time.Unix(0, 0).UTC()),
 	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
