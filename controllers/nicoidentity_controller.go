@@ -31,8 +31,8 @@ const (
 	// nicoIdentityCredentialsRefIndex indexes Identities by the Secret they name.
 	nicoIdentityCredentialsRefIndex = "nicoIdentityCredentialsRef"
 
-	// defaultIdentityCheckInterval is the longest nominal delay after each completed check.
-	defaultIdentityCheckInterval = 5 * time.Minute
+	// identityCheckInterval is the longest nominal delay after each completed check.
+	identityCheckInterval = 5 * time.Minute
 	// identitySupersededRequeue retries soon after discarding a result for changed inputs.
 	identitySupersededRequeue = time.Second
 
@@ -59,8 +59,6 @@ type NicoIdentityReconciler struct {
 	APIReader        client.Reader
 	ProviderConfig   nico.ProviderConfig
 	WatchFilterValue string
-	// CheckInterval is the longest delay after each completed check. Zero means five minutes.
-	CheckInterval time.Duration
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
@@ -118,7 +116,7 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	log.Info("checked NicoIdentity credentials", "ready", result.Status, "reason", result.Reason)
-	return ctrl.Result{RequeueAfter: r.recheckAfter(current)}, nil
+	return ctrl.Result{RequeueAfter: recheckAfter(current)}, nil
 }
 
 // check validates the Secret the Identity names in its own namespace and
@@ -184,12 +182,8 @@ func secretRevision(secret *corev1.Secret, err error) string {
 // as the cluster controller spreads clusters. It subtracts the jitter rather
 // than adding it, so no Identity's nominal interval exceeds five minutes, the
 // age at which readers treat an observation as stale.
-func (r *NicoIdentityReconciler) recheckAfter(identity *infrav1.NicoIdentity) time.Duration {
-	interval := defaultIdentityCheckInterval
-	if r.CheckInterval > 0 {
-		interval = r.CheckInterval
-	}
-	return interval - deterministicJitter(string(identity.UID), interval/5)
+func recheckAfter(identity *infrav1.NicoIdentity) time.Duration {
+	return identityCheckInterval - deterministicJitter(string(identity.UID), identityCheckInterval/5)
 }
 
 func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
