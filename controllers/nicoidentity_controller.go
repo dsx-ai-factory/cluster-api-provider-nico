@@ -228,7 +228,9 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoIdentity{}, builder.WithPredicates(
 			predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue),
-			// A label change can bring an Identity into the watch filter.
+			// Each check writes lastCheckedTime, so status-only updates must not
+			// start another check. Spec changes bump the generation. Label changes
+			// don't, but an Identity that gains the watch-filter label needs a check.
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}),
 		)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.identitiesForSecret)).
