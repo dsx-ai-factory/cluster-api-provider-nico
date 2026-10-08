@@ -505,18 +505,10 @@ func compareOrUpdateAdditionalGoldens(ctx context.Context, tc *Case) []error {
 }
 
 func compareOrUpdateGolden(expectedPath, actual string) {
-	ExpectGolden(gomega.Default, expectedPath, actual)
-}
-
-// ExpectGolden compares actual with the golden at expectedPath, or rewrites the
-// golden when TESTUTIL_UPDATE_EXPECTED=true. Tests outside Ginkgo pass
-// gomega.NewWithT(t).
-func ExpectGolden(g gomega.Gomega, expectedPath, actual string) {
 	newPath := expectedPath + ".new"
 	if os.Getenv(updateExpectedEnv) == updateExpectedEnabled {
-		g.Expect(os.MkdirAll(filepath.Dir(expectedPath), 0o750)).To(gomega.Succeed())
-		g.Expect(os.WriteFile(expectedPath, []byte(actual), 0o600)).To(gomega.Succeed())
-		g.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
+		gomega.Expect(os.WriteFile(expectedPath, []byte(actual), 0o600)).To(gomega.Succeed())
+		gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 		return
 	}
 
@@ -524,23 +516,12 @@ func ExpectGolden(g gomega.Gomega, expectedPath, actual string) {
 	if os.IsNotExist(err) {
 		expectedBytes = nil
 	} else {
-		g.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
-	g.Expect(os.WriteFile(newPath, []byte(actual), 0o600)).To(gomega.Succeed())
-	g.Expect(actual).To(matchers.MatchGolden(string(expectedBytes), expectedPath, newPath))
-	g.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
-}
-
-// Snapshot lists each object type through c and renders it as case goldens do,
-// with volatile metadata, condition transition times and check times masked.
-func Snapshot(
-	ctx context.Context,
-	c client.Client,
-	scheme *runtime.Scheme,
-	lists ...client.ObjectList,
-) (string, error) {
-	return renderObjects(ctx, c, scheme, lists, nil, true)
+	gomega.Expect(os.WriteFile(newPath, []byte(actual), 0o600)).To(gomega.Succeed())
+	gomega.Expect(actual).To(matchers.MatchGolden(string(expectedBytes), expectedPath, newPath))
+	gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 }
 
 func collectObjects(
@@ -549,30 +530,19 @@ func collectObjects(
 	compareObjects []client.ObjectList,
 	maskExpectedMetadata bool,
 ) (string, error) {
-	return renderObjects(ctx, tc.Client, tc.Scheme, compareObjects, tc.IncludeEvent, maskExpectedMetadata)
-}
-
-func renderObjects(
-	ctx context.Context,
-	c client.Client,
-	scheme *runtime.Scheme,
-	compareObjects []client.ObjectList,
-	includeEvent func(eventsv1.Event) bool,
-	maskExpectedMetadata bool,
-) (string, error) {
 	var actual strings.Builder
 	for _, list := range compareObjects {
 		if list == nil {
 			return "", errors.New("CompareObjects returned a nil object list")
 		}
 		list = list.DeepCopyObject().(client.ObjectList)
-		if err := c.List(ctx, list); err != nil {
+		if err := tc.Client.List(ctx, list); err != nil {
 			return "", fmt.Errorf("list %T: %w", list, err)
 		}
 		if events, ok := list.(*eventsv1.EventList); ok {
-			if includeEvent != nil {
+			if tc.IncludeEvent != nil {
 				events.Items = slices.DeleteFunc(events.Items, func(event eventsv1.Event) bool {
-					return !includeEvent(event)
+					return !tc.IncludeEvent(event)
 				})
 			}
 			if len(events.Items) == 0 {
@@ -590,7 +560,7 @@ func renderObjects(
 		}
 
 		unstructuredList := &unstructured.UnstructuredList{}
-		if err := scheme.Convert(list, unstructuredList, nil); err != nil {
+		if err := tc.Scheme.Convert(list, unstructuredList, nil); err != nil {
 			return "", fmt.Errorf("convert %T to unstructured list: %w", list, err)
 		}
 		if maskExpectedMetadata {
@@ -646,18 +616,6 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 	object.SetOwnerReferences(owners)
 	if err := maskRebootTimestamps(object); err != nil {
 		return err
-	}
-
-	// Steps check a check time's presence and order before goldens compare it.
-	_, checked, err := unstructured.NestedString(object.Object, "status", "lastCheckedTime")
-	if err != nil {
-		return fmt.Errorf("read lastCheckedTime for %s: %w", object.GetName(), err)
-	}
-	if checked {
-		err := unstructured.SetNestedField(object.Object, "1970-01-01T00:00:00Z", "status", "lastCheckedTime")
-		if err != nil {
-			return fmt.Errorf("normalize lastCheckedTime for %s: %w", object.GetName(), err)
-		}
 	}
 
 	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
