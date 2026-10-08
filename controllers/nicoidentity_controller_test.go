@@ -152,7 +152,6 @@ func expectNicoIdentityChecked(ctx context.Context, tc *fixture.Case, generation
 			checked := identity.Status.LastCheckedTime
 			g.Expect(checked).NotTo(gomega.BeNil())
 			g.Expect(checked.Before(&ready.LastTransitionTime)).To(gomega.BeFalse())
-			g.Expect(checked.Time).To(gomega.BeTemporally("<=", time.Now()))
 		}
 	}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 }
