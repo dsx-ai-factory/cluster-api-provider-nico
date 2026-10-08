@@ -40,6 +40,7 @@ import (
 const (
 	defaultClientInputSuffix = "_client_objects.yaml"
 	updateExpectedEnv        = "TESTUTIL_UPDATE_EXPECTED"
+	updateExpectedEnabled    = "true"
 )
 
 // CaseSet configures a group of file-backed Ginkgo testcases.
@@ -444,7 +445,7 @@ func compareOrUpdateObjects(
 	compareObjects []client.ObjectList,
 	maskExpectedMetadata bool,
 ) []error {
-	if os.Getenv(updateExpectedEnv) != "true" {
+	if os.Getenv(updateExpectedEnv) != updateExpectedEnabled {
 		var errs []error
 		for _, list := range compareObjects {
 			if _, ok := list.(*eventsv1.EventList); !ok {
@@ -492,7 +493,7 @@ func compareOrUpdateAdditionalGoldens(ctx context.Context, tc *Case) []error {
 		actual, err := tc.additionalGoldens[filename](ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		expectedPath := filepath.Join(filepath.Dir(tc.ExpectedFilepath), filename)
-		if os.Getenv(updateExpectedEnv) != "true" {
+		if os.Getenv(updateExpectedEnv) != updateExpectedEnabled {
 			if _, err := os.ReadFile(expectedPath); os.IsNotExist(err) { // #nosec G304 -- fixture path under testdata
 				errs = append(errs, fmt.Errorf("%w\n\nExpected output for %s:\n\n%s", err, expectedPath, actual))
 				continue
@@ -505,7 +506,7 @@ func compareOrUpdateAdditionalGoldens(ctx context.Context, tc *Case) []error {
 
 func compareOrUpdateGolden(expectedPath, actual string) {
 	newPath := expectedPath + ".new"
-	if os.Getenv(updateExpectedEnv) == "true" {
+	if os.Getenv(updateExpectedEnv) == updateExpectedEnabled {
 		gomega.Expect(os.WriteFile(expectedPath, []byte(actual), 0o600)).To(gomega.Succeed())
 		gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 		return
