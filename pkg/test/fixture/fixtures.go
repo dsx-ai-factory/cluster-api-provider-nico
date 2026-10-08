@@ -40,6 +40,7 @@ import (
 const (
 	defaultClientInputSuffix = "_client_objects.yaml"
 	updateExpectedEnv        = "TESTUTIL_UPDATE_EXPECTED"
+	updateExpectedEnabled    = "true"
 )
 
 // CaseSet configures a group of file-backed Ginkgo testcases.
@@ -119,8 +120,11 @@ func DescribeCaseSet(set CaseSet) bool {
 				set.DefineSteps(tc, set)
 
 				ginkgo.It("matches the expected objects", func(ctx ginkgo.SpecContext) {
-					compareOrUpdateObjects(ctx, tc, set.CompareObjects(), set.MaskExpectedMetadata)
-					compareOrUpdateAdditionalGoldens(ctx, tc)
+					errs := compareOrUpdateObjects(ctx, tc, set.CompareObjects(), set.MaskExpectedMetadata)
+					errs = append(errs, compareOrUpdateAdditionalGoldens(ctx, tc)...)
+					if len(errs) != 0 {
+						ginkgo.Fail(errors.Join(errs...).Error())
+					}
 				})
 			})
 		}
@@ -440,13 +444,20 @@ func compareOrUpdateObjects(
 	tc *Case,
 	compareObjects []client.ObjectList,
 	maskExpectedMetadata bool,
-) {
-	if os.Getenv(updateExpectedEnv) != "true" {
+) []error {
+	if os.Getenv(updateExpectedEnv) != updateExpectedEnabled {
+		var errs []error
 		for _, list := range compareObjects {
 			if _, ok := list.(*eventsv1.EventList); !ok {
 				continue
 			}
 			expected, err := os.ReadFile(tc.ExpectedFilepath) // #nosec G304 -- fixture path under testdata
+			if os.IsNotExist(err) {
+				actual, collectErr := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+				gomega.Expect(collectErr).NotTo(gomega.HaveOccurred())
+				errs = append(errs, fmt.Errorf("%w\n\nExpected output for %s:\n\n%s", err, tc.ExpectedFilepath, actual))
+				continue
+			}
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			newPath := tc.ExpectedFilepath + ".new"
 			gomega.Eventually(ctx, func() (string, error) {
@@ -458,32 +469,44 @@ func compareOrUpdateObjects(
 			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
 				Should(matchers.MatchGolden(string(expected), tc.ExpectedFilepath, newPath))
 			gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
-			return
+			return errs
+		}
+		if len(errs) != 0 {
+			return errs
 		}
 	}
 	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
+	return nil
 }
 
-func compareOrUpdateAdditionalGoldens(ctx context.Context, tc *Case) {
+func compareOrUpdateAdditionalGoldens(ctx context.Context, tc *Case) []error {
 	filenames := make([]string, 0, len(tc.additionalGoldens))
 	for filename := range tc.additionalGoldens {
 		filenames = append(filenames, filename)
 	}
 	sort.Strings(filenames)
 
+	var errs []error
 	for _, filename := range filenames {
 		actual, err := tc.additionalGoldens[filename](ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		expectedPath := filepath.Join(filepath.Dir(tc.ExpectedFilepath), filename)
+		if os.Getenv(updateExpectedEnv) != updateExpectedEnabled {
+			if _, err := os.ReadFile(expectedPath); os.IsNotExist(err) { // #nosec G304 -- fixture path under testdata
+				errs = append(errs, fmt.Errorf("%w\n\nExpected output for %s:\n\n%s", err, expectedPath, actual))
+				continue
+			}
+		}
 		compareOrUpdateGolden(expectedPath, actual)
 	}
+	return errs
 }
 
 func compareOrUpdateGolden(expectedPath, actual string) {
 	newPath := expectedPath + ".new"
-	if os.Getenv(updateExpectedEnv) == "true" {
+	if os.Getenv(updateExpectedEnv) == updateExpectedEnabled {
 		gomega.Expect(os.WriteFile(expectedPath, []byte(actual), 0o600)).To(gomega.Succeed())
 		gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 		return
