@@ -56,13 +56,13 @@ func seedFakeResources(tc *fixture.Case, server *fake.Server) error {
 	tenant := nicosdk.NewTenant()
 	tenant.SetId("tenant-1")
 	tenant.SetOrg("org-1")
-	server.SeedTenant("org-1", *tenant)
+	server.SeedTenant("org-1", tenant, 0)
 
 	site := nicosdk.NewSite()
 	site.SetId("site-1")
 	site.SetName("fake-site")
 	site.SetOrg("org-1")
-	server.SeedSite("org-1", *site)
+	server.SeedSite("org-1", site, 0)
 
 	vpc := nicosdk.NewVPC()
 	vpc.SetId("vpc-1")
@@ -70,7 +70,7 @@ func seedFakeResources(tc *fixture.Case, server *fake.Server) error {
 	vpc.SetOrg("org-1")
 	vpc.SetTenantId("tenant-1")
 	vpc.SetSiteId("site-1")
-	server.SeedVPC("org-1", *vpc)
+	server.SeedVPC("org-1", vpc, 0)
 
 	input, ok := tc.Input("input_nico_objects.yaml")
 	if !ok {
