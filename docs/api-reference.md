@@ -15,12 +15,13 @@ output prints the Available, Synced, Provisioned, Site, and Age columns.
 
 ### Spec
 
-The spec carries three fields, and only the site is required.
+The spec carries four fields, and only the site is required.
 
 | Field | Type | Meaning |
 |---|---|---|
 | `siteID` | string, required | The site where this provider creates and looks up instances. |
 | `identityRef` | object, optional | Points to the Secret that holds the NICo endpoint and the authentication settings. An unset value falls back to the provider-level credentials Secret in the manager's namespace. |
+| `powerControlIdentityRef` | object, optional | Points to a Secret in the cluster namespace with provider credentials for NICo Machine power control. An unset value uses the regular `identityRef` credential. |
 | `failureDomainLabelKey` | string, optional, 1 to 255 characters | The NICo Machine label key that carries the failure-domain name. The provider reads it to publish `status.failureDomains` and sends it as the machine label selector key when placing an instance. An unset value disables failure-domain support for this cluster, so no domains are published, and a Machine that requests one fails rather than being placed anywhere. Sites that follow the NICo convention use `failure_domain`. |
 
 ### Status
@@ -90,7 +91,8 @@ The spec describes one NICo instance, from its placement to its boot script.
 | `nvLinkInterfaces` | list | One or more NVLink Logical Partitions to attach. This field is mutually exclusive with `nvLinkLogicalPartitionID`. |
 | `nvLinkLogicalPartitionID` | string | Attaches this logical partition to every active NVLink device the instance type exposes. Use it instead of `nvLinkInterfaces` when every device should share one partition. It requires `instanceTypeID`. |
 | `sshKeyGroupIDs` | list | The allowed SSH key group IDs for Serial-over-LAN access. |
-| `ipxeScript` | string | The iPXE script used to boot this instance. |
+| `ipxeScript` | string | The iPXE script used to boot this instance. This field is mutually exclusive with `operatingSystemID`. |
+| `operatingSystemID` | string | The ID of a registered NICo operating system used to boot this instance. This field is mutually exclusive with `ipxeScript`. |
 | `cloudInitInjectHostname` | bool | Prepends hostname directives to the bootstrap cloud-config. |
 | `labels` | map | Labels applied to the instance. |
 | `allowUnhealthyMachine` | bool | Allows targeted instance creation on a machine in Error status. |
@@ -107,6 +109,7 @@ The status records what the provider observed about the backing instance.
 | `ready` | bool | True after the backing instance reaches Ready. |
 | `instanceID` | string | The instance identifier backing this machine. |
 | `machineID` | string | The NICo machine ID for this machine. |
+| `reboot` | object, optional | Records the latest annotation-driven reboot. It contains `annotation`, the accepted `annotationValue`, `mode`, `phase`, `startedAt`, optional `deadline`, `bootID`, `completedAt`, and the final `path` and `message`. |
 | `siteID`, `siteName` | string | The observed site for this machine. |
 | `vpcID`, `vpcName` | string | The observed VPC for this machine. |
 | `tpmEkPubHash` | string | The TPM EK public hash for this machine. |

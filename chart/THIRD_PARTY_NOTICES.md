@@ -70,12 +70,12 @@ commands are not listed, because they are not distributed.
 | [go.yaml.in/yaml/v2](https://github.com/yaml/go-yaml/blob/v2.4.4/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v2@v2.4.4 |
 | [go.yaml.in/yaml/v3](https://github.com/yaml/go-yaml/blob/v3.0.5/LICENSE) | MIT | go.yaml.in/yaml/v3@v3.0.5 |
 | [go.yaml.in/yaml/v4](https://github.com/yaml/go-yaml/blob/v4.0.0-rc.6/LICENSE) | Apache-2.0 | go.yaml.in/yaml/v4@v4.0.0-rc.6 |
-| [golang.org/x/net](https://cs.opensource.google/go/x/net/+/v0.58.0:LICENSE) | BSD-3-Clause | — |
+| [golang.org/x/net](https://cs.opensource.google/go/x/net/+/v0.59.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/oauth2](https://cs.opensource.google/go/x/oauth2/+/v0.37.0:LICENSE) | BSD-3-Clause | golang.org/x/oauth2@v0.37.0 |
-| [golang.org/x/sync/errgroup](https://cs.opensource.google/go/x/sync/+/v0.22.0:LICENSE) | BSD-3-Clause | golang.org/x/sync@v0.22.0 |
-| [golang.org/x/sys/unix](https://cs.opensource.google/go/x/sys/+/v0.47.0:LICENSE) | BSD-3-Clause | golang.org/x/sys@v0.47.0 |
-| [golang.org/x/term](https://cs.opensource.google/go/x/term/+/v0.45.0:LICENSE) | BSD-3-Clause | golang.org/x/term@v0.45.0 |
-| [golang.org/x/text](https://cs.opensource.google/go/x/text/+/v0.41.0:LICENSE) | BSD-3-Clause | — |
+| [golang.org/x/sync/errgroup](https://cs.opensource.google/go/x/sync/+/v0.23.0:LICENSE) | BSD-3-Clause | golang.org/x/sync@v0.23.0 |
+| [golang.org/x/sys/unix](https://cs.opensource.google/go/x/sys/+/v0.48.0:LICENSE) | BSD-3-Clause | golang.org/x/sys@v0.48.0 |
+| [golang.org/x/term](https://cs.opensource.google/go/x/term/+/v0.46.0:LICENSE) | BSD-3-Clause | golang.org/x/term@v0.46.0 |
+| [golang.org/x/text](https://cs.opensource.google/go/x/text/+/v0.42.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/time/rate](https://cs.opensource.google/go/x/time/+/v0.15.0:LICENSE) | BSD-3-Clause | golang.org/x/time@v0.15.0 |
 | [gomodules.xyz/jsonpatch/v2](https://github.com/gomodules/jsonpatch/blob/v2.5.0/LICENSE) | Apache-2.0 | gomodules.xyz/jsonpatch/v2@v2.5.0 |
 | [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go/blob/f2248ac996af/LICENSE) | BSD-3-Clause | — |
@@ -94,8 +94,8 @@ commands are not listed, because they are not distributed.
 | [k8s.io/utils](https://github.com/kubernetes/utils/blob/be93311217bd/LICENSE) | Apache-2.0 | — |
 | [k8s.io/utils/internal/third_party/forked/golang](https://github.com/kubernetes/utils/blob/be93311217bd/internal/third_party/forked/golang/LICENSE) | BSD-3-Clause | — |
 | [k8s.io/utils/third_party/forked/golang/btree](https://github.com/kubernetes/utils/blob/be93311217bd/third_party/forked/golang/btree/LICENSE) | Apache-2.0 | k8s.io/utils@v0.0.0-20260626114624-be93311217bd |
-| [sigs.k8s.io/cluster-api](https://github.com/kubernetes-sigs/cluster-api/blob/v1.13.4/LICENSE) | Apache-2.0 | — |
-| [sigs.k8s.io/controller-runtime](https://github.com/kubernetes-sigs/controller-runtime/blob/v0.25.0/LICENSE) | Apache-2.0 | sigs.k8s.io/controller-runtime@v0.25.0 |
+| [sigs.k8s.io/cluster-api](https://github.com/kubernetes-sigs/cluster-api/blob/v1.13.6/LICENSE) | Apache-2.0 | — |
+| [sigs.k8s.io/controller-runtime](https://github.com/kubernetes-sigs/controller-runtime/blob/v0.25.1/LICENSE) | Apache-2.0 | sigs.k8s.io/controller-runtime@v0.25.1 |
 | [sigs.k8s.io/json](https://github.com/kubernetes-sigs/json/blob/2d320260d730/LICENSE) | Apache-2.0 / BSD-3-Clause | sigs.k8s.io/json@v0.0.0-20250730193827-2d320260d730 |
 | [sigs.k8s.io/randfill](https://github.com/kubernetes-sigs/randfill/blob/v1.0.0/LICENSE) | Apache-2.0 | sigs.k8s.io/randfill@v1.0.0 |
 | [sigs.k8s.io/structured-merge-diff/v6](https://github.com/kubernetes-sigs/structured-merge-diff/blob/v6.4.2/LICENSE) | Apache-2.0 | — |

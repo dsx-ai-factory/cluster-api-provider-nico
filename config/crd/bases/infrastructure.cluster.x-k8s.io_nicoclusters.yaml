@@ -91,6 +91,22 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              powerControlIdentityRef:
+                description: |-
+                  PowerControlIdentityRef names a Secret with provider credentials for NICo
+                  Machine power control. When unset, IdentityRef is used.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               siteID:
                 description: SiteID is the site where this provider should create
                   and look up instances.

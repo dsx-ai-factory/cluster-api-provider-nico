@@ -5,27 +5,31 @@ package controllers
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
-	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/fixtures"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
 )
 
 const (
-	timeout     = 60 * time.Second
-	testMachine = "nicomachine-1"
+	timeout          = 60 * time.Second
+	testMachine      = "nicomachine-1"
+	testOwnerMachine = "machine-1"
 )
 
-func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixtures.Case, fixtures.CaseSet)) fixtures.CaseSet {
-	return fixtures.CaseSet{
+func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture.Case, fixture.CaseSet)) fixture.CaseSet {
+	return fixture.CaseSet{
 		Description:          description,
 		DirPrefix:            dirPrefix,
 		MaskExpectedMetadata: true,
@@ -35,11 +39,35 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			return []client.ObjectList{
 				&infrav1.NicoClusterList{},
 				&infrav1.NicoMachineList{},
+				&eventsv1.EventList{},
 			}
 		},
-		Setup: func(ctx ginkgo.SpecContext, tc *fixtures.Case, _ fixtures.CaseSet) {
+		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
+			tc.IncludeEvent = func(event eventsv1.Event) bool {
+				return event.ReportingController == "nicomachine-controller" &&
+					event.Regarding.Kind == "Machine" && event.Regarding.Name == testOwnerMachine
+			}
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
+			gomega.Expect(applyMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
+			gomega.Expect(applyNicoMachineStatusFixture(ctx, tc)).To(gomega.Succeed())
+			workloadFactory, workloadClient, err := seedWorkloadClient(tc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if tc.HasInput("input_workload_objects.yaml") {
+				tc.AddGolden("expected_workload_objects.yaml", func(ctx context.Context) (string, error) {
+					return dumpWorkloadNodes(ctx, workloadClient)
+				})
+			}
+			if input, ok := tc.Input("input_machine_annotation_key.txt"); ok {
+				annotation := strings.TrimSpace(input)
+				tc.AddGolden("expected_machine_annotation.txt", func(ctx context.Context) (string, error) {
+					machine := &clusterv1.Machine{}
+					if err := tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testOwnerMachine}, machine); err != nil {
+						return "", err
+					}
+					return machine.Annotations[annotation] + "\n", nil
+				})
+			}
 			gomega.Expect(wireOwnerReferences(ctx, tc.Client, tc.Scheme)).To(gomega.Succeed())
 
 			server := fake.New()
@@ -50,8 +78,8 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 			})
 
 			endpoint := startFake(server)
-			gomega.Expect(pointIdentitySecretAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
-			startReconcilers(ctx, tc)
+			gomega.Expect(pointIdentitySecretsAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
+			startReconcilers(ctx, tc, workloadFactory)
 		},
 		DefineSteps: defineSteps,
 	}
@@ -60,17 +88,17 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents a provisioned CR at generation 2 after CAPNICo sets providerID.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation ending provisioned",
 	"nicomachine-create-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachine := &infrav1.NicoMachine{}
 				g.Expect(tc.Client.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: testMachine}, nicoMachine)).To(gomega.Succeed())
 				provisioned := conditions.Get(nicoMachine, infrav1.MachineProvisionedCondition)
 				g.Expect(provisioned).NotTo(gomega.BeNil())
-				g.Expect(provisioned.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
+				g.Expect(provisioned.Status).To(gomega.Equal(metav1.ConditionTrue), "condition: %+v", provisioned)
 				g.Expect(nicoMachine.Generation).To(gomega.BeNumerically(">", 1))
 				g.Expect(provisioned.ObservedGeneration).To(gomega.Equal(nicoMachine.Generation))
 			}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
@@ -80,11 +108,11 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-// Represents an unprovisioned CR at generation 1 with no providerID.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+// Represents an unprovisioned CR at generation 1.
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine create reconciliation ending not provisioned",
 	"nicomachine-create-not-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachines := &infrav1.NicoMachineList{}
@@ -107,10 +135,10 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
 // Represents a provisioned CR at generation 2 after a spec update.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine update reconciliation ending provisioned",
 	"nicomachine-update-provisioned-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {
 			gomega.Eventually(func(g gomega.Gomega) {
 				nicoMachine := &infrav1.NicoMachine{}
@@ -144,10 +172,10 @@ var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
 
 // IMPORTANT: Read docs/writing-tests.md. There is ZERO reason that you should
 // have to add or update a case set.
-var _ = fixtures.DescribeCaseSet(nicoMachineCaseSet(
+var _ = fixture.DescribeCaseSet(nicoMachineCaseSet(
 	"NicoMachine delete reconciliation",
 	"nicomachine-delete-",
-	func(tc *fixtures.Case, _ fixtures.CaseSet) {
+	func(tc *fixture.Case, _ fixture.CaseSet) {
 		var deletedObjects []client.Object
 
 		ginkgo.It("reconciles the initial NicoMachine", func(ctx ginkgo.SpecContext) {

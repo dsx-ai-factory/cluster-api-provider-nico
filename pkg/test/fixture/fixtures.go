@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package fixtures registers file-backed envtest cases as Ginkgo specs.
-package fixtures
+// Package fixture registers file-backed envtest cases as Ginkgo specs.
+package fixture
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,6 +70,7 @@ type Case struct {
 	Environment      *envtest.Environment
 	Config           *rest.Config
 	Client           client.Client
+	IncludeEvent     func(eventsv1.Event) bool
 
 	additionalGoldens map[string]func(context.Context) (string, error)
 
@@ -126,16 +129,16 @@ func DescribeCaseSet(set CaseSet) bool {
 
 func (c *Case) AddGolden(filename string, source func(context.Context) (string, error)) {
 	if filename == "" || filepath.Base(filename) != filename {
-		panic(fmt.Sprintf("fixtures: golden filename %q must be a file name", filename))
+		panic(fmt.Sprintf("fixture: golden filename %q must be a file name", filename))
 	}
 	if source == nil {
-		panic(fmt.Sprintf("fixtures: golden source %q is nil", filename))
+		panic(fmt.Sprintf("fixture: golden source %q is nil", filename))
 	}
 	if c.additionalGoldens == nil {
 		c.additionalGoldens = map[string]func(context.Context) (string, error){}
 	}
 	if _, ok := c.additionalGoldens[filename]; ok {
-		panic(fmt.Sprintf("fixtures: golden source %q is already registered", filename))
+		panic(fmt.Sprintf("fixture: golden source %q is already registered", filename))
 	}
 	c.additionalGoldens[filename] = source
 }
@@ -275,22 +278,22 @@ func (c *Case) DeleteObjects(ctx context.Context, filename string) ([]client.Obj
 
 func validateCaseSet(set CaseSet) {
 	if strings.TrimSpace(set.Description) == "" {
-		panic("fixtures: CaseSet.Description is required")
+		panic("fixture: CaseSet.Description is required")
 	}
 	if set.SchemeFn == nil {
-		panic(fmt.Sprintf("fixtures: SchemeFn is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: SchemeFn is required for %q", set.Description))
 	}
 	if set.EnvironmentFn == nil {
-		panic(fmt.Sprintf("fixtures: EnvironmentFn is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: EnvironmentFn is required for %q", set.Description))
 	}
 	if set.CompareObjects == nil {
-		panic(fmt.Sprintf("fixtures: CompareObjects is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: CompareObjects is required for %q", set.Description))
 	}
 	if set.Setup == nil {
-		panic(fmt.Sprintf("fixtures: Setup is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: Setup is required for %q", set.Description))
 	}
 	if set.DefineSteps == nil {
-		panic(fmt.Sprintf("fixtures: DefineSteps is required for %q", set.Description))
+		panic(fmt.Sprintf("fixture: DefineSteps is required for %q", set.Description))
 	}
 }
 
@@ -432,7 +435,32 @@ func (c *Case) decodeObjects(filename, data string) ([]client.Object, error) {
 	return objects, nil
 }
 
-func compareOrUpdateObjects(ctx context.Context, tc *Case, compareObjects []client.ObjectList, maskExpectedMetadata bool) {
+func compareOrUpdateObjects(
+	ctx context.Context,
+	tc *Case,
+	compareObjects []client.ObjectList,
+	maskExpectedMetadata bool,
+) {
+	if os.Getenv(updateExpectedEnv) != "true" {
+		for _, list := range compareObjects {
+			if _, ok := list.(*eventsv1.EventList); !ok {
+				continue
+			}
+			expected, err := os.ReadFile(tc.ExpectedFilepath) // #nosec G304 -- fixture path under testdata
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			newPath := tc.ExpectedFilepath + ".new"
+			gomega.Eventually(ctx, func() (string, error) {
+				actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+				if err != nil {
+					return "", err
+				}
+				return actual, os.WriteFile(newPath, []byte(actual), 0o600)
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(matchers.MatchGolden(string(expected), tc.ExpectedFilepath, newPath))
+			gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
+			return
+		}
+	}
 	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
@@ -473,7 +501,12 @@ func compareOrUpdateGolden(expectedPath, actual string) {
 	gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 }
 
-func collectObjects(ctx context.Context, tc *Case, compareObjects []client.ObjectList, maskExpectedMetadata bool) (string, error) {
+func collectObjects(
+	ctx context.Context,
+	tc *Case,
+	compareObjects []client.ObjectList,
+	maskExpectedMetadata bool,
+) (string, error) {
 	var actual strings.Builder
 	for _, list := range compareObjects {
 		if list == nil {
@@ -482,6 +515,25 @@ func collectObjects(ctx context.Context, tc *Case, compareObjects []client.Objec
 		list = list.DeepCopyObject().(client.ObjectList)
 		if err := tc.Client.List(ctx, list); err != nil {
 			return "", fmt.Errorf("list %T: %w", list, err)
+		}
+		if events, ok := list.(*eventsv1.EventList); ok {
+			if tc.IncludeEvent != nil {
+				events.Items = slices.DeleteFunc(events.Items, func(event eventsv1.Event) bool {
+					return !tc.IncludeEvent(event)
+				})
+			}
+			if len(events.Items) == 0 {
+				continue // An unexpected included Event still appears in the golden output.
+			}
+			for i := range events.Items {
+				event := &events.Items[i]
+				event.Name = event.Reason
+				event.EventTime = metav1.MicroTime{Time: time.Unix(0, 0).UTC()}
+				event.ReportingInstance = "<generated>"
+				event.Regarding.UID = types.UID("00000000-0000-0000-0000-000000000000")
+				event.Regarding.ResourceVersion = ""
+				event.Series = nil
+			}
 		}
 
 		unstructuredList := &unstructured.UnstructuredList{}
@@ -539,6 +591,9 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 		}
 	}
 	object.SetOwnerReferences(owners)
+	if err := maskRebootTimestamps(object); err != nil {
+		return err
+	}
 
 	conditions, found, err := unstructured.NestedSlice(object.Object, "status", "conditions")
 	if err != nil {
@@ -563,6 +618,31 @@ func maskObjectMetadata(object *unstructured.Unstructured) error {
 	})
 	if err := unstructured.SetNestedSlice(object.Object, conditions, "status", "conditions"); err != nil {
 		return fmt.Errorf("write conditions for %s: %w", object.GetName(), err)
+	}
+	return nil
+}
+
+func maskRebootTimestamps(object *unstructured.Unstructured) error {
+	const timestamp = "1970-01-01T00:00:00Z"
+	annotations := object.GetAnnotations()
+	if _, ok := annotations["nico.nvidia.com/last-reboot-triggered-timestamp"]; ok {
+		annotations["nico.nvidia.com/last-reboot-triggered-timestamp"] = timestamp
+		object.SetAnnotations(annotations)
+	}
+	reboot, found, err := unstructured.NestedMap(object.Object, "status", "reboot")
+	if err != nil {
+		return fmt.Errorf("read reboot status for %s: %w", object.GetName(), err)
+	}
+	if !found {
+		return nil
+	}
+	for _, field := range []string{"startedAt", "deadline", "completedAt"} {
+		if _, ok := reboot[field]; ok {
+			reboot[field] = timestamp
+		}
+	}
+	if err := unstructured.SetNestedMap(object.Object, reboot, "status", "reboot"); err != nil {
+		return fmt.Errorf("normalize reboot timestamps for %s: %w", object.GetName(), err)
 	}
 	return nil
 }

@@ -27,7 +27,12 @@ func ValidateInstance(instance *nicosdk.Instance, machine infrav1.NicoMachine, i
 	if instance.GetVpcId() != machine.Spec.VPCID {
 		return fmt.Errorf("vpcId does not match")
 	}
-	if instance.GetIpxeScript() != machine.Spec.IpxeScript {
+	// The API stores the registered OS's own script on the instance, so only the OS ID is comparable.
+	if machine.Spec.OperatingSystemID != "" {
+		if instance.GetOperatingSystemId() != machine.Spec.OperatingSystemID {
+			return fmt.Errorf("operatingSystemId does not match")
+		}
+	} else if instance.GetIpxeScript() != machine.Spec.IpxeScript {
 		return fmt.Errorf("ipxeScript does not match")
 	}
 	if !labelsMatch(instance.GetLabels(), machine.Spec.Labels) {

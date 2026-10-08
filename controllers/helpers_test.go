@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -17,33 +18,39 @@ import (
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/yaml"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
-	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/test/fixtures"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
 )
 
 const (
 	// testNamespace is where every case's objects live.
-	testNamespace = "default"
+	testNamespace       = "default"
+	testWorkloadCluster = "cluster-1"
 )
 
 // caseFakes keeps each case's fake reachable from its assertions. Cases run in
 // their own environment, so the state must not be shared between them.
 var caseFakes sync.Map // case name -> *fake.Server
 
-func seedFakeResources(tc *fixtures.Case, server *fake.Server) error {
+func seedFakeResources(tc *fixture.Case, server *fake.Server) error {
 	server.SeedToken("test-token")
 
 	tenant := nicosdk.NewTenant()
@@ -85,7 +92,7 @@ func capiCRDPath() string {
 // newEnvironment builds an envtest environment carrying both this provider's
 // CRDs and Cluster API's, because the reconcilers resolve their owning Machine
 // and Cluster through the API server.
-func newEnvironment(*fixtures.Case) *envtest.Environment {
+func newEnvironment(*fixture.Case) *envtest.Environment {
 	return &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases"), capiCRDPath()},
 		ErrorIfCRDPathMissing: true,
@@ -95,6 +102,7 @@ func newEnvironment(*fixtures.Case) *envtest.Environment {
 func newScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	gomega.Expect(corev1.AddToScheme(scheme)).To(gomega.Succeed())
+	gomega.Expect(eventsv1.AddToScheme(scheme)).To(gomega.Succeed())
 	gomega.Expect(clusterv1.AddToScheme(scheme)).To(gomega.Succeed())
 	gomega.Expect(infrav1.AddToScheme(scheme)).To(gomega.Succeed())
 
@@ -204,21 +212,137 @@ func startFake(server *fake.Server) string {
 	return endpoint.URL
 }
 
-func pointIdentitySecretAtFake(ctx context.Context, c client.Client, endpoint string) error {
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: "nico-creds"}, secret); err != nil {
-		return client.IgnoreNotFound(err)
+func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
+	for _, name := range []string{"nico-creds", "provider-power"} {
+		secret := &corev1.Secret{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: name}, secret); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				continue
+			}
+			return err
+		}
+		if secret.Data == nil {
+			secret.Data = map[string][]byte{}
+		}
+		secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
+		if err := c.Update(ctx, secret); err != nil {
+			return err
+		}
 	}
-	if secret.Data == nil {
-		secret.Data = map[string][]byte{}
-	}
-	secret.Data[nico.SecretKeyEndpoint] = []byte(endpoint)
+	return nil
+}
 
-	return c.Update(ctx, secret)
+func applyMachineStatusFixture(ctx context.Context, tc *fixture.Case) error {
+	input, ok := tc.Input("input_machine_status.yaml")
+	if !ok {
+		return nil
+	}
+
+	desired := &clusterv1.Machine{}
+	if err := yaml.Unmarshal([]byte(input), desired); err != nil {
+		return fmt.Errorf("decode input_machine_status.yaml: %w", err)
+	}
+	machine := &clusterv1.Machine{}
+	if err := tc.Client.Get(ctx, client.ObjectKeyFromObject(desired), machine); err != nil {
+		return fmt.Errorf("get Machine for status fixture: %w", err)
+	}
+	machine.Status = desired.Status
+	if err := tc.Client.Status().Update(ctx, machine); err != nil {
+		return fmt.Errorf("apply Machine status fixture: %w", err)
+	}
+	return nil
+}
+
+func applyNicoMachineStatusFixture(ctx context.Context, tc *fixture.Case) error {
+	input, ok := tc.Input("input_nicomachine_status.yaml")
+	if !ok {
+		return nil
+	}
+
+	desired := &infrav1.NicoMachine{}
+	if err := yaml.Unmarshal([]byte(input), desired); err != nil {
+		return fmt.Errorf("decode input_nicomachine_status.yaml: %w", err)
+	}
+	nicoMachine := &infrav1.NicoMachine{}
+	if err := tc.Client.Get(ctx, client.ObjectKeyFromObject(desired), nicoMachine); err != nil {
+		return fmt.Errorf("get NicoMachine for status fixture: %w", err)
+	}
+	nicoMachine.Status = desired.Status
+	if err := tc.Client.Status().Update(ctx, nicoMachine); err != nil {
+		return fmt.Errorf("apply NicoMachine status fixture: %w", err)
+	}
+	return nil
+}
+
+func seedWorkloadClient(tc *fixture.Case) (workloadClientFactory, client.Client, error) {
+	builder := crfake.NewClientBuilder().WithScheme(tc.Scheme)
+	if input, ok := tc.Input("input_workload_objects.yaml"); ok {
+		nodes := []corev1.Node{}
+		if err := yaml.Unmarshal([]byte(input), &nodes); err != nil {
+			return nil, nil, fmt.Errorf("decode input_workload_objects.yaml: %w", err)
+		}
+		for i := range nodes {
+			builder = builder.WithObjects(&nodes[i])
+		}
+	}
+	workloadClient := builder.Build()
+	return fixedWorkloadClientFactory(workloadClient), workloadClient, nil
+}
+
+func fixedWorkloadClientFactory(workloadClient client.Client) workloadClientFactory {
+	return func([]byte, *runtime.Scheme) (client.Client, error) {
+		return workloadClient, nil
+	}
+}
+
+type workloadNode struct {
+	Name       string `json:"name"`
+	ProviderID string `json:"providerID,omitempty"`
+}
+
+func dumpWorkloadNodes(ctx context.Context, workloadClient client.Client) (string, error) {
+	nodes := &corev1.NodeList{}
+	if err := workloadClient.List(ctx, nodes); err != nil {
+		return "", fmt.Errorf("list workload cluster Nodes: %w", err)
+	}
+
+	items := make([]workloadNode, 0, len(nodes.Items))
+	for i := range nodes.Items {
+		items = append(items, workloadNode{Name: nodes.Items[i].Name, ProviderID: nodes.Items[i].Spec.ProviderID})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+
+	out, err := yaml.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("encode workload cluster Nodes: %w", err)
+	}
+	return string(out), nil
+}
+
+func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
+	const contextName = "exec"
+	return clientcmd.Write(clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			contextName: {Server: server},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			contextName: {
+				Exec: &clientcmdapi.ExecConfig{
+					APIVersion:      "client.authentication.k8s.io/v1",
+					Command:         "must-not-run",
+					InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+				},
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {Cluster: contextName, AuthInfo: contextName},
+		},
+		CurrentContext: contextName,
+	})
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
-func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case) {
+func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory workloadClientFactory) {
 	defaultNicoClientCache = nico.NewClientCache()
 	mgr, err := manager.New(tc.Config, manager.Options{
 		Scheme:  tc.Scheme,
@@ -229,7 +353,11 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixtures.Case) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
-	gomega.Expect((&NicoMachineReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+	gomega.Expect((&NicoMachineReconciler{
+		Client:                mgr.GetClient(),
+		Scheme:                tc.Scheme,
+		WorkloadClientFactory: workloadFactory,
+	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
 }

@@ -373,6 +373,13 @@ The kubeadm templates patch kubelet with `providerID: nico://<instance-id>` by r
 the NICo metadata service at `169.254.169.254:7777`. This lets Cluster API match
 workload-cluster Nodes back to their `Machine` objects.
 
+CAPNICo also backfills an empty `Node.spec.providerID` after confirming the NICo
+instance identity, using the workload-cluster kubeconfig Secret. It never
+overwrites a different provider ID. Clusters where an external cloud provider
+owns this field can opt out by setting the
+`nico.nvidia.com/skip-node-provider-id-reconciliation: "true"` annotation on the
+Cluster API `Cluster`.
+
 The NICo architecture documentation describes The Metadata Service (FMDS) as the local HTTP metadata API provided by the DPU agent:
 [Overview and Components](https://docs.nvidia.com/infra-controller/documentation/architecture/overview-and-components).
 
@@ -527,22 +534,43 @@ The key is configurable with a manager flag:
 
 ## Machine Reboot
 
-CAPNICo exposes reboot as an annotation-driven contract on the owning CAPI
-`Machine`. A consumer requests a reboot by setting the configured reboot
-annotation on the `Machine`. CAPNICo treats a non-empty annotation value as the
-reboot request; the value itself is consumer-owned metadata and is not
-interpreted.
-CAPNICo triggers at most one NICo instance reboot for each observed annotation
-application. After NICo accepts the reboot trigger, CAPNICo removes the
-configured reboot annotation from the `Machine`.
+Set one of these annotations to a non-empty value on the owning CAPI `Machine`.
+CAPNICo treats the value as consumer-owned metadata and does not interpret it.
+Use a new value for each request with the same annotation key. Reapplying the
+latest completed request's value is ignored, even after CAPNICo removes the
+annotation. To replace an active request, set the same annotation to a new
+non-empty value. A removal or replacement can race with dispatch if the
+controller has not observed the change yet. Do not set more than one reboot
+annotation at a time.
 
-The default annotation key is:
+| Annotation | Behavior |
+|---|---|
+| `nico.nvidia.com/reboot` | Request NICo `GracefulRestart`, then use the existing hard instance reboot if no changed workload Node boot ID is observed within 30 minutes. Configure this key with `--reboot-annotation`. |
+| `nico.nvidia.com/reboot-soft` | Request `GracefulRestart` without an automatic hard fallback. |
+| `nico.nvidia.com/reboot-hard` | Request the existing hard instance reboot immediately. |
 
-* `nico.nvidia.com/reboot`
+The graceful action uses NICo's Machine power API. That API requires a provider
+organization and a credential with the `PROVIDER_ADMIN` role. Set
+`NicoCluster.spec.powerControlIdentityRef.name` to a Secret in the same namespace
+when the regular NICo credential does not have provider access. The Secret uses
+the same keys as `spec.identityRef`, including its own `orgID`. When the power
+control reference is unset, CAPNICo tries the regular credential. If NICo
+rejects the graceful request, the default annotation falls back to hard reboot.
 
-The key is configurable with a manager flag:
+CAPNICo confirms graceful recovery when the workload Node's boot ID changes and
+the Node becomes Ready. It waits 30 minutes to allow the host, DPU, and network
+to return. If it cannot observe a changed boot ID, the default annotation uses
+the hard fallback. This can cause a second reboot if the graceful reboot
+succeeded but the Node remained unreachable. The graceful-only annotation
+avoids that fallback.
 
-* `--reboot-annotation`
+`NicoMachine.status.reboot` records the mode, phase, outcome, and timestamps.
+Kubernetes events report accepted requests and fallback. CAPNICo saves the
+reboot status at the end of reconciliation. If the controller stops or the
+status patch fails after NICo receives a reboot request, the next reconcile
+can send it again. CAPNICo removes the request annotation after it finishes
+handling the request if its value still matches the accepted request. A
+replacement value remains set for the next request.
 
 ## Development
 

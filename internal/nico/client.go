@@ -253,6 +253,20 @@ func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (
 	return instance, nil
 }
 
+// GracefulRestartMachine requests an OS-level reboot through NICo's provider
+// Machine power API. Acceptance does not mean the reboot has completed.
+func (c *Client) GracefulRestartMachine(ctx context.Context, machineID string) error {
+	authCtx, err := c.authCtx(ctx)
+	if err != nil {
+		return err
+	}
+	req := nicosdk.NewMachinePowerControlRequest("GracefulRestart")
+	req.SetAcknowledgeAttachedInstance(true)
+	_, resp, err := c.api.MachineAPI.MachinePowerControlMachine(authCtx, c.orgID, machineID).
+		MachinePowerControlRequest(*req).Execute()
+	return normalizeError(resp, err)
+}
+
 // ApplyInstanceLabels applies labels to a NICo instance. CAPNICo uses this
 // after create because machine-id and observed topology are not all known when
 // the initial create request is built.
@@ -368,13 +382,16 @@ func decodeInstance(raw map[string]json.RawMessage) (nicosdk.Instance, bool) {
 	return instance, true
 }
 
-// GetMachine fetches a NICo machine by ID.
+// GetMachine fetches a NICo machine and its provider-only interface metadata.
 func (c *Client) GetMachine(ctx context.Context, machineID string) (*nicosdk.Machine, error) {
 	authCtx, err := c.authCtx(ctx)
 	if err != nil {
 		return nil, err
 	}
-	machine, resp, err := c.api.MachineAPI.GetMachine(authCtx, c.orgID, machineID).Execute()
+	machine, resp, err := c.api.MachineAPI.
+		GetMachine(authCtx, c.orgID, machineID).
+		IncludeMetadata(true).
+		Execute()
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}

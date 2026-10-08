@@ -12,11 +12,12 @@ import (
 
 func TestNicoMachineStatusTopologyFieldsRoundTrip(t *testing.T) {
 	status := NicoMachineStatus{
-		MachineID: "machine-1",
-		SiteID:    "site-1",
-		SiteName:  "New York / A",
-		VPCID:     "vpc-1",
-		VPCName:   "Tenant VPC",
+		MachineID:           "machine-1",
+		PrimaryDPUMachineID: "dpu-1",
+		SiteID:              "site-1",
+		SiteName:            "New York / A",
+		VPCID:               "vpc-1",
+		VPCName:             "Tenant VPC",
 	}
 
 	b, err := json.Marshal(status)

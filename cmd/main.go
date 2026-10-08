@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"os"
 
@@ -94,6 +95,15 @@ func main() {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+	if providerConfig.RebootAnnotation == nico.DefaultSoftRebootAnnotation ||
+		providerConfig.RebootAnnotation == nico.DefaultHardRebootAnnotation {
+		setupLog.Error(
+			errors.New("reboot annotation key conflicts with an explicit reboot key"),
+			"invalid provider configuration",
+			"annotation", providerConfig.RebootAnnotation,
+		)
+		os.Exit(1)
+	}
 
 	setupLog.Info("provider configuration", "config", providerConfig)
 
