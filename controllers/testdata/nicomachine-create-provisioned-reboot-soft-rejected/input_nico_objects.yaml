@@ -1,21 +1,23 @@
 instances:
-- org: org-1
-  resource:
-    id: instance-1
-    name: machine-1
-    machineId: machine-id-1
-    vpcId: vpc-1
-    siteId: site-1
-    tenantId: tenant-1
-    status: Ready
-    interfaces:
-    - subnetId: subnet-1
-      ipAddresses:
-      - 10.0.0.10
+  resources:
+  - org: org-1
+    resource:
+      id: instance-1
+      name: machine-1
+      machineId: machine-id-1
+      vpcId: vpc-1
+      siteId: site-1
+      tenantId: tenant-1
+      status: Ready
+      interfaces:
+      - subnetId: subnet-1
+        ipAddresses:
+        - 10.0.0.10
 machines:
-- org: org-1
-  resource:
-    id: machine-id-1
-    machineInterfaces:
-    - attachedDpuMachineID: dpu-machine-id-1
-      isPrimary: true
+  resources:
+  - org: org-1
+    resource:
+      id: machine-id-1
+      machineInterfaces:
+      - attachedDpuMachineID: dpu-machine-id-1
+        isPrimary: true

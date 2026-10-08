@@ -89,27 +89,28 @@ metadata:
 data:
   seed.yaml: |
     machines:
-    - org: org-1
-      resource:
-        id: machine-rack-a-1
-        siteId: site-1
-        instanceTypeId: type-1
-        labels:
-          failure_domain: rack-group-a
-    - org: org-1
-      resource:
-        id: machine-rack-a-2
-        siteId: site-1
-        instanceTypeId: type-1
-        labels:
-          failure_domain: rack-group-a
-    - org: org-1
-      resource:
-        id: machine-rack-b-1
-        siteId: site-1
-        instanceTypeId: type-1
-        labels:
-          failure_domain: rack-group-b
+      resources:
+      - org: org-1
+        resource:
+          id: machine-rack-a-1
+          siteId: site-1
+          instanceTypeId: type-1
+          labels:
+            failure_domain: rack-group-a
+      - org: org-1
+        resource:
+          id: machine-rack-a-2
+          siteId: site-1
+          instanceTypeId: type-1
+          labels:
+            failure_domain: rack-group-a
+      - org: org-1
+        resource:
+          id: machine-rack-b-1
+          siteId: site-1
+          instanceTypeId: type-1
+          labels:
+            failure_domain: rack-group-b
 ---
 apiVersion: v1
 kind: Service
