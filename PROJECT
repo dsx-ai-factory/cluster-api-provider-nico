@@ -48,4 +48,13 @@ resources:
   kind: NicoMachineTemplate
   path: github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: NicoIdentity
+  path: github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
+  version: v1alpha1
 version: "3"

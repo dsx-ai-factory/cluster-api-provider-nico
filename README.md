@@ -16,6 +16,7 @@ each requested machine into a NICo instance on real hardware.
 * `NicoCluster` holds the target site, and may optionally reference a per-cluster credentials Secret.
 * `NicoMachine` represents one NICo instance managed by Cluster API, and carries the VPC.
 * `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
+* `NicoIdentity` reports the health of the credentials Secret it names. The manager checks every Identity in its watch scope.
 
 ## Features
 
@@ -56,7 +57,7 @@ same objects, and this provider satisfies them with NICo hardware.
   teardown order, and the annotation-driven repair and reboot contracts.
   **Read this before changing controller behaviour.**
 - [docs/api-reference.md](docs/api-reference.md): field-by-field reference
-  for all four CRDs and every condition and reason
+  for all five CRDs and every condition and reason
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptom, cause, and
   fix for problems beyond getting-started.md's stall-reason table
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and the pull-request flow
@@ -101,7 +102,7 @@ contract.
 
 ### Architecture
 
-One controller, three CRDs, and one outbound API. Everything runs in the
+Three reconcilers, five CRDs, and one outbound API. Everything runs in the
 management cluster; nothing is installed on the provisioned nodes.
 
 ```
@@ -110,18 +111,21 @@ management cluster; nothing is installed on the provisioned nodes.
    ├── MachineDeployment ─────────►  NicoMachineTemplate
    └── Machine          ──────────►  NicoMachine      (one instance, one VPC)
                                           │
-                                          │  CAPNICo controller
+                                          │  CAPNICo controllers
                                           ▼
-                                     NICo REST API
-                                          │
+   NicoIdentity ── names ──► Secret ──► NICo REST API
+   (credential health)     (credentials)  │
                                           ▼
                                      bare-metal instance
                                      (iPXE boot, kubeadm cloud-init)
 ```
 
-Cluster API owns the desired state. This controller reconciles each
-`NicoMachine` into one NICo instance and reports the provider ID back, which is
-how the node is matched. The kubeadm providers take over from there.
+Cluster API owns the desired state. The cluster and machine controllers
+reconcile each `NicoMachine` into one NICo instance and report the provider ID
+back, which is how the node is matched. The kubeadm providers take over from
+there. Separately, the NicoIdentity controller periodically checks the Secret
+each `NicoIdentity` names against NICo and records the result in the
+Identity's status, without affecting provisioning.
 
 [docs/architecture.md](docs/architecture.md) has the detail: field ownership,
 credential resolution and client caching, what the finalizer guards, teardown

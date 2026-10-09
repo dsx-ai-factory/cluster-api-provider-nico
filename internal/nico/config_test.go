@@ -5,11 +5,14 @@ package nico
 
 import (
 	"context"
+	"flag"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 )
@@ -137,4 +140,44 @@ func TestTokenSourceOAuthClientCredentials(t *testing.T) {
 	if token.AccessToken == "" {
 		t.Fatalf("expected a non-empty access token")
 	}
+}
+
+func TestProviderConfigIdentityValidationTimeout(t *testing.T) {
+	parse := func(t *testing.T, args ...string) ProviderConfig {
+		t.Helper()
+		cfg := ProviderConfig{Credentials: types.NamespacedName{Namespace: "capnico-system", Name: "nico-credentials"}}
+		fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+		cfg.BindFlags(fs)
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("Parse(%q) error = %v", args, err)
+		}
+		return cfg
+	}
+
+	t.Run("accepts positive validation timeouts", func(t *testing.T) {
+		for _, tc := range []struct {
+			args []string
+			want time.Duration
+		}{
+			{want: 30 * time.Second},
+			{args: []string{"--provider-identity-validation-timeout=45s"}, want: 45 * time.Second},
+			{args: []string{"--provider-identity-validation-timeout=500ms"}, want: 500 * time.Millisecond},
+		} {
+			cfg := parse(t, tc.args...)
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("args %q: Validate() error = %v", tc.args, err)
+			}
+			if cfg.IdentityValidationTimeout != tc.want {
+				t.Fatalf("args %q: IdentityValidationTimeout = %s, want %s", tc.args, cfg.IdentityValidationTimeout, tc.want)
+			}
+		}
+	})
+
+	t.Run("zero timeout is rejected", func(t *testing.T) {
+		const want = "--provider-identity-validation-timeout must be positive"
+		cfg := parse(t, "--provider-identity-validation-timeout=0s")
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Validate() error = %v, want it to contain %q", err, want)
+		}
+	})
 }
