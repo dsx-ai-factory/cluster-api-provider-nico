@@ -83,10 +83,6 @@ spec:
                         description: AllowUnhealthyMachine allows targeted instance
                           creation on a machine in Error status.
                         type: boolean
-                      cloudInitInjectHostname:
-                        description: CloudInitInjectHostname prepends hostname directives
-                          to the bootstrap cloud-config.
-                        type: boolean
                       infinibandInterfaces:
                         description: |-
                           InfinibandInterfaces requests that one or more InfiniBand Partitions be attached
