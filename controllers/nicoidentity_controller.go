@@ -169,7 +169,12 @@ func (r *NicoIdentityReconciler) superseded(ctx context.Context, tested *infrav1
 	return current, secretRevision(secret, err) != revision, nil
 }
 
-// secretRevision identifies the Secret state a check used without retaining its contents.
+// secretRevision identifies the Secret state a check used without retaining its
+// contents. Status records which Identity generation a result checked, but not
+// which Secret revision. A result for a Secret rotated during the check would
+// look current, with a check time after the rotation. Comparing revisions lets
+// superseded discard that result, so the recheck the rotation queued publishes
+// instead.
 func secretRevision(secret *corev1.Secret, err error) string {
 	switch {
 	case err == nil:
