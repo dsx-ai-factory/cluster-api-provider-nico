@@ -134,7 +134,8 @@ var _ = fixture.DescribeCaseSet(nicoIdentityCaseSet(
 // expectNicoIdentityChecked waits until testIdentity is at generation and every
 // Identity in the case has a completed check of its current generation. A
 // completed check can be Unknown, so it waits for Ready's observedGeneration
-// rather than a Ready value.
+// rather than a Ready value, and for lastCheckedTime, which the controller
+// patches after Ready.
 func expectNicoIdentityChecked(ctx context.Context, tc *fixture.Case, generation int64) {
 	gomega.Eventually(func(g gomega.Gomega) {
 		tracked := &infrav1.NicoIdentity{}
@@ -148,6 +149,7 @@ func expectNicoIdentityChecked(ctx context.Context, tc *fixture.Case, generation
 			ready := meta.FindStatusCondition(identity.Status.Conditions, nicoIdentityReadyCondition)
 			g.Expect(ready).NotTo(gomega.BeNil(), "%s/%s has no Ready condition", identity.Namespace, identity.Name)
 			g.Expect(ready.ObservedGeneration).To(gomega.Equal(identity.Generation))
+			g.Expect(identity.Status.LastCheckedTime).NotTo(gomega.BeNil())
 		}
 	}).WithTimeout(timeout).WithPolling(time.Second).Should(gomega.Succeed())
 }
