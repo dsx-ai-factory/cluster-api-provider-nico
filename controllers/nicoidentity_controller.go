@@ -14,7 +14,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/labels"
+	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -40,6 +42,10 @@ const (
 	identityCredentialsNotFoundReason = "CredentialsNotFound"
 	identitySecretReadFailedReason    = "SecretReadFailed"
 )
+
+// nicoIdentityOwnedConditions are the conditions this controller writes. Patches
+// keep its values for them and leave other writers' conditions alone.
+var nicoIdentityOwnedConditions = []string{nicoIdentityReadyCondition}
 
 // ErrNicoIdentityCRDMissing reports that the API server does not serve NicoIdentity.
 var ErrNicoIdentityCRDMissing = errors.New("the NicoIdentity CRD is not installed")
@@ -68,31 +74,42 @@ type NicoIdentityReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	tested := &infrav1.NicoIdentity{}
-	if err := r.APIReader.Get(ctx, req.NamespacedName, tested); err != nil {
+	identity := &infrav1.NicoIdentity{}
+	if err := r.APIReader.Get(ctx, req.NamespacedName, identity); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if !tested.DeletionTimestamp.IsZero() {
+	if !identity.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
-	if !r.inWatchScope(tested) {
+	if !r.inWatchScope(identity) {
 		// Scheduled rechecks bypass the event filter, so an Identity that left
 		// the watch filter stops here and keeps its last status.
 		log.V(1).Info("stopped checking NicoIdentity outside the watch filter")
 		return ctrl.Result{}, nil
 	}
 
-	result, revision := r.check(ctx, tested)
+	patchHelper, err := patch.NewHelper(identity, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// A canceled or discarded check leaves identity unchanged, so nothing is patched.
+	defer func() {
+		if patchErr := patchHelper.Patch(ctx, identity, patch.WithOwnedConditions{Conditions: nicoIdentityOwnedConditions}); patchErr != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("publish NicoIdentity status: %w", patchErr))
+		}
+	}()
+
+	result, revision := r.check(ctx, identity)
 	completed := metav1.NewTime(r.clock.Now())
 	if ctx.Err() != nil {
 		// The manager is stopping; a canceled check is not an observation.
 		return ctrl.Result{}, nil
 	}
 
-	current, superseded, err := r.superseded(ctx, tested, revision)
+	current, superseded, err := r.superseded(ctx, identity, revision)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -105,21 +122,17 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: identitySupersededRequeue}, nil
 	}
 
-	meta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
+	conditions.Set(identity, metav1.Condition{
 		Type:               nicoIdentityReadyCondition,
 		Status:             result.Status,
-		ObservedGeneration: tested.Generation,
 		LastTransitionTime: completed,
 		Reason:             result.Reason,
 		Message:            result.Message,
 	})
-	current.Status.LastCheckedTime = &completed
-	if err := r.Status().Update(ctx, current); err != nil {
-		return ctrl.Result{}, fmt.Errorf("publish NicoIdentity status: %w", err)
-	}
+	identity.Status.LastCheckedTime = &completed
 
 	log.Info("checked NicoIdentity credentials", "ready", result.Status, "reason", result.Reason)
-	return ctrl.Result{RequeueAfter: recheckAfter(current)}, nil
+	return ctrl.Result{RequeueAfter: recheckAfter(identity)}, nil
 }
 
 // check validates the Secret the Identity names in its own namespace and
@@ -148,7 +161,7 @@ func (r *NicoIdentityReconciler) check(ctx context.Context, identity *infrav1.Ni
 
 // superseded rereads the Identity and, when the check used it, the Secret. It
 // reports whether either changed during the check, and returns the current
-// Identity for an optimistic status update otherwise.
+// Identity otherwise so its watch-filter label can be checked again.
 func (r *NicoIdentityReconciler) superseded(ctx context.Context, tested *infrav1.NicoIdentity, revision string) (*infrav1.NicoIdentity, bool, error) {
 	current := &infrav1.NicoIdentity{}
 	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(tested), current); err != nil {

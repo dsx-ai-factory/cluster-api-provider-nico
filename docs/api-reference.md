@@ -101,7 +101,9 @@ principal. Reasons can be extended; messages are diagnostic text for people.
 | `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got an unexpected response. |
 
 Readers select `Ready` by type and compare its `observedGeneration` with
-`metadata.generation`. They also inspect `lastCheckedTime` for freshness.
+`metadata.generation`. They also inspect `lastCheckedTime` for freshness. The
+controller writes `Ready` and `lastCheckedTime` in separate requests, so for a
+moment after a check `lastCheckedTime` can still show the previous one.
 Missing or outdated observations do not establish current health. Condition
 `lastTransitionTime` records a change in truth value, not the last check.
 Additional conditions must not change those existing meanings.
