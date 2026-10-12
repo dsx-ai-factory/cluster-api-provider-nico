@@ -7,6 +7,11 @@ manifest.
 
 ## Install from a checkout
 
+Install cert-manager in the management cluster before installing this chart.
+The chart creates the certificate resources for its validating webhook but
+does not install cert-manager. `clusterctl init` installs cert-manager when
+required.
+
 ```bash
 helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system \

@@ -179,7 +179,14 @@ metrics:
 ## Required for webhook certificates and metrics endpoint certificates.
 ##
 certManager:
-  enabled: false
+  enabled: true
+
+## Webhook server configuration.
+##
+webhook:
+  enabled: true
+  # Set the matching --webhook-port in manager.args when changing this port.
+  port: 9443
 
 ## Prometheus ServiceMonitor for metrics scraping.
 ## Requires prometheus-operator to be installed in the cluster.

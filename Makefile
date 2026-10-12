@@ -49,6 +49,7 @@ help: ## Display this help.
 manifests: controller-gen kustomize generate kubebuilder ## Generate CRDs, RBAC, the installer bundle, and Helm chart.
 	"$(CONTROLLER_GEN)" crd:crdVersions=v1 paths=./api/... output:crd:artifacts:config=config/crd/bases
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role paths=./controllers/... output:rbac:artifacts:config=config/rbac
+	"$(CONTROLLER_GEN)" webhook paths=./internal/webhooks/... output:webhook:artifacts:config=config/webhook
 	mkdir -p dist
 	RELEASE_DIR=dist CONTROLLER_IMG=controller:latest KUSTOMIZE="$(KUSTOMIZE)" bash hack/release-manifests.sh
 	cp dist/infrastructure-components.yaml dist/install.yaml
