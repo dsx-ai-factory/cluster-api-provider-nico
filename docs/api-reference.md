@@ -1,12 +1,125 @@
 # API Reference
 
-The following sections document every field of the four CRDs in
+The following sections document every field of the five CRDs in
 `infrastructure.cluster.x-k8s.io/v1alpha1`, one section per kind. Read
 [Architecture](architecture.md) for why these fields exist and how they interact.
 Read [Getting Started](getting-started.md) for how to use them.
 
 The field descriptions mirror the Go doc comments in `api/v1alpha1/`. If they
 ever drift, the Go source is authoritative.
+
+## NicoIdentity
+
+`NicoIdentity` is a namespaced credential-observation API. Standard CAPNICo
+installations include its CRD. The NicoIdentity controller periodically checks
+the Secret each Identity names and records the result in status, reconciling
+every Identity in the manager's scope the same way it reconciles NicoClusters.
+Creating an Identity enrolls its Secret, and deleting the Identity stops the
+checks. Status stays absent until a check completes, and Identities outside the
+manager's scope are not checked. An Identity that leaves the scope keeps its
+last published status, which then ages. Absence is not success.
+
+The Identity describes credential health independently of tenant clusters. It
+does not select provisioning credentials, protect a Secret from deletion, or
+gate cluster or machine reconciliation. Existing `NicoCluster.spec.identityRef`
+values continue to reference Secrets. To observe one of those per-cluster
+Secrets, create an Identity that names it in the same namespace.
+
+### Spec
+
+The required spec contains one reference. Connection and authentication settings
+remain in the Secret.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `credentialsRef.name` | string, required | Name of a Secret in the Identity's namespace. Uses Kubernetes Secret-name syntax, with a maximum of 253 characters. You can change this reference. |
+
+Admission validates the reference's shape, not whether the Secret exists or
+contains usable credentials. The API has no cross-namespace reference field.
+
+### Enabling the Observation
+
+No flag is needed. The manager checks every Identity in its cache scope, as it
+does NicoClusters: all namespaces, or only the namespace given by `--namespace`.
+With `--watch-filter`, it checks only Identities whose
+`cluster.x-k8s.io/watch-filter` label has that value. Changing or removing the
+label stops the checks, and the last published status remains and ages. With
+the chart's `rbac.namespaced=true`, set `--namespace` to the release namespace,
+as NicoCluster and NicoMachine already require.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--provider-identity-validation-timeout` | `30s` | Maximum duration of one check, from token acquisition through the NICo read. Must be positive. |
+
+The controller starts when the NicoIdentity CRD is installed. If the CRD is
+missing, the manager logs that credential observation is off and starts
+normally. After installing the CRD, restart the manager.
+
+To observe the provider-level credentials, create an Identity that names the
+default Secret in its namespace, for example from the sample below. `Ready`
+describes only the Secret the Identity names, which need not be the provider's
+default.
+
+A check runs when the Identity is created, when its spec or labels change, and
+when the manager starts. Another runs four to five minutes after each completed
+check, including failed ones. The interval is fixed, and each Identity gets a
+stable offset within the last minute, so Identities do not all recheck at once.
+Creating, changing or deleting a Secret triggers a check of the Identities in
+its namespace that name it within seconds, and the scheduled check still runs
+if that event is missed. Checks run one at a
+time, so during a NICo outage, when each check can take the full timeout, a
+round over many Identities takes proportionally longer. Each check
+acquires a new OAuth token, or uses the static token, and calls NICo's
+current-tenant endpoint. That endpoint creates the organization's Tenant record
+if none exists. Enabling the observation before any cluster exists can therefore
+create the record that the first cluster would otherwise create.
+
+### Status
+
+The `/status` subresource holds the following observation fields. Only the
+controller writes them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `conditions` | list, up to 32 items | Standard Kubernetes conditions, keyed by `type`. `Ready` records the latest completed validation result. |
+| `lastCheckedTime` | timestamp | Completion time of the reported attempt, including failures. Absent before a completed attempt. |
+
+For `Ready`, `True` means the completed credential check passed the NICo
+current-tenant lookup baseline. `False` means a known configuration, credential,
+or permission failure; `Unknown` means the result is inconclusive. This baseline
+does not establish all provisioning permissions, capacity, or the intended
+principal. Reasons can be extended; messages are diagnostic text for people.
+
+| Ready | Reason | Meaning |
+|---|---|---|
+| `True` | `ValidationSucceeded` | Authentication and the current-tenant lookup succeeded. The message says so if TLS certificate verification is disabled. |
+| `False` | `CredentialsNotFound` | The referenced Secret does not exist. |
+| `False` | `InvalidConfiguration` | The Secret lacks required keys or has invalid values. |
+| `False` | `AuthenticationFailed` | The token issuer or NICo rejected the credentials. |
+| `False` | `AccessDenied` | NICo forbade the current-tenant lookup. |
+| `Unknown` | `SecretReadFailed` | The controller could not read the Secret, for example because of RBAC. |
+| `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got an unexpected response. |
+
+Readers select `Ready` by type and compare its `observedGeneration` with
+`metadata.generation`. They also inspect `lastCheckedTime` for freshness. The
+controller writes `Ready` and `lastCheckedTime` in separate requests, so for a
+moment after a check `lastCheckedTime` can still show the previous one.
+Missing or outdated observations do not establish current health. Condition
+`lastTransitionTime` records a change in truth value, not the last check.
+Additional conditions must not change those existing meanings.
+
+The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age.
+Compare LastChecked with the current time: a stopped manager cannot mark its
+last result stale, and `kubectl wait --for=condition=Ready` does not check age.
+A failed check updates status only; it raises no Event or alert. Deleting an
+Identity removes only the observation object, not its Secret or any NICo
+resource.
+
+Use the desired-only
+[`NicoIdentity sample`](../config/samples/infrastructure_v1alpha1_nicoidentity.yaml)
+in the namespace containing the credentials Secret. Installation bundles do not
+create an Identity or credential Secret. The `nicoidentity-viewer-role` helper
+grants Identity reads without Secret access or permission to write spec/status.
 
 ## NicoCluster
 
@@ -148,7 +261,7 @@ For a minimal manifest, refer to
 
 ## Condition Types and Reasons
 
-The two reconcilers publish four condition types.
+The cluster and machine reconcilers publish four condition types. `NicoIdentity` reports its own `Ready` condition, described in [NicoIdentity](#nicoidentity).
 
 | Type | Meaning |
 |---|---|
@@ -204,4 +317,4 @@ do about it. [Troubleshooting](troubleshooting.md) covers the rest.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps and the credentials Secret.
 - [`config/samples/`](https://github.com/dsx-ai-factory/cluster-api-provider-nico/tree/main/config/samples)
-  holds minimal worked manifests for all four CRDs.
+  holds minimal worked manifests for all five CRDs.

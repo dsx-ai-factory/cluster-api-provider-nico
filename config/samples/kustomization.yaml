@@ -4,4 +4,5 @@ resources:
 - infrastructure_v1alpha1_nicomachine.yaml
 - infrastructure_v1alpha1_nicoclustertemplate.yaml
 - infrastructure_v1alpha1_nicomachinetemplate.yaml
+- infrastructure_v1alpha1_nicoidentity.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -30,6 +30,7 @@ It currently exposes:
 * `NicoMachine`
 * `NicoClusterTemplate`
 * `NicoMachineTemplate`
+* `NicoIdentity`, whose controller periodically checks the credentials Secret each Identity names
 
 The provider uses the published NICo SDK under the alias `nicosdk`.
 

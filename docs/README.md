@@ -24,8 +24,8 @@ The following table shows what you find on each one.
 | Document | Contents |
 |---|---|
 | [Getting Started](getting-started.md) | Your first cluster, two ways: the in-repo fake NICo and a real NICo deployment. It also sets out what must exist on the NICo side first, the credentials Secret, and common pitfalls. |
-| [Architecture](architecture.md) | Where this provider sits in Cluster API, the four CRDs and which fields belong to each, how credentials resolve and cache, machine reconciliation and what the finalizer guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts. |
-| [API Reference](api-reference.md) | A field-by-field reference for all four CRDs, including the one that is scaffolded but unconsumed, and every condition and reason. |
+| [Architecture](architecture.md) | Where this provider sits in Cluster API, the five CRDs and which fields belong to each, how credentials resolve and cache, credential health observation, machine reconciliation and what the finalizer guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts. |
+| [API Reference](api-reference.md) | A field-by-field reference for all five CRDs, including the one that is scaffolded but unconsumed, and every condition and reason. |
 | [Troubleshooting](troubleshooting.md) | The symptom, cause, and fix for problems beyond the stall-reason table in Getting Started. |
 | [Development](development.md) | The local kind, Tilt, Helm, and fake-NICo development loop. |
 | [Writing Controller Tests](writing-tests.md) | The controller envtest boundary, fixture inputs, Kubernetes and NICo goldens, and how to extend the HTTP fake. |

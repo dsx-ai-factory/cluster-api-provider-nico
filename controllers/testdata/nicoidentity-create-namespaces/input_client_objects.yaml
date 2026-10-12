@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenants
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nico-creds
+  namespace: default
+type: Opaque
+stringData:
+  endpoint: https://nico.example
+  orgID: org-1
+  token: test-token
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: incomplete-creds
+  namespace: tenants
+type: Opaque
+stringData:
+  orgID: org-1
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoIdentity
+metadata:
+  name: nico-identity
+  namespace: default
+spec:
+  credentialsRef:
+    name: nico-creds
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoIdentity
+metadata:
+  name: nico-identity
+  namespace: tenants
+spec:
+  credentialsRef:
+    name: nico-creds
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoIdentity
+metadata:
+  name: incomplete-identity
+  namespace: tenants
+spec:
+  credentialsRef:
+    name: incomplete-creds
