@@ -1,0 +1,122 @@
+backend-bad-request:
+  message: Current-tenant lookup could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+backend-forbidden:
+  message: Current-tenant lookup was forbidden.
+  reason: AccessDenied
+  status: "False"
+backend-forbidden-malformed:
+  message: Current-tenant lookup was forbidden.
+  reason: AccessDenied
+  status: "False"
+backend-malformed:
+  message: Current-tenant lookup could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+backend-not-found:
+  message: Current-tenant lookup could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+backend-outage:
+  message: Current-tenant lookup could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+backend-rejected:
+  message: Current-tenant lookup rejected the access token.
+  reason: AuthenticationFailed
+  status: "False"
+incomplete-oauth:
+  message: Credential configuration is missing required fields or contains incompatible
+    or invalid values.
+  reason: InvalidConfiguration
+  status: "False"
+invalid-ca:
+  message: Credential TLS configuration does not contain a usable CA bundle.
+  reason: InvalidConfiguration
+  status: "False"
+invalid-tls-option:
+  message: Credential configuration is missing required fields or contains incompatible
+    or invalid values.
+  reason: InvalidConfiguration
+  status: "False"
+issuer-forbidden:
+  message: Token acquisition could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+issuer-invalid-client-400:
+  message: Token issuer rejected the client credentials.
+  reason: AuthenticationFailed
+  status: "False"
+issuer-malformed:
+  message: Token acquisition could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+issuer-malformed-401:
+  message: Token acquisition could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+issuer-no-token:
+  message: Token acquisition could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+issuer-outage:
+  message: Token acquisition could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+issuer-unrecognized-401:
+  message: Token acquisition could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+missing-auth:
+  message: Credential configuration is missing required fields or contains incompatible
+    or invalid values.
+  reason: InvalidConfiguration
+  status: "False"
+missing-endpoint:
+  message: Credential configuration is missing required fields or contains incompatible
+    or invalid values.
+  reason: InvalidConfiguration
+  status: "False"
+missing-org:
+  message: Credential configuration is missing required fields or contains incompatible
+    or invalid values.
+  reason: InvalidConfiguration
+  status: "False"
+missing-tenant-id:
+  message: Current-tenant lookup could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+mixed-auth:
+  message: Credential configuration is missing required fields or contains incompatible
+    or invalid values.
+  reason: InvalidConfiguration
+  status: "False"
+null-tenant:
+  message: Current-tenant lookup could not establish credential health.
+  reason: ValidationFailed
+  status: Unknown
+oauth-success:
+  message: Authentication and current-tenant lookup succeeded.
+  reason: ValidationSucceeded
+  status: "True"
+rejected-oauth:
+  message: Token issuer rejected the client credentials.
+  reason: AuthenticationFailed
+  status: "False"
+rejected-static:
+  message: Current-tenant lookup rejected the access token.
+  reason: AuthenticationFailed
+  status: "False"
+relative-token-url:
+  message: Credential endpoint configuration requires absolute HTTP or HTTPS URLs.
+  reason: InvalidConfiguration
+  status: "False"
+static-success:
+  message: Authentication and current-tenant lookup succeeded.
+  reason: ValidationSucceeded
+  status: "True"
+unusable-endpoint:
+  message: Credential endpoint configuration requires absolute HTTP or HTTPS URLs.
+  reason: InvalidConfiguration
+  status: "False"

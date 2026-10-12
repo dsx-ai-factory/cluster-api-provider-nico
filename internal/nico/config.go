@@ -58,6 +58,10 @@ type ProviderConfig struct {
 	// does not parse becomes the summary with category "Other". An empty string
 	// disables the behaviour.
 	RepairAnnotation string
+
+	// IdentityValidationTimeout bounds each NicoIdentity check, from token
+	// acquisition through the current-tenant read.
+	IdentityValidationTimeout time.Duration
 }
 
 // BindFlags binds the provider-level configuration to fs. The current values of
@@ -70,6 +74,9 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 	if p.RepairAnnotation == "" {
 		p.RepairAnnotation = DefaultRepairAnnotation
 	}
+	if p.IdentityValidationTimeout == 0 {
+		p.IdentityValidationTimeout = DefaultCredentialValidationTimeout
+	}
 	fs.StringVar(&p.Credentials.Namespace, "provider-credentials-namespace", p.Credentials.Namespace,
 		"Namespace of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
@@ -78,6 +85,17 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 		"CAPI Machine annotation key used to request a graceful reboot with hard fallback.")
 	fs.StringVar(&p.RepairAnnotation, "repair-annotation", p.RepairAnnotation,
 		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The value is parsed as JSON ({category, summary, details}), or treated as a plain summary with category Other. Leave empty to disable.")
+	fs.DurationVar(&p.IdentityValidationTimeout, "provider-identity-validation-timeout", p.IdentityValidationTimeout,
+		"Maximum duration of one NicoIdentity credential check, from token acquisition through the current-tenant read.")
+}
+
+// Validate reports provider settings that cannot work. It checks only the
+// NicoIdentity settings, so existing flag combinations keep their behavior.
+func (p ProviderConfig) Validate() error {
+	if p.IdentityValidationTimeout <= 0 {
+		return fmt.Errorf("--provider-identity-validation-timeout must be positive, got %s", p.IdentityValidationTimeout)
+	}
+	return nil
 }
 
 // SecretConfig contains NICo API connection settings loaded from a Secret.

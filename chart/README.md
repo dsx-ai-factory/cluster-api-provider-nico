@@ -2,7 +2,7 @@
 
 This is the native Helm distribution of the Cluster API infrastructure
 provider for NICo. It installs the controller, ServiceAccount, RBAC, metrics
-Service, and four provider CRDs without embedding a pre-rendered Kustomize
+Service, and five CAPNICo CRDs without embedding a pre-rendered Kustomize
 manifest.
 
 ## Install from a checkout
