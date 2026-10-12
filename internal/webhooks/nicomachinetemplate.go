@@ -45,30 +45,24 @@ func (*NicoMachineTemplate) ValidateCreate(_ context.Context, obj *infrav1.NicoM
 }
 
 // ValidateUpdate enforces spec immutability except during topology dry-runs.
-func (*NicoMachineTemplate) ValidateUpdate(ctx context.Context, oldObj, newObj *infrav1.NicoMachineTemplate) (admission.Warnings, error) {
+func (w *NicoMachineTemplate) ValidateUpdate(ctx context.Context, oldObj, newObj *infrav1.NicoMachineTemplate) (admission.Warnings, error) {
 	req, err := admission.RequestFromContext(ctx)
 	if err != nil {
 		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected an admission.Request inside context: %v", err))
 	}
 
-	var allErrs field.ErrorList
 	if !topology.IsDryRunRequest(req, newObj) &&
 		!reflect.DeepEqual(oldObj.Spec.Template.Spec, newObj.Spec.Template.Spec) {
-		allErrs = append(allErrs,
+		return nil, apierrors.NewInvalid(infrav1.GroupVersion.WithKind("NicoMachineTemplate").GroupKind(), newObj.Name, field.ErrorList{
 			field.Invalid(
 				field.NewPath("spec", "template", "spec"),
 				newObj.Spec.Template.Spec,
 				"NicoMachineTemplate.spec.template.spec cannot be changed. Create a new NicoMachineTemplate to update the machine configuration.",
 			),
-		)
+		})
 	}
 
-	allErrs = append(allErrs, newObj.Spec.Template.ObjectMeta.Validate(field.NewPath("spec", "template", "metadata"))...)
-	if len(allErrs) > 0 {
-		return nil, apierrors.NewInvalid(infrav1.GroupVersion.WithKind("NicoMachineTemplate").GroupKind(), newObj.Name, allErrs)
-	}
-
-	return nil, nil
+	return w.ValidateCreate(ctx, newObj)
 }
 
 // ValidateDelete accepts template deletion.

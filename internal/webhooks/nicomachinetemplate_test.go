@@ -22,6 +22,7 @@ func TestNicoMachineTemplateValidateUpdate(t *testing.T) {
 		dryRun          bool
 		topology        bool
 		invalidMetadata bool
+		providerID      string
 		wantInvalid     bool
 	}{
 		{
@@ -51,6 +52,13 @@ func TestNicoMachineTemplateValidateUpdate(t *testing.T) {
 			topology:   true,
 		},
 		{
+			name:        "rejects provider ID during topology dry run",
+			dryRun:      true,
+			topology:    true,
+			providerID:  "nico://instance-1",
+			wantInvalid: true,
+		},
+		{
 			name:            "rejects invalid metadata during topology dry run",
 			changeSpec:      true,
 			dryRun:          true,
@@ -65,6 +73,7 @@ func TestNicoMachineTemplateValidateUpdate(t *testing.T) {
 			oldObj := &infrav1.NicoMachineTemplate{}
 			oldObj.Spec.Template.Spec.VPCID = "vpc-1"
 			newObj := oldObj.DeepCopy()
+			newObj.Spec.Template.Spec.ProviderID = tc.providerID
 
 			if tc.changeSpec {
 				newObj.Spec.Template.Spec.VPCID = "vpc-2"
