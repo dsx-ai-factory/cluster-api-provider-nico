@@ -176,12 +176,13 @@ metrics:
   secure: false
 
 ## Cert-manager integration for TLS certificates.
-## Required for webhook certificates and metrics endpoint certificates.
+## Must remain enabled to provision webhook certificates.
 ##
 certManager:
   enabled: true
 
 ## Webhook server configuration.
+## Must remain enabled to enforce NicoMachineTemplate validation.
 ##
 webhook:
   enabled: true

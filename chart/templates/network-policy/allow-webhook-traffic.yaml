@@ -16,11 +16,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    - from:
-      - namespaceSelector:
-          matchLabels:
-            webhook: enabled
-      ports:
+    - ports:
         - port: {{ .Values.webhook.port }}
           protocol: TCP
 {{- end }}
