@@ -679,10 +679,9 @@ files it renders.
 
 Instance identity arrives at first boot, never at build time. That includes the
 hostname, join tokens, SPIRE or other trust material, and anything
-site-specific. CAPNICo sets `hostname`, `preserve_hostname: false`, and
-`manage_etc_hosts` into the cloud-config itself when
-`spec.cloudInitInjectHostname` is true, at `internal/nico/userdata.go:13-30`, so
-the image must not override them.
+site-specific. NICo's PXE service surfaces the instance name as `local-hostname`
+in the NoCloud meta-data, and cloud-init sets the OS hostname from that
+natively, so the image must not override it.
 
 A build that bakes identity produces machines that are all the same machine.
 Whatever recipe you use, end it with `cloud-init clean` so the next boot is a
