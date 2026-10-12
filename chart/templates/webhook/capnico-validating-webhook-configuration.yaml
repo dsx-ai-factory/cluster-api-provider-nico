@@ -6,7 +6,7 @@ metadata:
     {{- if .Values.certManager.enabled }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/serving-cert
     {{- end }}
-  name: validating-webhook-configuration
+  name: capnico-validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
   - v1

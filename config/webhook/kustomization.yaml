@@ -4,3 +4,12 @@ resources:
 
 configurations:
   - kustomizeconfig.yaml
+
+patches:
+  - target:
+      kind: ValidatingWebhookConfiguration
+      name: validating-webhook-configuration
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: capnico-validating-webhook-configuration
