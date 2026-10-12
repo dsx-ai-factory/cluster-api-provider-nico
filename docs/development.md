@@ -82,6 +82,21 @@ make test-update       # regenerate envtest goldens, then read the diff
 read the resulting diff before committing it. An unexpected change there
 usually means a behavior change rather than a formatting change.
 
+The installation suite qualifies NicoIdentity through the Helm chart and the
+clusterctl release bundle, including upgrades from the previous release, in a
+Kind cluster that `make setup-test-e2e` creates with Cluster API installed:
+
+```bash
+make setup-test-e2e
+make test-e2e-installation                        # every spec, about 30 minutes
+make test-e2e-installation E2E_LABEL_FILTER=helm  # one area: helm, scope, crds, bundle, parity, upgrade
+make cleanup-test-e2e
+```
+
+It leaves the cluster in place, so it can be rerun. The upgrade specs build
+the previous release's manager from its git tag and download that release's
+published bundle, so they need the tag and network access.
+
 ## Before Opening a Pull Request
 
 Run these four targets first:

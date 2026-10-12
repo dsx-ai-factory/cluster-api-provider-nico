@@ -156,7 +156,10 @@ func GetProjectDir() (string, error) {
 	if err != nil {
 		return wd, fmt.Errorf("failed to get current working directory: %w", err)
 	}
-	wd = strings.ReplaceAll(wd, "/test/e2e", "")
+	// Suites can live below test/e2e, so cut the path where test/e2e begins.
+	if root, _, found := strings.Cut(wd, "/test/e2e"); found {
+		wd = root
+	}
 	return wd, nil
 }
 
