@@ -15,12 +15,17 @@ the checks described in their sections.
 ### The Cluster Never Becomes Ready
 
 Run `kubectl get nicocluster <name> -o yaml` and read `status.conditions`.
-Three reasons account for this symptom.
+Four reasons account for this symptom.
 
 - `WaitingForIdentitySecret` means the Secret is missing or misnamed. Check the
   name and namespace against the
   [NICo credentials Secret](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#nico-credentials-secret)
   section of the README.
+- `WaitingForNicoIdentity` means `identityRef` names a `NicoIdentity` that
+  doesn't exist in the cluster's namespace. Check
+  `kubectl get nicoidentity -n <namespace>`. When the Identity exists but its
+  Secret doesn't, the reason is `WaitingForIdentitySecret`, naming the Secret
+  from the Identity's `credentialsRef`.
 - `IdentityConfigurationFailed` means the Secret exists, but its configuration
   is invalid. For example, required keys are missing, or the authentication
   mode is incomplete. Recheck its keys against the same credentials reference.
@@ -118,8 +123,10 @@ sections of the README for the full contract.
 
 ## Credential Rotation Not Picked Up
 
-Check which Secret actually changed: the provider-level Secret or the
-per-cluster Secret named by `NicoCluster.spec.identityRef`. Clients are cached
+Check which Secret actually changed: the provider-level Secret, the
+per-cluster Secret named by `NicoCluster.spec.identityRef`, or, with
+`identityRef.kind: NicoIdentity`, the Secret that Identity's `credentialsRef`
+names. Clients are cached
 per Secret `resourceVersion`. If the Secret that changed is not the one this
 `NicoCluster` resolves to, or if its `resourceVersion` stayed the same, the
 controller keeps using the old client. Refer to

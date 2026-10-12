@@ -48,7 +48,7 @@ holds.
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
-| `NicoIdentity` | A same-namespace credential Secret reference and observation status. A controller periodically checks the Secret each Identity names. It does not change provisioning credential selection or gate provisioning. |
+| `NicoIdentity` | A same-namespace credential Secret reference and observation status. A controller periodically checks the Secret each Identity names. A `NicoCluster` can name an Identity in `identityRef` to use its Secret; the Identity's status never selects or gates provisioning credentials. |
 
 `NicoMachine.spec` remains editable until the controller assigns
 `spec.providerID`. After that assignment, the entire spec is immutable because
@@ -75,13 +75,21 @@ create request carries the machine's VPC.
 
 Every reconcile resolves credentials in a fixed order.
 
-1. The Secret named by `NicoCluster.spec.identityRef.name`, in the
+1. With `NicoCluster.spec.identityRef.kind: NicoIdentity`, the `NicoIdentity`
+   of that name in the `NicoCluster`'s namespace, then the Secret its
+   `credentialsRef` names, in the same namespace. The Identity's status is not
+   read.
+2. Otherwise the Secret named by `NicoCluster.spec.identityRef.name`, in the
    `NicoCluster`'s own namespace, when that field is set.
-2. Otherwise the provider-level Secret in the manager's namespace, named by
+3. Otherwise the provider-level Secret in the manager's namespace, named by
    `--provider-credentials-namespace` (default `$POD_NAMESPACE`, falling back to
    `capnico-system`) and `--provider-credentials-secret-name` (default
    `nico-credentials`).
-3. Otherwise the reconcile fails with a not-found error.
+4. Otherwise the reconcile fails with a not-found error.
+
+A reference that is set never falls back: a missing Identity or Secret stops
+the reconcile instead of trying a Secret with the same name or the
+provider-level Secret.
 
 For graceful reboot, `NicoCluster.spec.powerControlIdentityRef.name` can name a
 second Secret in the cluster namespace. It supplies the provider organization
