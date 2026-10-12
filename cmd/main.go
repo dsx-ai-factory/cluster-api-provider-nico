@@ -148,18 +148,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// The NicoIdentity controller starts only when the API server serves its CRD,
-	// so installations that manage CRDs separately still start without it.
-	err = (&controllers.NicoIdentityReconciler{
+	if err := (&controllers.NicoIdentityReconciler{
 		Client:           mgr.GetClient(),
 		ProviderConfig:   providerConfig,
 		WatchFilterValue: watchFilterValue,
-	}).SetupWithManager(ctx, mgr)
-	switch {
-	case errors.Is(err, controllers.ErrNicoIdentityCRDMissing):
-		setupLog.Info("NicoIdentity CRD is not installed; credential observation stays off " +
-			"until it is installed and the manager restarts")
-	case err != nil:
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoIdentity")
 		os.Exit(1)
 	}
