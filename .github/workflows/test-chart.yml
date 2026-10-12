@@ -80,6 +80,13 @@ jobs:
         run: |
           helm lint ./chart
 
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
+          kubectl wait --namespace cert-manager --for=condition=Available \
+            deployment/cert-manager deployment/cert-manager-cainjector \
+            deployment/cert-manager-webhook --timeout=5m
+
       - name: Deploy manager via Helm
         run: |
           make helm-deploy
