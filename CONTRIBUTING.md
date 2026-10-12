@@ -4,7 +4,7 @@
 
 **Prerequisites:**
 
-- Go 1.26.6, the exact version CI scans with, not a minimum (see `go.mod`)
+- Go 1.26.9, the exact version CI scans with, not a minimum (see `go.mod`)
 - Docker (for building the controller image and running e2e tests)
 - [kind](https://kind.sigs.k8s.io/) — local Kubernetes cluster for integration testing
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
