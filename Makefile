@@ -217,9 +217,9 @@ CAPNICO_CLUSTER_NAME ?= capnico
 CAPNICO_TILT_ENV = KUBECONFIG="$(CAPNICO_KUBECONFIG)"
 
 .PHONY: capi-init
-capi-init: clusterctl ## Install Cluster API core and the kubeadm providers into the local cluster.
+capi-init: clusterctl kubectl ## Install Cluster API core and the kubeadm providers into the local cluster.
 	@set -e; \
-	if KUBECONFIG="$(CAPNICO_KUBECONFIG)" kubectl get deployment -n capi-system capi-controller-manager >/dev/null 2>&1; then \
+	if KUBECONFIG="$(CAPNICO_KUBECONFIG)" "$(KUBECTL)" get deployment -n capi-system capi-controller-manager >/dev/null 2>&1; then \
 		echo "  Cluster API $(CAPI_VERSION) already installed"; \
 	else \
 		KUBECONFIG="$(CAPNICO_KUBECONFIG)" "$(CLUSTERCTL)" init \
@@ -278,22 +278,22 @@ ifndef ignore-not-found
 endif
 
 .PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+install: manifests kustomize kubectl ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
 	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" apply -f -; else echo "No CRDs to install; skipping."; fi
 
 .PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+uninstall: manifests kustomize kubectl ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	@out="$$( "$(KUSTOMIZE)" build config/crd 2>/dev/null || true )"; \
 	if [ -n "$$out" ]; then echo "$$out" | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -; else echo "No CRDs to delete; skipping."; fi
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize kubectl ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 
 .PHONY: undeploy
-undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+undeploy: kustomize kubectl ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Release
@@ -339,6 +339,15 @@ HELM_RELEASE ?= capi-provider-nico
 HELM_CHART_DIR ?= ./chart
 ## Additional arguments to pass to helm commands
 HELM_EXTRA_ARGS ?=
+## cert-manager release to install as a chart prerequisite
+CERT_MANAGER_VERSION ?= v1.20.2
+
+.PHONY: install-cert-manager
+install-cert-manager: kubectl ## Install cert-manager, which the chart's webhooks require.
+	"$(KUBECTL)" apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	"$(KUBECTL)" wait --namespace cert-manager --for=condition=Available \
+		deployment/cert-manager deployment/cert-manager-cainjector \
+		deployment/cert-manager-webhook --timeout=5m
 
 .PHONY: install-helm
 install-helm: ## Install the latest version of Helm.
@@ -382,7 +391,7 @@ $(LOCALBIN):
 	mkdir -p "$(LOCALBIN)"
 
 ## Tool Binaries
-KUBECTL ?= kubectl
+KUBECTL ?= $(LOCALBIN)/kubectl
 KIND ?= kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 KUBEBUILDER ?= $(LOCALBIN)/kubebuilder
@@ -411,6 +420,11 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
+#KUBECTL_VERSION tracks k8s.io/api, whose v0.X.Y is Kubernetes v1.X.Y
+KUBECTL_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
+  [ -n "$$v" ] || { echo "Set KUBECTL_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
+  printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+)\.([0-9]+).*/v1.\1.\2/')
+
 GOLANGCI_LINT_VERSION ?= v2.12.2
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -438,6 +452,22 @@ $(CRANE): $(LOCALBIN)
 	tar -xzf "$$tmp/$$archive" -C "$$tmp" crane; \
 	chmod +x "$$tmp/crane"; \
 	mv "$$tmp/crane" "$(CRANE)"
+
+.PHONY: kubectl
+kubectl: $(KUBECTL) ## Download kubectl locally if necessary.
+$(KUBECTL): $(LOCALBIN)
+	@set -eu; \
+	os="$$(uname -s | tr '[:upper:]' '[:lower:]')"; \
+	arch="$$(uname -m)"; \
+	case "$$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac; \
+	base="https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$$os/$$arch"; \
+	tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	curl $(CURL_RETRY) -fsSL -o "$$tmp/kubectl" "$$base/kubectl"; \
+	curl $(CURL_RETRY) -fsSL -o "$$tmp/kubectl.sha256" "$$base/kubectl.sha256"; \
+	(cd "$$tmp" && printf '%s  kubectl\n' "$$(cat kubectl.sha256)" > checksum.txt && sha256sum -c checksum.txt); \
+	chmod +x "$$tmp/kubectl"; \
+	mv "$$tmp/kubectl" "$(KUBECTL)"
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
