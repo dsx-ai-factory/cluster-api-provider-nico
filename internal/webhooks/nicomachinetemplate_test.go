@@ -1,5 +1,8 @@
+// SPDX-FileCopyrightText: Copyright 2023 The Kubernetes Authors.
+// SPDX-FileCopyrightText: Copyright 2025 The Kubernetes Authors.
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
+// Adapted from Cluster API and Cluster API Provider OpenStack tests.
 
 package webhooks
 
