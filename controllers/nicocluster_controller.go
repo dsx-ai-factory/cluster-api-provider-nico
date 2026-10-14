@@ -62,6 +62,7 @@ type NicoClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
@@ -128,7 +129,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			setNicoReadyFalse(&nicoCluster, infrav1.WaitingForIdentitySecretReason, err.Error())
+			setNicoReadyFalse(&nicoCluster, credentialsNotFoundReason(err), err.Error())
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 		setNicoReadyFalse(&nicoCluster, infrav1.IdentityConfigurationFailedReason, err.Error())
