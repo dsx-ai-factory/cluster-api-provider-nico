@@ -99,6 +99,7 @@ type NicoMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicomachines/finalizers,verbs=update
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
@@ -187,7 +188,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	nicoClient, err := r.nicoClientForCluster(ctx, nicoCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForIdentitySecretReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, credentialsNotFoundReason(err), err.Error())
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
 		setMachineProvisionedFalse(&nicoMachine, infrav1.IdentityConfigurationFailedReason, err.Error())

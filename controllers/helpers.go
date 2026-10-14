@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"maps"
@@ -58,22 +59,78 @@ func firstIPv4FromInstance(instance *nicosdk.Instance) string {
 	return ""
 }
 
+// credentialsSource is the object a NicoCluster's NICo credentials come from: a
+// NicoIdentity, which names a Secret, or a Secret named directly or by default.
+type credentialsSource struct {
+	identity bool
+	key      types.NamespacedName
+}
+
+// credentialsSourceFor returns the source a NicoCluster's identityRef names, or
+// the provider default Secret when it names none. A reference it can't use is
+// an error, never a reason to fall back to the default.
+func credentialsSourceFor(nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (credentialsSource, error) {
+	ref := nicoCluster.Spec.IdentityRef
+	named := types.NamespacedName{Namespace: nicoCluster.Namespace, Name: ref.Name}
+	switch {
+	case ref.Kind != "" && ref.Name == "":
+		return credentialsSource{}, fmt.Errorf("identityRef sets kind %q without a name", ref.Kind)
+	case ref.Kind == infrav1.NicoClusterIdentityKindNicoIdentity:
+		return credentialsSource{identity: true, key: named}, nil
+	case ref.Kind != "" && ref.Kind != infrav1.NicoClusterIdentityKindSecret:
+		return credentialsSource{}, fmt.Errorf("identityRef kind %q is not supported", ref.Kind)
+	case ref.Name != "":
+		return credentialsSource{key: named}, nil
+	case providerCreds.Namespace != "" && providerCreds.Name != "":
+		return credentialsSource{key: providerCreds}, nil
+	}
+	return credentialsSource{}, apierrors.NewNotFound(corev1.Resource("secrets"), "")
+}
+
+// credentialsSecretKey returns the Secret a NicoCluster names directly, or the
+// provider default. It reports false for a cluster that names a NicoIdentity,
+// whose Secret is known only by reading the Identity.
 func credentialsSecretKey(nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (types.NamespacedName, bool) {
-	if nicoCluster.Spec.IdentityRef.Name != "" {
-		return types.NamespacedName{Namespace: nicoCluster.Namespace, Name: nicoCluster.Spec.IdentityRef.Name}, true
+	source, err := credentialsSourceFor(nicoCluster, providerCreds)
+	if err != nil || source.identity {
+		return types.NamespacedName{}, false
 	}
-	if providerCreds.Namespace != "" && providerCreds.Name != "" {
-		return providerCreds, true
-	}
-	return types.NamespacedName{}, false
+	return source.key, true
 }
 
 func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (nico.API, error) {
-	secretKey, ok := credentialsSecretKey(nicoCluster, providerCreds)
-	if !ok {
-		return nil, apierrors.NewNotFound(corev1.Resource("secrets"), "")
+	source, err := credentialsSourceFor(nicoCluster, providerCreds)
+	if err != nil {
+		return nil, err
+	}
+	secretKey := source.key
+	if source.identity {
+		if secretKey, err = identitySecretKey(ctx, c, source.key); err != nil {
+			return nil, err
+		}
 	}
 	return nicoClientForSecret(ctx, c, secretKey)
+}
+
+// identitySecretKey returns the Secret a NicoIdentity names, in the Identity's
+// namespace. It ignores the Identity's status, so an Identity that hasn't passed
+// a check still supplies credentials.
+func identitySecretKey(ctx context.Context, c crclient.Client, identityKey types.NamespacedName) (types.NamespacedName, error) {
+	var identity infrav1.NicoIdentity
+	if err := c.Get(ctx, identityKey, &identity); err != nil {
+		return types.NamespacedName{}, fmt.Errorf("getting NicoIdentity %s: %w", identityKey, err)
+	}
+	return types.NamespacedName{Namespace: identity.Namespace, Name: identity.Spec.CredentialsRef.Name}, nil
+}
+
+// credentialsNotFoundReason names the condition reason for a NotFound error from
+// nicoClientForCluster: the NicoIdentity is missing, or the Secret is.
+func credentialsNotFoundReason(err error) string {
+	var status apierrors.APIStatus
+	if errors.As(err, &status) && status.Status().Details != nil && status.Status().Details.Group == infrav1.GroupVersion.Group {
+		return infrav1.WaitingForNicoIdentityReason
+	}
+	return infrav1.WaitingForIdentitySecretReason
 }
 
 func powerControlClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, instanceClient nico.API) (nico.API, error) {
