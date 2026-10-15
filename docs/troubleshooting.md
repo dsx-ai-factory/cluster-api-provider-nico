@@ -129,7 +129,9 @@ per-cluster Secret named by `NicoCluster.spec.identityRef`, or, with
 names. Clients are cached
 per Secret `resourceVersion`. If the Secret that changed is not the one this
 `NicoCluster` resolves to, or if its `resourceVersion` stayed the same, the
-controller keeps using the old client. Refer to
+controller keeps using the old client. With `--watch-filter`, a Secret or
+NicoIdentity without the `cluster.x-k8s.io/watch-filter` label is picked up
+only on the cluster's periodic requeue. Refer to
 [credential resolution](architecture.md#credential-resolution).
 
 ## Related Information
