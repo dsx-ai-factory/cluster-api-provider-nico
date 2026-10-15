@@ -50,11 +50,18 @@ const (
 
 	// These NKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
-	labelKeyMachineID = "nke.nvidia.com/machine-id"
-	labelKeySiteID    = "nke.nvidia.com/site-id"
-	labelKeySiteName  = "nke.nvidia.com/site-name"
-	labelKeyVPCID     = "nke.nvidia.com/vpc-id"
-	labelKeyVPCName   = "nke.nvidia.com/vpc-name"
+	labelKeyMachineID = "nvke.nvidia.com/machine-id"
+	labelKeySiteID    = "nvke.nvidia.com/site-id"
+	labelKeySiteName  = "nvke.nvidia.com/site-name"
+	labelKeyVPCID     = "nvke.nvidia.com/vpc-id"
+	labelKeyVPCName   = "nvke.nvidia.com/vpc-name"
+
+	// To be removed when the rename migrations are complete
+	legacyLabelKeyMachineID = "nke.nvidia.com/machine-id"
+	legacyLabelKeySiteID    = "nke.nvidia.com/site-id"
+	legacyLabelKeySiteName  = "nke.nvidia.com/site-name"
+	legacyLabelKeyVPCID     = "nke.nvidia.com/vpc-id"
+	legacyLabelKeyVPCName   = "nke.nvidia.com/vpc-name"
 )
 
 var nicoMachineOwnedConditions = []string{
@@ -655,7 +662,31 @@ func setObservedTopology(
 
 func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
 	existing := instance.GetLabels()
-	desired := mergeLabels(existing, observedTopologyLabels(nicoMachine))
+	desired := make(map[string]string)
+	maps.Copy(desired, existing)
+
+	// TODO: Remove these deletes when everything has migrated
+	if nicoMachine.Status.MachineID != "" {
+		desired[labelKeyMachineID] = nicoMachine.Status.MachineID
+		delete(desired, legacyLabelKeyMachineID)
+	}
+	if nicoMachine.Status.SiteID != "" {
+		desired[labelKeySiteID] = nicoMachine.Status.SiteID
+		delete(desired, legacyLabelKeySiteID)
+	}
+	if name := normalizeLabelValue(nicoMachine.Status.SiteName); name != "" {
+		desired[labelKeySiteName] = name
+		delete(desired, legacyLabelKeySiteName)
+	}
+	if nicoMachine.Status.VPCID != "" {
+		desired[labelKeyVPCID] = nicoMachine.Status.VPCID
+		delete(desired, legacyLabelKeyVPCID)
+	}
+	if name := normalizeLabelValue(nicoMachine.Status.VPCName); name != "" {
+		desired[labelKeyVPCName] = name
+		delete(desired, legacyLabelKeyVPCName)
+	}
+
 	if !needsLabelUpdate(existing, desired) {
 		return nil
 	}
@@ -666,28 +697,6 @@ func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, insta
 
 func needsLabelUpdate(existing, desired map[string]string) bool {
 	return !maps.Equal(desired, existing)
-}
-
-// observedTopologyLabels converts the latest observed NICo instance topology
-// into the NKE labels required on the backing VM.
-func observedTopologyLabels(nicoMachine *infrav1.NicoMachine) map[string]string {
-	labels := map[string]string{}
-	if nicoMachine.Status.MachineID != "" {
-		labels[labelKeyMachineID] = nicoMachine.Status.MachineID
-	}
-	if nicoMachine.Status.SiteID != "" {
-		labels[labelKeySiteID] = nicoMachine.Status.SiteID
-	}
-	if name := normalizeLabelValue(nicoMachine.Status.SiteName); name != "" {
-		labels[labelKeySiteName] = name
-	}
-	if nicoMachine.Status.VPCID != "" {
-		labels[labelKeyVPCID] = nicoMachine.Status.VPCID
-	}
-	if name := normalizeLabelValue(nicoMachine.Status.VPCName); name != "" {
-		labels[labelKeyVPCName] = name
-	}
-	return labels
 }
 
 func (r *NicoMachineReconciler) providerIDClaimedBy(ctx context.Context, nicoMachine infrav1.NicoMachine, instanceID string) (string, error) {
