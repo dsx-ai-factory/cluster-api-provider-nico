@@ -240,9 +240,11 @@ status subresource and no controller. Both `KubeadmControlPlane` and
 
 ### Immutability
 
-This kind is stricter than `NicoMachine`. A CEL rule freezes the entire
-`spec.template.spec` on every update from creation onward, rather than gating
-on `providerID` the way `NicoMachine.spec` does. To change machine
+This kind is stricter than `NicoMachine`. A validating webhook freezes the
+entire `spec.template.spec` on every update from creation onward, rather than
+gating on `providerID` the way `NicoMachine.spec` does. The webhook allows spec
+changes only in Cluster API topology dry-run requests, which never persist. It
+also rejects a non-empty `spec.template.spec.providerID`. To change machine
 infrastructure, create a new `NicoMachineTemplate` and repoint the
 `KubeadmControlPlane` or `MachineDeployment`. Cluster API then performs a
 replacement rollout.

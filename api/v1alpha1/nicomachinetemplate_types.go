@@ -20,7 +20,6 @@ type NicoMachineTemplateResource struct {
 	// +optional
 	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.template.spec is immutable"
 	Spec NicoMachineSpec `json:"spec"`
 }
 

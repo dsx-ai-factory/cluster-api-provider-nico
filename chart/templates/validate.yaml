@@ -1,0 +1,6 @@
+{{- if not .Values.webhook.enabled }}
+{{- fail "webhook.enabled must be true to enforce NicoMachineTemplate validation" }}
+{{- end }}
+{{- if not .Values.certManager.enabled }}
+{{- fail "certManager.enabled must be true to provision webhook certificates; external certificates are not supported" }}
+{{- end }}

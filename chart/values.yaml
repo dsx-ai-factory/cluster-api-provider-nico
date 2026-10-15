@@ -176,10 +176,18 @@ metrics:
   secure: false
 
 ## Cert-manager integration for TLS certificates.
-## Required for webhook certificates and metrics endpoint certificates.
+## Must remain enabled to provision webhook certificates.
 ##
 certManager:
-  enabled: false
+  enabled: true
+
+## Webhook server configuration.
+## Must remain enabled to enforce NicoMachineTemplate validation.
+##
+webhook:
+  enabled: true
+  # Set the matching --webhook-port in manager.args when changing this port.
+  port: 9443
 
 ## Prometheus ServiceMonitor for metrics scraping.
 ## Requires prometheus-operator to be installed in the cluster.
