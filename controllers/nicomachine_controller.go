@@ -1083,14 +1083,7 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		r.APIReader = mgr.GetAPIReader()
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineCredentialsSecretRefIndex, func(object client.Object) []string {
-		nicoCluster := object.(*infrav1.NicoCluster)
-		secretKey, ok := credentialsSecretKey(nicoCluster, r.ProviderConfig.Credentials)
-		if !ok {
-			return nil
-		}
-		return []string{secretKey.String()}
-	}); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineCredentialsSecretRefIndex, credentialsSecretIndexer(r.ProviderConfig.Credentials)); err != nil {
 		return fmt.Errorf("index NicoClusters by credentials Secret for NicoMachines: %w", err)
 	}
 
@@ -1157,24 +1150,17 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 				secretKey := client.ObjectKeyFromObject(object)
-				listOptions := []client.ListOption{
-					client.MatchingFields{nicoMachineCredentialsSecretRefIndex: secretKey.String()},
-				}
-				if secretKey != r.ProviderConfig.Credentials {
-					listOptions = append(listOptions, client.InNamespace(secretKey.Namespace))
-				}
-
-				var nicoClusters infrav1.NicoClusterList
-				if err := r.List(ctx, &nicoClusters, listOptions...); err != nil {
+				nicoClusters, err := nicoClustersForSecret(ctx, r, secretKey, r.ProviderConfig.Credentials, nicoMachineCredentialsSecretRefIndex)
+				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
 					return nil
 				}
 
 				requests := []reconcile.Request{}
-				for i := range nicoClusters.Items {
-					cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters.Items[i].ObjectMeta)
+				for i := range nicoClusters {
+					cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters[i].ObjectMeta)
 					if err != nil {
-						ctrl.LoggerFrom(ctx).Error(err, "failed to get Cluster for credentials Secret", "secret", secretKey, "nicoCluster", client.ObjectKeyFromObject(&nicoClusters.Items[i]))
+						ctrl.LoggerFrom(ctx).Error(err, "failed to get Cluster for credentials Secret", "secret", secretKey, "nicoCluster", client.ObjectKeyFromObject(&nicoClusters[i]))
 						continue
 					}
 					if cluster != nil {

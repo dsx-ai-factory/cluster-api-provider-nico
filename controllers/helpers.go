@@ -98,6 +98,35 @@ func credentialsSecretKey(nicoCluster *infrav1.NicoCluster, providerCreds types.
 	return source.key, true
 }
 
+// credentialsSecretIndexer indexes a NicoCluster by the Secret its NICo
+// credentials come from, named directly or by default. A cluster that names a
+// NicoIdentity gets no entry.
+func credentialsSecretIndexer(providerCreds types.NamespacedName) crclient.IndexerFunc {
+	return func(object crclient.Object) []string {
+		secretKey, ok := credentialsSecretKey(object.(*infrav1.NicoCluster), providerCreds)
+		if !ok {
+			return nil
+		}
+		return []string{secretKey.String()}
+	}
+}
+
+// nicoClustersForSecret lists the NicoClusters whose credentials come from the
+// Secret, through the controller's credentials-Secret index. Clusters in any
+// namespace can use the provider-level Secret; any other Secret serves only its
+// own namespace.
+func nicoClustersForSecret(ctx context.Context, c crclient.Reader, secretKey, providerCreds types.NamespacedName, secretIndex string) ([]infrav1.NicoCluster, error) {
+	listOptions := []crclient.ListOption{crclient.MatchingFields{secretIndex: secretKey.String()}}
+	if secretKey != providerCreds {
+		listOptions = append(listOptions, crclient.InNamespace(secretKey.Namespace))
+	}
+	var nicoClusters infrav1.NicoClusterList
+	if err := c.List(ctx, &nicoClusters, listOptions...); err != nil {
+		return nil, err
+	}
+	return nicoClusters.Items, nil
+}
+
 func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (nico.API, error) {
 	source, err := credentialsSourceFor(nicoCluster, providerCreds)
 	if err != nil {

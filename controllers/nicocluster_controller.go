@@ -344,14 +344,7 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		r.APIReader = mgr.GetAPIReader()
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoClusterCredentialsSecretRefIndex, func(object client.Object) []string {
-		nicoCluster := object.(*infrav1.NicoCluster)
-		secretKey, ok := credentialsSecretKey(nicoCluster, r.ProviderConfig.Credentials)
-		if !ok {
-			return nil
-		}
-		return []string{secretKey.String()}
-	}); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoClusterCredentialsSecretRefIndex, credentialsSecretIndexer(r.ProviderConfig.Credentials)); err != nil {
 		return fmt.Errorf("index NicoClusters by credentials Secret: %w", err)
 	}
 
@@ -368,22 +361,15 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 				secretKey := client.ObjectKeyFromObject(object)
-				listOptions := []client.ListOption{
-					client.MatchingFields{nicoClusterCredentialsSecretRefIndex: secretKey.String()},
-				}
-				if secretKey != r.ProviderConfig.Credentials {
-					listOptions = append(listOptions, client.InNamespace(secretKey.Namespace))
-				}
-
-				var nicoClusters infrav1.NicoClusterList
-				if err := r.List(ctx, &nicoClusters, listOptions...); err != nil {
+				nicoClusters, err := nicoClustersForSecret(ctx, r, secretKey, r.ProviderConfig.Credentials, nicoClusterCredentialsSecretRefIndex)
+				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
 					return nil
 				}
 
-				requests := make([]reconcile.Request, 0, len(nicoClusters.Items))
-				for i := range nicoClusters.Items {
-					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&nicoClusters.Items[i])})
+				requests := make([]reconcile.Request, 0, len(nicoClusters))
+				for i := range nicoClusters {
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&nicoClusters[i])})
 				}
 				return requests
 			}),
