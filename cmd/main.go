@@ -17,13 +17,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/controllers"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/webhooks"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -48,6 +49,8 @@ func init() {
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var webhookPort int
+	var webhookCertDir string
 	var leaderElect bool
 	var watchNamespace string
 	var watchFilterValue string
@@ -59,6 +62,13 @@ func main() {
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.IntVar(&webhookPort, "webhook-port", 9443, "Webhook server port.")
+	flag.StringVar(
+		&webhookCertDir,
+		"webhook-cert-dir",
+		"/tmp/k8s-webhook-server/serving-certs/",
+		"Webhook certificate directory.",
+	)
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election for the controller manager.")
 	flag.StringVar(
 		&watchNamespace,
@@ -118,6 +128,10 @@ func main() {
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       "nico.infrastructure.cluster.x-k8s.io",
 		Cache:                  cache.Options{DefaultNamespaces: watchNamespaces},
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port:    webhookPort,
+			CertDir: webhookCertDir,
+		}),
 		Client: client.Options{
 			Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}},
 		},
@@ -165,12 +179,16 @@ func main() {
 	}
 
 	// +kubebuilder:scaffold:builder
+	if err := (&webhooks.NicoMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "NicoMachineTemplate")
+		os.Exit(1)
+	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+	if err := mgr.AddHealthzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}

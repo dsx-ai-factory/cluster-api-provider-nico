@@ -179,6 +179,9 @@ capability requirements, and placement-failure semantics.
 
 ## Install
 
+CAPNICo requires cert-manager in the management cluster for its validating
+webhook. `clusterctl init` installs cert-manager when required.
+
 Initialize the core Cluster API controllers and the kubeadm providers:
 
 ```bash
