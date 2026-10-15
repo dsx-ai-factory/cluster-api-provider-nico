@@ -18,11 +18,11 @@ instances:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
-      nke.nvidia.com/machine-id: machine-id-1
-      nke.nvidia.com/site-id: site-1
-      nke.nvidia.com/site-name: fake-site
-      nke.nvidia.com/vpc-id: vpc-1
-      nke.nvidia.com/vpc-name: fake-vpc
+      nvke.nvidia.com/machine-id: machine-id-1
+      nvke.nvidia.com/site-id: site-1
+      nvke.nvidia.com/site-name: fake-site
+      nvke.nvidia.com/vpc-id: vpc-1
+      nvke.nvidia.com/vpc-name: fake-vpc
     machineId: machine-id-1
     name: machine-1
     siteId: site-1
@@ -59,11 +59,11 @@ requests:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
-      nke.nvidia.com/machine-id: machine-id-1
-      nke.nvidia.com/site-id: site-1
-      nke.nvidia.com/site-name: fake-site
-      nke.nvidia.com/vpc-id: vpc-1
-      nke.nvidia.com/vpc-name: fake-vpc
+      nvke.nvidia.com/machine-id: machine-id-1
+      nvke.nvidia.com/site-id: site-1
+      nvke.nvidia.com/site-name: fake-site
+      nvke.nvidia.com/vpc-id: vpc-1
+      nvke.nvidia.com/vpc-name: fake-vpc
 sites:
 - org: org-1
   resource:
