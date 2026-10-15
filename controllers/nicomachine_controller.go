@@ -50,11 +50,18 @@ const (
 
 	// These NKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
-	labelKeyMachineID = "nke.nvidia.com/machine-id"
-	labelKeySiteID    = "nke.nvidia.com/site-id"
-	labelKeySiteName  = "nke.nvidia.com/site-name"
-	labelKeyVPCID     = "nke.nvidia.com/vpc-id"
-	labelKeyVPCName   = "nke.nvidia.com/vpc-name"
+	labelKeyMachineID = "nvke.nvidia.com/machine-id"
+	labelKeySiteID    = "nvke.nvidia.com/site-id"
+	labelKeySiteName  = "nvke.nvidia.com/site-name"
+	labelKeyVPCID     = "nvke.nvidia.com/vpc-id"
+	labelKeyVPCName   = "nvke.nvidia.com/vpc-name"
+
+	// To be removed when the rename migrations are complete
+	legacyLabelKeyMachineID = "nke.nvidia.com/machine-id"
+	legacyLabelKeySiteID    = "nke.nvidia.com/site-id"
+	legacyLabelKeySiteName  = "nke.nvidia.com/site-name"
+	legacyLabelKeyVPCID     = "nke.nvidia.com/vpc-id"
+	legacyLabelKeyVPCName   = "nke.nvidia.com/vpc-name"
 )
 
 var nicoMachineOwnedConditions = []string{
@@ -656,6 +663,14 @@ func setObservedTopology(
 func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, instanceID string, instance *nicosdk.Instance, nicoMachine *infrav1.NicoMachine) error {
 	existing := instance.GetLabels()
 	desired := mergeLabels(existing, observedTopologyLabels(nicoMachine))
+
+	// TODO: Remove these deletes when everything has migrated
+	delete(desired, legacyLabelKeyMachineID)
+	delete(desired, legacyLabelKeySiteID)
+	delete(desired, legacyLabelKeySiteName)
+	delete(desired, legacyLabelKeyVPCID)
+	delete(desired, legacyLabelKeyVPCName)
+
 	if !needsLabelUpdate(existing, desired) {
 		return nil
 	}
