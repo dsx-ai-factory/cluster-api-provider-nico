@@ -51,9 +51,10 @@ as NicoCluster and NicoMachine already require.
 |---|---|---|
 | `--provider-identity-validation-timeout` | `30s` | Maximum duration of one check, from token acquisition through the NICo read. Must be positive. |
 
-The controller starts when the NicoIdentity CRD is installed. If the CRD is
-missing, the manager logs that credential observation is off and starts
-normally. After installing the CRD, restart the manager.
+The manager requires the NicoIdentity CRD, like the other CAPNICo CRDs, and
+fails to start without it. The chart and the release bundle install it. If you
+install CRDs separately (`crd.enabled=false`), apply the NicoIdentity CRD before
+upgrading the manager.
 
 To observe the provider-level credentials, create an Identity that names the
 default Secret in its namespace, for example from the sample below. `Ready`

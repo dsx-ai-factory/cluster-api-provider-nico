@@ -11,7 +11,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -46,9 +45,6 @@ const (
 // nicoIdentityOwnedConditions are the conditions this controller writes. Patches
 // keep its values for them and leave other writers' conditions alone.
 var nicoIdentityOwnedConditions = []string{nicoIdentityReadyCondition}
-
-// ErrNicoIdentityCRDMissing reports that the API server does not serve NicoIdentity.
-var ErrNicoIdentityCRDMissing = errors.New("the NicoIdentity CRD is not installed")
 
 // Secret states recorded for a check that did not read Secret contents.
 const (
@@ -217,16 +213,8 @@ func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
 // SetupWithManager watches every Identity in the manager's cache scope, narrowed
 // only by the watch-filter label, and the Secrets they name. Status-only
 // updates, including this controller's own lastCheckedTime writes, do not
-// trigger checks; Secret changes and the timed requeue do. It returns
-// ErrNicoIdentityCRDMissing when the API server does not serve NicoIdentity.
+// trigger checks; Secret changes and the timed requeue do.
 func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	gvk := infrav1.GroupVersion.WithKind("NicoIdentity")
-	if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-		if meta.IsNoMatchError(err) {
-			return fmt.Errorf("%w: %w", ErrNicoIdentityCRDMissing, err)
-		}
-		return fmt.Errorf("discover the NicoIdentity API: %w", err)
-	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}

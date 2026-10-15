@@ -117,8 +117,8 @@ a revoked client secret shows up at the next check even while provisioning still
 holds a valid token.
 
 Like the NicoCluster controller, it reconciles every Identity in the manager's
-cache scope, narrowed only by the watch-filter label, and it starts only when
-the NicoIdentity CRD is installed. Spec and label changes trigger a check, and
+cache scope, narrowed only by the watch-filter label. Spec and label changes
+trigger a check, and
 an index from each Identity to its Secret lets a Secret change recheck exactly
 the Identities that name it. Its own status writes do not trigger a check, so
 a requeue of four to five minutes, offset by each Identity's UID, sets the
