@@ -152,6 +152,15 @@ whose `Ready` is `False`, still supplies credentials. A missing Identity sets
 Neither falls back to a Secret with the Identity's name or to the
 provider-level Secret.
 
+Creating, deleting or changing an Identity's `credentialsRef`, and changing,
+deleting or recreating its Secret, reach the clusters that name the Identity,
+and their machines, right away. The Identity controller's status updates don't.
+With `--watch-filter`, the manager reacts only to Identities and Secrets that
+carry the `cluster.x-k8s.io/watch-filter` label with its value. A change to an
+unlabeled one reaches its clusters only on their periodic requeue, every five to
+six minutes for a ready cluster, and adding the label doesn't requeue them by
+itself.
+
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: NicoIdentity
