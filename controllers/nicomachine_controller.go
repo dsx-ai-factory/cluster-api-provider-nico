@@ -42,6 +42,7 @@ import (
 const (
 	nicoMachineFinalizer                 = "infrastructure.cluster.x-k8s.io/nicomachine"
 	nicoMachineCredentialsSecretRefIndex = "nicoMachineCredentialsSecretRef"
+	nicoMachineIdentityRefIndex          = "nicoMachineIdentityRef"
 	machineRequeueFast                   = 15 * time.Second
 	machineRequeueSlow                   = 30 * time.Second
 	machineReadyRequeue                  = 5 * time.Minute
@@ -1086,11 +1087,30 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineCredentialsSecretRefIndex, credentialsSecretIndexer(r.ProviderConfig.Credentials)); err != nil {
 		return fmt.Errorf("index NicoClusters by credentials Secret for NicoMachines: %w", err)
 	}
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineIdentityRefIndex, credentialsIdentityIndexer); err != nil {
+		return fmt.Errorf("index NicoClusters by NicoIdentity for NicoMachines: %w", err)
+	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
 	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
 	if err != nil {
 		return err
+	}
+	// nicoMachinesFor returns a reconcile request for each NicoMachine of the
+	// Clusters that own the NicoClusters.
+	nicoMachinesFor := func(ctx context.Context, nicoClusters []infrav1.NicoCluster) []reconcile.Request {
+		requests := []reconcile.Request{}
+		for i := range nicoClusters {
+			cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters[i].ObjectMeta)
+			if err != nil {
+				ctrl.LoggerFrom(ctx).Error(err, "failed to get Cluster for NicoCluster", "nicoCluster", client.ObjectKeyFromObject(&nicoClusters[i]))
+				continue
+			}
+			if cluster != nil {
+				requests = append(requests, clusterToNicoMachines(ctx, cluster)...)
+			}
+		}
+		return requests
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -1149,26 +1169,35 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				// A failed lookup is logged, and the machines of the clusters
+				// the other one found are still requeued.
 				secretKey := client.ObjectKeyFromObject(object)
 				nicoClusters, err := nicoClustersForSecret(ctx, r, secretKey, r.ProviderConfig.Credentials, nicoMachineCredentialsSecretRefIndex)
 				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
+				}
+				throughIdentities, err := nicoClustersThroughIdentities(ctx, r, secretKey, nicoMachineIdentityRefIndex)
+				if err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters through NicoIdentities for credentials Secret", "secret", secretKey)
+				}
+				return nicoMachinesFor(ctx, append(nicoClusters, throughIdentities...))
+			}),
+		).
+		// Spec changes, creation and deletion of a NicoIdentity requeue the
+		// NicoMachines of the clusters that name it; the Identity controller's
+		// status writes don't.
+		Watches(
+			&infrav1.NicoIdentity{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+				identityKey := client.ObjectKeyFromObject(object)
+				nicoClusters, err := nicoClustersForIdentity(ctx, r, identityKey, nicoMachineIdentityRefIndex)
+				if err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for NicoIdentity", "nicoIdentity", identityKey)
 					return nil
 				}
-
-				requests := []reconcile.Request{}
-				for i := range nicoClusters {
-					cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters[i].ObjectMeta)
-					if err != nil {
-						ctrl.LoggerFrom(ctx).Error(err, "failed to get Cluster for credentials Secret", "secret", secretKey, "nicoCluster", client.ObjectKeyFromObject(&nicoClusters[i]))
-						continue
-					}
-					if cluster != nil {
-						requests = append(requests, clusterToNicoMachines(ctx, cluster)...)
-					}
-				}
-				return requests
+				return nicoMachinesFor(ctx, nicoClusters)
 			}),
+			builder.WithPredicates(crpredicate.GenerationChangedPredicate{}),
 		).
 		Complete(r)
 }
