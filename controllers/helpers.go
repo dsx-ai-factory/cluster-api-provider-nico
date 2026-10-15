@@ -127,6 +127,49 @@ func nicoClustersForSecret(ctx context.Context, c crclient.Reader, secretKey, pr
 	return nicoClusters.Items, nil
 }
 
+// credentialsIdentityIndexer indexes a NicoCluster by the NicoIdentity its
+// identityRef names. Other clusters get no entry.
+func credentialsIdentityIndexer(object crclient.Object) []string {
+	source, err := credentialsSourceFor(object.(*infrav1.NicoCluster), types.NamespacedName{})
+	if err != nil || !source.identity {
+		return nil
+	}
+	return []string{source.key.String()}
+}
+
+// nicoClustersForIdentity lists the NicoClusters whose identityRef names the
+// NicoIdentity, through the controller's Identity index.
+func nicoClustersForIdentity(ctx context.Context, c crclient.Reader, identityKey types.NamespacedName, identityIndex string) ([]infrav1.NicoCluster, error) {
+	var nicoClusters infrav1.NicoClusterList
+	if err := c.List(ctx, &nicoClusters, crclient.InNamespace(identityKey.Namespace),
+		crclient.MatchingFields{identityIndex: identityKey.String()}); err != nil {
+		return nil, err
+	}
+	return nicoClusters.Items, nil
+}
+
+// nicoClustersThroughIdentities lists the NicoClusters that take their
+// credentials from the Secret through a NicoIdentity: the clusters naming any
+// Identity in the Secret's namespace whose credentialsRef names the Secret.
+func nicoClustersThroughIdentities(ctx context.Context, c crclient.Reader, secretKey types.NamespacedName, identityIndex string) ([]infrav1.NicoCluster, error) {
+	var identities infrav1.NicoIdentityList
+	if err := c.List(ctx, &identities, crclient.InNamespace(secretKey.Namespace)); err != nil {
+		return nil, err
+	}
+	var nicoClusters []infrav1.NicoCluster
+	for i := range identities.Items {
+		if identities.Items[i].Spec.CredentialsRef.Name != secretKey.Name {
+			continue
+		}
+		referencing, err := nicoClustersForIdentity(ctx, c, crclient.ObjectKeyFromObject(&identities.Items[i]), identityIndex)
+		if err != nil {
+			return nil, err
+		}
+		nicoClusters = append(nicoClusters, referencing...)
+	}
+	return nicoClusters, nil
+}
+
 func nicoClientForCluster(ctx context.Context, c crclient.Client, nicoCluster *infrav1.NicoCluster, providerCreds types.NamespacedName) (nico.API, error) {
 	source, err := credentialsSourceFor(nicoCluster, providerCreds)
 	if err != nil {
