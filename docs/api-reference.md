@@ -10,8 +10,9 @@ ever drift, the Go source is authoritative.
 
 ## NicoIdentity
 
-`NicoIdentity` is a namespaced credential-observation API. Standard CAPNICo
-installations include its CRD. The NicoIdentity controller periodically checks
+`NicoIdentity` is a namespaced API that names NICo credentials, checks them, and
+can supply them to `NicoCluster` resources. Standard CAPNICo installations
+include its CRD. The NicoIdentity controller periodically checks
 the Secret each Identity names and records the result in status, reconciling
 every Identity in the manager's scope the same way it reconciles NicoClusters.
 Creating an Identity enrolls its Secret, and deleting the Identity stops the
@@ -19,11 +20,15 @@ checks. Status stays absent until a check completes, and Identities outside the
 manager's scope are not checked. An Identity that leaves the scope keeps its
 last published status, which then ages. Absence is not success.
 
-The Identity describes credential health independently of tenant clusters. It
-does not select provisioning credentials, protect a Secret from deletion, or
-gate cluster or machine reconciliation. Existing `NicoCluster.spec.identityRef`
-values continue to reference Secrets. To observe one of those per-cluster
-Secrets, create an Identity that names it in the same namespace.
+The Identity describes credential health independently of tenant clusters. A
+`NicoCluster` can also take its credentials from an Identity, through
+`identityRef` with `kind: NicoIdentity`, as described in
+[credentials through a NicoIdentity](#credentials-through-a-nicoidentity). The
+Identity's status still never selects or blocks those credentials, and an
+Identity does not protect its Secret from deletion. A cluster that names an
+Identity does depend on the Identity itself, so the cluster and its machines
+wait while the Identity is missing. To observe a Secret that a `NicoCluster`
+names directly, create an Identity that names it in the same namespace.
 
 ### Spec
 
@@ -32,7 +37,7 @@ remain in the Secret.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `credentialsRef.name` | string, required | Name of a Secret in the Identity's namespace. Uses Kubernetes Secret-name syntax, with a maximum of 253 characters. You can change this reference. |
+| `credentialsRef.name` | string, required | Name of a Secret in the Identity's namespace. Uses Kubernetes Secret-name syntax, with a maximum of 253 characters. You can change this reference, which changes the credentials of every `NicoCluster` that names the Identity. |
 
 Admission validates the reference's shape, not whether the Secret exists or
 contains usable credentials. The API has no cross-namespace reference field.
@@ -51,9 +56,10 @@ as NicoCluster and NicoMachine already require.
 |---|---|---|
 | `--provider-identity-validation-timeout` | `30s` | Maximum duration of one check, from token acquisition through the NICo read. Must be positive. |
 
-The controller starts when the NicoIdentity CRD is installed. If the CRD is
-missing, the manager logs that credential observation is off and starts
-normally. After installing the CRD, restart the manager.
+The manager requires the NicoIdentity CRD, like the other CAPNICo CRDs, and
+fails to start without it. The chart and the release bundle install it. If you
+install CRDs separately (`crd.enabled=false`), apply the NicoIdentity CRD before
+upgrading the manager.
 
 To observe the provider-level credentials, create an Identity that names the
 default Secret in its namespace, for example from the sample below. `Ready`
@@ -112,14 +118,19 @@ The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age.
 Compare LastChecked with the current time: a stopped manager cannot mark its
 last result stale, and `kubectl wait --for=condition=Ready` does not check age.
 A failed check updates status only; it raises no Event or alert. Deleting an
-Identity removes only the observation object, not its Secret or any NICo
-resource.
+Identity does not delete its Secret or any NICo resource. It does stop the
+reconciliation of every cluster that names it, and of their machines, until the
+Identity is back. Refer to
+[credentials through a NicoIdentity](#credentials-through-a-nicoidentity).
 
 Use the desired-only
 [`NicoIdentity sample`](../config/samples/infrastructure_v1alpha1_nicoidentity.yaml)
 in the namespace containing the credentials Secret. Installation bundles do not
 create an Identity or credential Secret. The `nicoidentity-viewer-role` helper
 grants Identity reads without Secret access or permission to write spec/status.
+The `nicoidentity-editor-role` and `nicoidentity-admin-role` helpers also grant
+Identity writes. A holder can change an Identity's `credentialsRef`, and with
+it the credentials of every `NicoCluster` that names the Identity.
 
 ## NicoCluster
 
@@ -133,9 +144,107 @@ The spec carries four fields, and only the site is required.
 | Field | Type | Meaning |
 |---|---|---|
 | `siteID` | string, required | The site where this provider creates and looks up instances. |
-| `identityRef` | object, optional | Points to the Secret that holds the NICo endpoint and the authentication settings. An unset value falls back to the provider-level credentials Secret in the manager's namespace. |
+| `identityRef` | object, optional | Names the cluster's NICo credentials, in the cluster's namespace. `name` alone, or with `kind: Secret`, names the Secret that holds the NICo endpoint and the authentication settings. `kind: NicoIdentity` names a `NicoIdentity`, and the cluster uses the Secret its `credentialsRef` names. `kind` requires `name`. An unset value or an empty `name` falls back to the provider-level credentials Secret in the manager's namespace. |
 | `powerControlIdentityRef` | object, optional | Points to a Secret in the cluster namespace with provider credentials for NICo Machine power control. An unset value uses the regular `identityRef` credential. |
 | `failureDomainLabelKey` | string, optional, 1 to 255 characters | The NICo Machine label key that carries the failure-domain name. The provider reads it to publish `status.failureDomains` and sends it as the machine label selector key when placing an instance. An unset value disables failure-domain support for this cluster, so no domains are published, and a Machine that requests one fails rather than being placed anywhere. Sites that follow the NICo convention use `failure_domain`. |
+
+### Credentials Through a NicoIdentity
+
+With `identityRef.kind: NicoIdentity`, cluster reconciliation, machine
+reconciliation, and machine deletion read that `NicoIdentity` in the cluster's
+namespace and use the Secret its `credentialsRef` names, in the same namespace.
+The Identity's status is ignored: an Identity that has never been checked, or
+whose `Ready` is `False`, still supplies credentials. In cluster and machine
+reconciliation, a missing Identity sets the reason `WaitingForNicoIdentity`,
+and a missing Secret sets `WaitingForIdentitySecret`. Machine deletion keeps the
+finalizer and retries with exponential backoff until both exist. Its `Deleting`
+condition keeps the reason `Deleting`, so only the manager log names the
+missing object. None of these paths falls back to a Secret with the Identity's
+name or to the provider-level Secret.
+
+Creating, deleting, or changing an Identity's `credentialsRef`, and changing,
+deleting, or recreating its Secret, reach the clusters that name the Identity,
+and their machines, right away. The Identity controller's status updates do
+not. With `--watch-filter`, the NicoCluster and NicoMachine controllers react
+only to Identities and Secrets that carry the `cluster.x-k8s.io/watch-filter`
+label with its value. A change to an unlabeled one reaches its clusters only on
+their periodic requeue, every five to six minutes for a ready cluster. Adding
+the label to a Secret requeues the clusters that use it, and their machines.
+Adding the label to an Identity does not requeue its clusters by itself,
+because a label change does not change the Identity's generation.
+
+Keep an Identity's credentials in the NICo organization that created its
+clusters' instances. Machines look up their instances with the current
+credentials. Pointing the Identity at another organization's Secret, or
+changing its Secret's `orgID`, while its clusters have machines can orphan
+instances. Deleting a machine can then find no instance in the new
+organization, treat the machine as released, and leave the instance running in
+the original organization. Delete the machines before you move a cluster to
+another organization. The same applies to a Secret that a `NicoCluster` names
+directly.
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoIdentity
+metadata:
+  name: nico-credentials
+  namespace: tenant-a
+spec:
+  credentialsRef:
+    name: nico-credentials
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoCluster
+metadata:
+  name: tenant-a
+  namespace: tenant-a
+spec:
+  siteID: <site-id>
+  identityRef:
+    kind: NicoIdentity
+    name: nico-credentials
+```
+
+To move a cluster from a Secret reference to an Identity:
+
+1. Upgrade the CRDs and every CAPNICo manager first. An older manager reads
+   `identityRef.name` as a Secret name.
+2. Create a `NicoIdentity` in the cluster's namespace whose `credentialsRef`
+   names the Secret the cluster already uses.
+3. Set `identityRef` to `kind: NicoIdentity` and the Identity's name. The
+   cluster keeps the same Secret, so it keeps the same NICo account and
+   instances.
+
+Before downgrading to a release without `identityRef.kind`, set every
+`NicoCluster` and `NicoClusterTemplate` back to a Secret reference. Set
+`kind: Secret` with the Secret's name, or remove `kind`. A JSON merge patch
+that changes only `name` keeps `kind: NicoIdentity`, so the cluster would then
+wait for an Identity with the Secret's name. The following patch sets both
+fields:
+
+```sh
+kubectl patch nicocluster <name> -n <namespace> --type=merge \
+  -p '{"spec":{"identityRef":{"kind":"Secret","name":"<secret-name>"}}}'
+```
+
+Then check that no cluster or template still names an Identity:
+
+```sh
+kubectl get nicoclusters -A -o jsonpath='{range .items[?(@.spec.identityRef.kind=="NicoIdentity")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
+kubectl get nicoclustertemplates -A -o jsonpath='{range .items[?(@.spec.template.spec.identityRef.kind=="NicoIdentity")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
+```
+
+An older CRD drops `kind` when it reads a stored object, so an older manager
+would treat the Identity's name as a Secret name and could use a different
+Secret with that name. Naming the Identity after its Secret, as in the example,
+makes that case harmless. Any write by the older release, including a status
+update, stores the reference without `kind`, and upgrading again does not
+restore it. After that upgrade, set `kind: NicoIdentity` on each cluster that
+should use an Identity.
+
+Deleting an Identity that a cluster uses stops that cluster's reconciliation,
+including releasing machine instances, until the Identity is back, as deleting
+its Secret does. Delete clusters before their namespace.
 
 ### Status
 
@@ -282,6 +391,7 @@ do about it. [Troubleshooting](troubleshooting.md) covers the rest.
 | `Unknown` | | The condition has not been reported yet. |
 | `Deleting` | | The resource is being deleted. |
 | `WaitingForIdentitySecret` | Yes | The configured identity Secret is not available yet. |
+| `WaitingForNicoIdentity` | Yes | The `NicoIdentity` named by `identityRef` is not available yet. |
 | `IdentityConfigurationFailed` | | The identity configuration is invalid. |
 | `TenantResolutionFailed` | Yes | NICo tenant resolution failed. |
 | `InfrastructureReady` | | The infrastructure resource is ready. |

@@ -486,8 +486,9 @@ value.
 
 Credentials can be provider-level, meaning one Secret in `capnico-system` used
 by every cluster, or per-cluster through `NicoCluster.spec.identityRef` in the
-`NicoCluster`'s namespace. Use per-cluster credentials when one management
-cluster drives several sites or tenants.
+`NicoCluster`'s namespace, naming a Secret or a `NicoIdentity` that names one.
+Use per-cluster credentials when one management cluster drives several sites or
+tenants.
 
 ### 5. Prove the Credentials Before Creating Machines
 
@@ -598,6 +599,7 @@ generic timeout.
 | Reason | Means |
 |---|---|
 | `WaitingForIdentitySecret` | The Secret is missing or misnamed. |
+| `WaitingForNicoIdentity` | The `NicoIdentity` that `identityRef` names is missing or misnamed. |
 | `TenantResolutionFailed` | The tenant lookup failed. The cause is a wrong org or `apiName`, an expired or rejected token, an unroutable endpoint, or a CA mismatch. All four land here. |
 | `InstanceTypeNotFound` | The instance type ID is wrong, or the org is wrong. |
 | `InstanceTypeUnavailable` | There is no free allocation, which step 2 covers. |
