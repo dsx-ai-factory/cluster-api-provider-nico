@@ -13,10 +13,10 @@ not join nodes — the kubeadm bootstrap and control-plane providers do that. Yo
 declare a `Cluster` and a `MachineDeployment` as usual, and this provider turns
 each requested machine into a NICo instance on real hardware.
 
-* `NicoCluster` holds the target site, and may optionally reference a per-cluster credentials Secret.
+* `NicoCluster` holds the target site, and can reference a per-cluster credentials Secret or a `NicoIdentity`.
 * `NicoMachine` represents one NICo instance managed by Cluster API, and carries the VPC.
 * `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
-* `NicoIdentity` reports the health of the credentials Secret it names. The manager checks every Identity in its watch scope.
+* `NicoIdentity` reports the health of the credentials Secret it names, and can supply those credentials to clusters that name it. The manager checks every Identity in its watch scope.
 
 ## Features
 
