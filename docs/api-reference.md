@@ -10,8 +10,9 @@ ever drift, the Go source is authoritative.
 
 ## NicoIdentity
 
-`NicoIdentity` is a namespaced credential-observation API. Standard CAPNICo
-installations include its CRD. The NicoIdentity controller periodically checks
+`NicoIdentity` is a namespaced API that names NICo credentials, checks them, and
+can supply them to `NicoCluster` resources. Standard CAPNICo installations
+include its CRD. The NicoIdentity controller periodically checks
 the Secret each Identity names and records the result in status, reconciling
 every Identity in the manager's scope the same way it reconciles NicoClusters.
 Creating an Identity enrolls its Secret, and deleting the Identity stops the
@@ -24,7 +25,7 @@ The Identity describes credential health independently of tenant clusters. A
 `identityRef` with `kind: NicoIdentity`, as described in
 [credentials through a NicoIdentity](#credentials-through-a-nicoidentity). The
 Identity's status still never selects or blocks those credentials. An Identity
-doesn't protect its Secret from deletion or gate cluster or machine
+does not protect its Secret from deletion or gate cluster or machine
 reconciliation. To observe a Secret that a `NicoCluster` names directly, create
 an Identity that names it in the same namespace.
 
@@ -35,7 +36,7 @@ remain in the Secret.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `credentialsRef.name` | string, required | Name of a Secret in the Identity's namespace. Uses Kubernetes Secret-name syntax, with a maximum of 253 characters. You can change this reference. |
+| `credentialsRef.name` | string, required | Name of a Secret in the Identity's namespace. Uses Kubernetes Secret-name syntax, with a maximum of 253 characters. You can change this reference, which changes the credentials of every `NicoCluster` that names the Identity. |
 
 Admission validates the reference's shape, not whether the Secret exists or
 contains usable credentials. The API has no cross-namespace reference field.
@@ -144,7 +145,7 @@ The spec carries four fields, and only the site is required.
 ### Credentials Through a NicoIdentity
 
 With `identityRef.kind: NicoIdentity`, cluster reconciliation, machine
-reconciliation and machine deletion read that `NicoIdentity` in the cluster's
+reconciliation, and machine deletion read that `NicoIdentity` in the cluster's
 namespace and use the Secret its `credentialsRef` names, in the same namespace.
 The Identity's status is ignored: an Identity that has never been checked, or
 whose `Ready` is `False`, still supplies credentials. A missing Identity sets
@@ -152,14 +153,24 @@ whose `Ready` is `False`, still supplies credentials. A missing Identity sets
 Neither falls back to a Secret with the Identity's name or to the
 provider-level Secret.
 
-Creating, deleting or changing an Identity's `credentialsRef`, and changing,
-deleting or recreating its Secret, reach the clusters that name the Identity,
-and their machines, right away. The Identity controller's status updates don't.
-With `--watch-filter`, the manager reacts only to Identities and Secrets that
-carry the `cluster.x-k8s.io/watch-filter` label with its value. A change to an
-unlabeled one reaches its clusters only on their periodic requeue, every five to
-six minutes for a ready cluster, and adding the label doesn't requeue them by
-itself.
+Creating, deleting, or changing an Identity's `credentialsRef`, and changing,
+deleting, or recreating its Secret, reach the clusters that name the Identity,
+and their machines, right away. The Identity controller's status updates do
+not. With `--watch-filter`, the manager reacts only to Identities and Secrets
+that carry the `cluster.x-k8s.io/watch-filter` label with its value. A change to
+an unlabeled one reaches its clusters only on their periodic requeue, every five
+to six minutes for a ready cluster, and adding the label does not requeue them
+by itself.
+
+Keep an Identity's credentials in the NICo organization that created its
+clusters' instances. Machines look up their instances with the current
+credentials. Pointing the Identity at another organization's Secret, or
+changing its Secret's `orgID`, while its clusters have machines can orphan
+instances. Deleting a machine can then find no instance in the new
+organization, treat the machine as released, and leave the instance running in
+the original organization. Delete the machines before you move a cluster to
+another organization. The same applies to a Secret that a `NicoCluster` names
+directly.
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -194,8 +205,18 @@ To move a cluster from a Secret reference to an Identity:
    instances.
 
 Before downgrading to a release without `identityRef.kind`, set every
-`NicoCluster` and `NicoClusterTemplate` back to a Secret reference, and check
-that none still names an Identity:
+`NicoCluster` and `NicoClusterTemplate` back to a Secret reference. Set
+`kind: Secret` with the Secret's name, or remove `kind`. A JSON merge patch
+that changes only `name` keeps `kind: NicoIdentity`, so the cluster would then
+wait for an Identity with the Secret's name. The following patch sets both
+fields:
+
+```sh
+kubectl patch nicocluster <name> -n <namespace> --type=merge \
+  -p '{"spec":{"identityRef":{"kind":"Secret","name":"<secret-name>"}}}'
+```
+
+Then check that no cluster or template still names an Identity:
 
 ```sh
 kubectl get nicoclusters -A -o jsonpath='{range .items[?(@.spec.identityRef.kind=="NicoIdentity")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
@@ -205,7 +226,10 @@ kubectl get nicoclustertemplates -A -o jsonpath='{range .items[?(@.spec.template
 An older CRD drops `kind` when it reads a stored object, so an older manager
 would treat the Identity's name as a Secret name and could use a different
 Secret with that name. Naming the Identity after its Secret, as in the example,
-makes that case harmless.
+makes that case harmless. Any write by the older release, including a status
+update, stores the reference without `kind`, and upgrading again does not
+restore it. After that upgrade, set `kind: NicoIdentity` on each cluster that
+should use an Identity.
 
 Deleting an Identity that a cluster uses stops that cluster's reconciliation,
 including releasing machine instances, until the Identity is back, as deleting
