@@ -32,8 +32,10 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          NicoIdentity is an observation of NICo credentials, not a provisioning dependency.
-          Status stays absent until the controller completes a check; absent status is not a successful check.
+          NicoIdentity names a Secret with NICo credentials and reports the result of checking it.
+          A NicoCluster can take its credentials from an Identity; the Identity's status never
+          gates or selects them. Status stays absent until the controller completes a check;
+          absent status is not a successful check.
         properties:
           apiVersion:
             description: |-
@@ -53,12 +55,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: NicoIdentitySpec defines the credentials to observe without
-              changing provisioning.
+            description: |-
+              NicoIdentitySpec names the Secret this Identity checks. NicoClusters whose
+              identityRef names this Identity take their credentials from that Secret.
             properties:
               credentialsRef:
-                description: CredentialsRef names the Secret in this Identity's namespace.
-                  The reference is mutable.
+                description: |-
+                  CredentialsRef names the Secret in this Identity's namespace. The reference is mutable:
+                  changing it changes the credentials of every NicoCluster that names this Identity.
                 properties:
                   name:
                     description: Name is the name of the Secret containing NICo connection

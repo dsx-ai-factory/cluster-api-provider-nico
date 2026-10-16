@@ -299,7 +299,7 @@ present at the same time:
    provider-level Secret for that `NicoCluster`. The reference names the
    Secret directly, or, with `kind: NicoIdentity`, names a `NicoIdentity` in
    that namespace whose `credentialsRef` names the Secret. A reference that
-   can't be resolved never falls back to the provider-level Secret. See
+   cannot be resolved never falls back to the provider-level Secret. Refer to
    [credentials through a NicoIdentity](docs/api-reference.md#credentials-through-a-nicoidentity).
 
 The provider-level Secret's name and namespace are configurable via two manager flags:

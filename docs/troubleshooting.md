@@ -22,9 +22,9 @@ Four reasons account for this symptom.
   [NICo credentials Secret](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#nico-credentials-secret)
   section of the README.
 - `WaitingForNicoIdentity` means `identityRef` names a `NicoIdentity` that
-  doesn't exist in the cluster's namespace. Check
+  does not exist in the cluster's namespace. Check
   `kubectl get nicoidentity -n <namespace>`. When the Identity exists but its
-  Secret doesn't, the reason is `WaitingForIdentitySecret`, naming the Secret
+  Secret does not, the reason is `WaitingForIdentitySecret`, naming the Secret
   from the Identity's `credentialsRef`.
 - `IdentityConfigurationFailed` means the Secret exists, but its configuration
   is invalid. For example, required keys are missing, or the authentication

@@ -93,9 +93,9 @@ provider-level Secret.
 
 The cluster and machine controllers both watch these inputs. A Secret event
 requeues the clusters that use the Secret, whether they name it, use it by
-default or name an Identity whose `credentialsRef` names it, and their machines.
+default, or name an Identity whose `credentialsRef` names it, and their machines.
 Creating or deleting an Identity, or changing its spec, requeues the clusters
-that name it and their machines; the Identity controller's status writes don't.
+that name it and their machines; the Identity controller's status writes do not.
 Each controller keeps its own indexes of clusters by Secret and by Identity,
 because client-go rejects a second index with the same name.
 
