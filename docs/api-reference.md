@@ -24,10 +24,11 @@ The Identity describes credential health independently of tenant clusters. A
 `NicoCluster` can also take its credentials from an Identity, through
 `identityRef` with `kind: NicoIdentity`, as described in
 [credentials through a NicoIdentity](#credentials-through-a-nicoidentity). The
-Identity's status still never selects or blocks those credentials. An Identity
-does not protect its Secret from deletion or gate cluster or machine
-reconciliation. To observe a Secret that a `NicoCluster` names directly, create
-an Identity that names it in the same namespace.
+Identity's status still never selects or blocks those credentials, and an
+Identity does not protect its Secret from deletion. A cluster that names an
+Identity does depend on the Identity itself, so the cluster and its machines
+wait while the Identity is missing. To observe a Secret that a `NicoCluster`
+names directly, create an Identity that names it in the same namespace.
 
 ### Spec
 
@@ -117,14 +118,19 @@ The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age.
 Compare LastChecked with the current time: a stopped manager cannot mark its
 last result stale, and `kubectl wait --for=condition=Ready` does not check age.
 A failed check updates status only; it raises no Event or alert. Deleting an
-Identity removes only the observation object, not its Secret or any NICo
-resource.
+Identity does not delete its Secret or any NICo resource. It does stop the
+reconciliation of every cluster that names it, and of their machines, until the
+Identity is back. Refer to
+[credentials through a NicoIdentity](#credentials-through-a-nicoidentity).
 
 Use the desired-only
 [`NicoIdentity sample`](../config/samples/infrastructure_v1alpha1_nicoidentity.yaml)
 in the namespace containing the credentials Secret. Installation bundles do not
 create an Identity or credential Secret. The `nicoidentity-viewer-role` helper
 grants Identity reads without Secret access or permission to write spec/status.
+The `nicoidentity-editor-role` and `nicoidentity-admin-role` helpers also grant
+Identity writes. A holder can change an Identity's `credentialsRef`, and with
+it the credentials of every `NicoCluster` that names the Identity.
 
 ## NicoCluster
 
@@ -148,19 +154,24 @@ With `identityRef.kind: NicoIdentity`, cluster reconciliation, machine
 reconciliation, and machine deletion read that `NicoIdentity` in the cluster's
 namespace and use the Secret its `credentialsRef` names, in the same namespace.
 The Identity's status is ignored: an Identity that has never been checked, or
-whose `Ready` is `False`, still supplies credentials. A missing Identity sets
-`WaitingForNicoIdentity`, and a missing Secret sets `WaitingForIdentitySecret`.
-Neither falls back to a Secret with the Identity's name or to the
-provider-level Secret.
+whose `Ready` is `False`, still supplies credentials. In cluster and machine
+reconciliation, a missing Identity sets the reason `WaitingForNicoIdentity`,
+and a missing Secret sets `WaitingForIdentitySecret`. Machine deletion keeps the
+finalizer and retries with exponential backoff until both exist. Its `Deleting`
+condition keeps the reason `Deleting`, so only the manager log names the
+missing object. None of these paths falls back to a Secret with the Identity's
+name or to the provider-level Secret.
 
 Creating, deleting, or changing an Identity's `credentialsRef`, and changing,
 deleting, or recreating its Secret, reach the clusters that name the Identity,
 and their machines, right away. The Identity controller's status updates do
-not. With `--watch-filter`, the manager reacts only to Identities and Secrets
-that carry the `cluster.x-k8s.io/watch-filter` label with its value. A change to
-an unlabeled one reaches its clusters only on their periodic requeue, every five
-to six minutes for a ready cluster, and adding the label does not requeue them
-by itself.
+not. With `--watch-filter`, the NicoCluster and NicoMachine controllers react
+only to Identities and Secrets that carry the `cluster.x-k8s.io/watch-filter`
+label with its value. A change to an unlabeled one reaches its clusters only on
+their periodic requeue, every five to six minutes for a ready cluster. Adding
+the label to a Secret requeues the clusters that use it, and their machines.
+Adding the label to an Identity does not requeue its clusters by itself,
+because a label change does not change the Identity's generation.
 
 Keep an Identity's credentials in the NICo organization that created its
 clusters' instances. Machines look up their instances with the current
