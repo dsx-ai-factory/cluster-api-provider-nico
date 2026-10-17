@@ -210,6 +210,30 @@ if [[ -n "${SELF_REF}" ]]; then
     die "$(wc -l <<<"${SELF_REF}" | tr -d ' ') package(s) above are not ours. go-licenses is attributing upstream code to this repository."
 fi
 
+# A URL go-licenses could not determine is the literal string "Unknown", and it
+# reaches the file as a dead link: [gopkg.in/inf.v0](Unknown).
+#
+# That is a property of the run, not of the dependency. Deriving a URL for a
+# vanity import path such as gopkg.in/inf.v0 or gopkg.in/validator.v2 means
+# resolving it to its repository over the network, so a rate-limited, offline or
+# otherwise degraded run yields "Unknown" for exactly those modules while every
+# other row stays correct.
+#
+# The output is then a file that differs from the committed one only in the rows
+# that failed to resolve, which makes notices-check fail as though the file were
+# stale. Committing that output would replace working attribution links with
+# dead ones, and would fail the check again on the next run that does resolve
+# them. Only the URL column is examined: an unknown *licence* is a real finding
+# about a dependency and belongs in the file.
+#
+# Fail instead, so a degraded run produces nothing rather than a plausible diff.
+UNRESOLVED="$(awk -F, '$2 == "Unknown" || $2 == "" { print $1 }' "${CSV}" | sort -u)"
+if [[ -n "${UNRESOLVED}" ]]; then
+    log "packages whose licence URL did not resolve:"
+    while IFS= read -r pkg; do log "  ${pkg}"; done <<<"${UNRESOLVED}"
+    die "$(wc -l <<<"${UNRESOLVED}" | tr -d ' ') package(s) above have no licence URL. This is usually a failed lookup for a vanity import path rather than a change to the dependency tree; re-run before changing ${OUTPUT}."
+fi
+
 # package -> module@version, so a reader can pin what was actually linked.
 MODMAP="${WORK}/modmap"
 for platform in "${PLATFORMS[@]}"; do
