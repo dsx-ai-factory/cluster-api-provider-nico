@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: Apache-2.0
+# Reconcile issue triage labels. Refer to docs/issue-triage.md for the process.
+
+name: Issue Triage Check
+
+on:
+  issues:
+    types: [opened, reopened, labeled, unlabeled]
+  schedule:
+    - cron: '35 * * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  triage:
+    name: Reconcile needs-triage
+    if: >-
+      github.repository == 'dsx-ai-factory/cluster-api-provider-nico' &&
+      (github.event_name != 'issues' ||
+       !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) ||
+       github.event.label.name == 'needs-triage' ||
+       startsWith(github.event.label.name, 'priority/'))
+    concurrency:
+      group: Issue Triage Check-${{ github.event.issue.number || 'sweep' }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    timeout-minutes: 10
+    steps:
+      - name: Reconcile issue labels
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          retries: 3
+          script: |
+            const NEEDS_TRIAGE = 'needs-triage';
+            const PRIORITY_PREFIX = 'priority/';
+            const labelDefinitions = [
+              { name: NEEDS_TRIAGE, color: 'e11d21', description: 'Awaiting engineering acceptance and a priority decision.' },
+              { name: 'needs-info', color: 'd876e3', description: 'Waiting for more information from the reporter.' },
+              { name: 'priority/P0', color: 'ad4c00', description: 'Major functionality broken, significant impact, no workaround. Fix within 30 days of acceptance.' },
+              { name: 'priority/P1', color: '663f0b', description: 'Usable with small impact and a workaround. Fix within six calendar months of acceptance.' },
+              { name: 'priority/P2', color: 'ddac19', description: 'Minor defects or minor user or performance impact. No fix commitment.' },
+              { name: 'lifecycle/stale', color: '795548', description: 'No issue activity for 90 days. Closes after another 30 inactive days.' },
+              { name: 'lifecycle/frozen', color: 'c5def5', description: 'Exempt from inactivity handling. Existing fix deadlines still apply.' },
+            ];
+
+            // Bootstrap missing labels without overwriting maintainer customizations.
+            for (const label of labelDefinitions) {
+              try {
+                await github.rest.issues.getLabel({ ...context.repo, name: label.name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                try {
+                  await github.rest.issues.createLabel({ ...context.repo, ...label });
+                } catch (createError) {
+                  // Another issue's run can create the same label concurrently.
+                  if (createError.status !== 422) throw createError;
+                  await github.rest.issues.getLabel({ ...context.repo, name: label.name });
+                }
+              }
+            }
+
+            // Read live state because priorities can change after the event fires.
+            const event = context.payload.issue;
+            const issues = event
+              ? [(await github.rest.issues.get({ ...context.repo, issue_number: event.number })).data]
+              : await github.paginate(github.rest.issues.listForRepo, {
+                  ...context.repo,
+                  state: 'open',
+                  per_page: 100,
+                });
+
+            const tally = { checked: 0, added: 0, cleared: 0, unchanged: 0 };
+            for (const issue of issues) {
+              // The issue list endpoint includes pull requests.
+              if (issue.pull_request || issue.state !== 'open') continue;
+              tally.checked += 1;
+              const labels = issue.labels.map((label) => typeof label === 'string' ? label : label.name);
+              const wanted = !labels.some((name) => name.startsWith(PRIORITY_PREFIX));
+              const has = labels.includes(NEEDS_TRIAGE);
+              if (wanted && !has) {
+                await github.rest.issues.addLabels({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  labels: [NEEDS_TRIAGE],
+                });
+                tally.added += 1;
+              } else if (!wanted && has) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    ...context.repo,
+                    issue_number: issue.number,
+                    name: NEEDS_TRIAGE,
+                  });
+                } catch (error) {
+                  // A maintainer or another run can remove the label first.
+                  if (error.status !== 404) throw error;
+                }
+                tally.cleared += 1;
+              } else {
+                tally.unchanged += 1;
+              }
+            }
+            core.info(`${tally.checked} checked: ${tally.added} added, ${tally.cleared} cleared, ${tally.unchanged} unchanged`);

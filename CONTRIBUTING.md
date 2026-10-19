@@ -62,6 +62,9 @@ three categories:
      describing what you encountered or what you want changed.
    - Include provider version or commit, Cluster API / Kubernetes versions, and
      relevant controller logs (with secrets redacted).
+   - Maintainers follow the [issue triage workflow](docs/issue-triage.md), which
+     defines priority labels, triage expectations, and fix SLAs. Report your
+     impact in the form; Engineering records acceptance by assigning a priority.
 2. Propose a new feature and implement it
    - Open an issue first so design and scope can be discussed.
    - Once there is agreement, follow the [code contributions](#code-contributions)
@@ -105,6 +108,13 @@ make build
 - Update docs or examples when user-facing behavior changes.
 - Follow the existing Go style and package layout (`controllers/`,
   `internal/nico/`, `api/`).
+
+### Maintainer Response
+
+Maintainers provide a first review response within 96 hours after your pull
+request is ready for review. Draft pull requests are excluded until marked
+ready. Refer to the [triage and response process](docs/issue-triage.md) for
+ownership, fix deadlines, and inactivity handling.
 
 ### Comments
 

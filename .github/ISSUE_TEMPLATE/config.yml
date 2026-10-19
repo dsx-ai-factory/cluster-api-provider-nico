@@ -1,15 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-blank_issues_enabled: true
+blank_issues_enabled: false
 
 contact_links:
-  - name: Ask a question
-    url: https://github.com/dsx-ai-factory/cluster-api-provider-nico/discussions/categories/q-a
-    about: For usage questions and anything that is not a bug or a feature request.
-  - name: Security vulnerability report
-    url: https://www.nvidia.com/en-us/security/
-    about: Please do not file public issues for security reports. Use NVIDIA's vulnerability disclosure process.
-  - name: Cluster API documentation
-    url: https://cluster-api.sigs.k8s.io/
-    about: Upstream Cluster API concepts and provider contracts.
+  - name: Report a security vulnerability
+    url: https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/SECURITY.md
+    about: Do not file public issues for security reports. Follow SECURITY.md for private reporting.

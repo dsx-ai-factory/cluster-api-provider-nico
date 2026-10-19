@@ -4,7 +4,7 @@
 name: Bug Report
 description: File a bug report
 title: "[BUG]: "
-labels: ["bug"]
+labels: ["bug", "needs-triage"]
 
 body:
   - type: markdown
@@ -13,12 +13,33 @@ body:
         Thanks for taking the time to fill out this bug report.
         Do **not** include credentials, kubeconfigs, or other secrets.
 
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security reporting
+      options:
+        - label: This is not a security vulnerability. I will report vulnerabilities privately through the [security policy](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/SECURITY.md).
+          required: true
+
   - type: input
     id: version
     attributes:
       label: Version
       description: Provider version, tag, or commit SHA.
       placeholder: "example: v0.0.29 or e1a0997"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact to you
+      description: Choose the option closest to your situation. Maintainers assess priority during triage.
+      options:
+        - Cannot proceed
+        - Major functionality unavailable
+        - Workaround needed
+        - Minor inconvenience
     validations:
       required: true
 
