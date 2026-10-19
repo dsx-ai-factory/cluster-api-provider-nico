@@ -173,6 +173,11 @@ the label to a Secret requeues the clusters that use it, and their machines.
 Adding the label to an Identity does not requeue its clusters by itself,
 because a label change does not change the Identity's generation.
 
+Changing a cluster's own `identityRef` reaches the cluster right away, but not
+its machines: the machine controller does not watch `NicoCluster` objects, so
+the machines pick up the new reference on their periodic requeue, every five to
+six minutes for a ready machine.
+
 Keep an Identity's credentials in the NICo organization that created its
 clusters' instances. Machines look up their instances with the current
 credentials. Pointing the Identity at another organization's Secret, or
