@@ -48,7 +48,7 @@ const (
 	machineReadyJitterWindow             = 1 * time.Minute
 	instanceTypeUnavailableWait          = 2 * time.Minute
 
-	// These NKE label keys are applied to the backing NICo instance so the VM
+	// These NVKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
 	labelKeyMachineID = "nvke.nvidia.com/machine-id"
 	labelKeySiteID    = "nvke.nvidia.com/site-id"

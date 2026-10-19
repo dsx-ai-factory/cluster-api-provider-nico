@@ -111,7 +111,7 @@ func mergeLabels(labelSets ...map[string]string) map[string]string {
 	return out
 }
 
-// normalizeLabelValue makes Forge/NICo display names safe for NKE label values
+// normalizeLabelValue makes Forge/NICo display names safe for NVKE label values
 // before those names are copied onto VM records as topology labels.
 func normalizeLabelValue(value string) string {
 	value = strings.ToLower(value)
