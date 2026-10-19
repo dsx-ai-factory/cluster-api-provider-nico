@@ -189,11 +189,11 @@ fi
 
 # Backstop, in case go-licenses still self-attributes. Anchored on the module
 # path trimmed to its repository root, which is what go-licenses actually builds
-# URLs from -- a module in a subdirectory (github.com/NVIDIA/nke/agent) still
-# yields https://github.com/NVIDIA/nke/blob/..., so anchoring on the full module
-# path would miss every row. Not taken from the git remote either: that varies
-# by checkout (a fork remote would disable the check silently) while the URL
-# does not.
+# URLs from -- a module in a subdirectory (github.com/dsx-ai-factory/nvke/agent)
+# still yields https://github.com/dsx-ai-factory/nvke/blob/..., so anchoring on
+# the full module path would miss every row. Not taken from the git remote
+# either: that varies by checkout (a fork remote would disable the check
+# silently) while the URL does not.
 #
 # A package that genuinely lives in this repository is allowed to have a URL
 # here: these are multi-module repositories, and a sibling module really is
