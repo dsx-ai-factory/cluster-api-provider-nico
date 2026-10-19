@@ -32,8 +32,9 @@ type NicoClusterIdentityReference struct {
 	// +optional
 	Kind NicoClusterIdentityKind `json:"kind,omitempty"`
 
-	// Name is the Secret or NicoIdentity in the NicoCluster's namespace. When
-	// empty, the provider-level credentials Secret is used.
+	// Name is the Secret or NicoIdentity in the NicoCluster's namespace. An empty
+	// Name uses the provider-level credentials Secret, and is allowed only when
+	// Kind is omitted.
 	// +optional
 	// +kubebuilder:default=""
 	Name string `json:"name,omitempty"`
