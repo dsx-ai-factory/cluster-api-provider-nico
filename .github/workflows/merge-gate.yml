@@ -57,8 +57,9 @@ concurrency:
   # request never becomes mergeable.
   # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
   # expression is the CALLER's name, so every workflow the gate calls would
-  # compute the same group and cancel each other. NVIDIA/nke#160 lost 8 of 9
-  # calls to exactly that, reported as failures with no jobs and no error.
+  # compute the same group and cancel each other. dsx-ai-factory/nvke#160 lost
+  # 8 of 9 calls to exactly that, reported as failures with no jobs and no
+  # error.
   group: Merge gate-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
