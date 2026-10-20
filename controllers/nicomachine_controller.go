@@ -40,14 +40,15 @@ import (
 )
 
 const (
-	nicoMachineFinalizer                 = "infrastructure.cluster.x-k8s.io/nicomachine"
-	nicoMachineCredentialsSecretRefIndex = "nicoMachineCredentialsSecretRef"
-	nicoMachineIdentityRefIndex          = "nicoMachineIdentityRef"
-	machineRequeueFast                   = 15 * time.Second
-	machineRequeueSlow                   = 30 * time.Second
-	machineReadyRequeue                  = 5 * time.Minute
-	machineReadyJitterWindow             = 1 * time.Minute
-	instanceTypeUnavailableWait          = 2 * time.Minute
+	nicoMachineFinalizer                   = "infrastructure.cluster.x-k8s.io/nicomachine"
+	nicoMachineCredentialsSecretRefIndex   = "nicoMachineCredentialsSecretRef"
+	nicoMachineIdentityRefIndex            = "nicoMachineIdentityRef"
+	nicoMachineIdentityCredentialsRefIndex = "nicoMachineIdentityCredentialsRef"
+	machineRequeueFast                     = 15 * time.Second
+	machineRequeueSlow                     = 30 * time.Second
+	machineReadyRequeue                    = 5 * time.Minute
+	machineReadyJitterWindow               = 1 * time.Minute
+	instanceTypeUnavailableWait            = 2 * time.Minute
 
 	// These NVKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
@@ -1090,6 +1091,9 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoMachineIdentityRefIndex, credentialsIdentityIndexer); err != nil {
 		return fmt.Errorf("index NicoClusters by NicoIdentity for NicoMachines: %w", err)
 	}
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoMachineIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
+		return fmt.Errorf("index NicoIdentities by credentials Secret for NicoMachines: %w", err)
+	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
 	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
@@ -1176,7 +1180,7 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
 				}
-				throughIdentities, err := nicoClustersThroughIdentities(ctx, r, secretKey, nicoMachineIdentityRefIndex)
+				throughIdentities, err := nicoClustersThroughIdentities(ctx, r, secretKey, nicoMachineIdentityCredentialsRefIndex, nicoMachineIdentityRefIndex)
 				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters through NicoIdentities for credentials Secret", "secret", secretKey)
 				}

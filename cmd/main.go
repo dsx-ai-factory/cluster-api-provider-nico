@@ -142,6 +142,16 @@ func main() {
 	}
 	ctx := ctrl.SetupSignalHandler()
 
+	// Set up first, so a missing NicoIdentity CRD fails this controller's setup rather than another's.
+	if err := (&controllers.NicoIdentityReconciler{
+		Client:           mgr.GetClient(),
+		ProviderConfig:   providerConfig,
+		WatchFilterValue: watchFilterValue,
+	}).SetupWithManager(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NicoIdentity")
+		os.Exit(1)
+	}
+
 	if err := (&controllers.NicoClusterReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
@@ -159,15 +169,6 @@ func main() {
 		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
-		os.Exit(1)
-	}
-
-	if err := (&controllers.NicoIdentityReconciler{
-		Client:           mgr.GetClient(),
-		ProviderConfig:   providerConfig,
-		WatchFilterValue: watchFilterValue,
-	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "NicoIdentity")
 		os.Exit(1)
 	}
 

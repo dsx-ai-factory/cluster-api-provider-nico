@@ -222,9 +222,7 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 		r.clock = clock.RealClock{}
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, func(object client.Object) []string {
-		return []string{object.(*infrav1.NicoIdentity).Spec.CredentialsRef.Name}
-	}); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
 		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
 	}
 
@@ -246,18 +244,16 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 // identitiesForSecret maps a Secret event to the Identities in its namespace
 // that name it and pass the watch filter.
 func (r *NicoIdentityReconciler) identitiesForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
-	identities := &infrav1.NicoIdentityList{}
-	if err := r.List(ctx, identities,
-		client.InNamespace(secret.GetNamespace()),
-		client.MatchingFields{nicoIdentityCredentialsRefIndex: secret.GetName()},
-	); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoIdentities for credentials Secret", "secret", client.ObjectKeyFromObject(secret))
+	secretKey := client.ObjectKeyFromObject(secret)
+	identities, err := nicoIdentitiesForSecret(ctx, r, secretKey, nicoIdentityCredentialsRefIndex)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoIdentities for credentials Secret", "secret", secretKey)
 		return nil
 	}
 
-	requests := make([]reconcile.Request, 0, len(identities.Items))
-	for i := range identities.Items {
-		identity := &identities.Items[i]
+	requests := make([]reconcile.Request, 0, len(identities))
+	for i := range identities {
+		identity := &identities[i]
 		if !r.inWatchScope(identity) {
 			continue
 		}

@@ -33,13 +33,14 @@ import (
 )
 
 const (
-	nicoClusterFinalizer                 = "infrastructure.cluster.x-k8s.io/nicocluster"
-	nicoClusterCredentialsSecretRefIndex = "nicoClusterCredentialsSecretRef"
-	nicoClusterIdentityRefIndex          = "nicoClusterIdentityRef"
-	clusterReadyRequeue                  = 5 * time.Minute
-	clusterReadyJitterWindow             = 1 * time.Minute
-	clusterDeleteRequeue                 = 15 * time.Second
-	failureDomainRetryRequeue            = 30 * time.Second
+	nicoClusterFinalizer                   = "infrastructure.cluster.x-k8s.io/nicocluster"
+	nicoClusterCredentialsSecretRefIndex   = "nicoClusterCredentialsSecretRef"
+	nicoClusterIdentityRefIndex            = "nicoClusterIdentityRef"
+	nicoClusterIdentityCredentialsRefIndex = "nicoClusterIdentityCredentialsRef"
+	clusterReadyRequeue                    = 5 * time.Minute
+	clusterReadyJitterWindow               = 1 * time.Minute
+	clusterDeleteRequeue                   = 15 * time.Second
+	failureDomainRetryRequeue              = 30 * time.Second
 )
 
 var nicoClusterOwnedConditions = []string{
@@ -352,6 +353,9 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoCluster{}, nicoClusterIdentityRefIndex, credentialsIdentityIndexer); err != nil {
 		return fmt.Errorf("index NicoClusters by NicoIdentity: %w", err)
 	}
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoClusterIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
+		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
+	}
 
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
 	return ctrl.NewControllerManagedBy(mgr).
@@ -372,7 +376,7 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
 				}
-				throughIdentities, err := nicoClustersThroughIdentities(ctx, r, secretKey, nicoClusterIdentityRefIndex)
+				throughIdentities, err := nicoClustersThroughIdentities(ctx, r, secretKey, nicoClusterIdentityCredentialsRefIndex, nicoClusterIdentityRefIndex)
 				if err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters through NicoIdentities for credentials Secret", "secret", secretKey)
 				}

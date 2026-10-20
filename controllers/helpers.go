@@ -148,20 +148,36 @@ func nicoClustersForIdentity(ctx context.Context, c crclient.Reader, identityKey
 	return nicoClusters.Items, nil
 }
 
+// nicoIdentityCredentialsRefIndexer indexes a NicoIdentity by the name of the
+// Secret its credentialsRef names, which is in the Identity's own namespace.
+func nicoIdentityCredentialsRefIndexer(object crclient.Object) []string {
+	return []string{object.(*infrav1.NicoIdentity).Spec.CredentialsRef.Name}
+}
+
+// nicoIdentitiesForSecret lists the NicoIdentities whose credentialsRef names
+// the Secret, through the controller's Identity credentials index. The index
+// holds only the Secret's name, so the list is limited to its namespace.
+func nicoIdentitiesForSecret(ctx context.Context, c crclient.Reader, secretKey types.NamespacedName, credentialsRefIndex string) ([]infrav1.NicoIdentity, error) {
+	var identities infrav1.NicoIdentityList
+	if err := c.List(ctx, &identities, crclient.InNamespace(secretKey.Namespace),
+		crclient.MatchingFields{credentialsRefIndex: secretKey.Name}); err != nil {
+		return nil, err
+	}
+	return identities.Items, nil
+}
+
 // nicoClustersThroughIdentities lists the NicoClusters that take their
 // credentials from the Secret through a NicoIdentity: the clusters naming any
-// Identity in the Secret's namespace whose credentialsRef names the Secret.
-func nicoClustersThroughIdentities(ctx context.Context, c crclient.Reader, secretKey types.NamespacedName, identityIndex string) ([]infrav1.NicoCluster, error) {
-	var identities infrav1.NicoIdentityList
-	if err := c.List(ctx, &identities, crclient.InNamespace(secretKey.Namespace)); err != nil {
+// Identity whose credentialsRef names the Secret, found through the
+// controller's Identity credentials index.
+func nicoClustersThroughIdentities(ctx context.Context, c crclient.Reader, secretKey types.NamespacedName, credentialsRefIndex, identityIndex string) ([]infrav1.NicoCluster, error) {
+	identities, err := nicoIdentitiesForSecret(ctx, c, secretKey, credentialsRefIndex)
+	if err != nil {
 		return nil, err
 	}
 	var nicoClusters []infrav1.NicoCluster
-	for i := range identities.Items {
-		if identities.Items[i].Spec.CredentialsRef.Name != secretKey.Name {
-			continue
-		}
-		referencing, err := nicoClustersForIdentity(ctx, c, crclient.ObjectKeyFromObject(&identities.Items[i]), identityIndex)
+	for i := range identities {
+		referencing, err := nicoClustersForIdentity(ctx, c, crclient.ObjectKeyFromObject(&identities[i]), identityIndex)
 		if err != nil {
 			return nil, err
 		}
