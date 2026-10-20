@@ -170,7 +170,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
+	nicoCluster, err := r.resolveNicoCluster(ctx, cluster, &nicoMachine)
 	if err != nil {
 		setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForClusterInfrastructureReason, err.Error())
 		return ctrl.Result{}, err
@@ -466,7 +466,7 @@ func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachin
 		return ctrl.Result{}, nil
 	}
 
-	nicoCluster, err := r.resolveNicoCluster(ctx, cluster)
+	nicoCluster, err := r.resolveNicoCluster(ctx, cluster, nicoMachine)
 	if err != nil {
 		conditions.Set(nicoMachine, metav1.Condition{
 			Type:    clusterv1.DeletingCondition,
@@ -722,7 +722,19 @@ func (r *NicoMachineReconciler) nicoClientForCluster(ctx context.Context, nicoCl
 	return nicoClientForCluster(ctx, r.Client, nicoCluster, r.ProviderConfig.Credentials)
 }
 
-func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster *clusterv1.Cluster) (*infrav1.NicoCluster, error) {
+func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster *clusterv1.Cluster, nicoMachine *infrav1.NicoMachine) (*infrav1.NicoCluster, error) {
+	if nicoMachine.Spec.SiteID != "" {
+		return &infrav1.NicoCluster{
+			ObjectMeta: metav1.ObjectMeta{Namespace: nicoMachine.Namespace},
+			Spec: infrav1.NicoClusterSpec{
+				SiteID:                  nicoMachine.Spec.SiteID,
+				IdentityRef:             nicoMachine.Spec.IdentityRef,
+				PowerControlIdentityRef: nicoMachine.Spec.PowerControlIdentityRef,
+				FailureDomainLabelKey:   nicoMachine.Spec.FailureDomainLabelKey,
+			},
+		}, nil
+	}
+
 	if cluster.Spec.InfrastructureRef.Name == "" {
 		return nil, fmt.Errorf("cluster %s/%s has no infrastructure reference", cluster.Namespace, cluster.Name)
 	}
@@ -1093,6 +1105,30 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		return fmt.Errorf("index NicoClusters by credentials Secret for NicoMachines: %w", err)
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoMachine{}, nicoMachineCredentialsSecretRefIndex, func(object client.Object) []string {
+		nicoMachine := object.(*infrav1.NicoMachine)
+		if nicoMachine.Spec.SiteID == "" {
+			return nil
+		}
+		secretKey := r.ProviderConfig.Credentials
+		if nicoMachine.Spec.IdentityRef.Name != "" {
+			secretKey = client.ObjectKey{Namespace: nicoMachine.Namespace, Name: nicoMachine.Spec.IdentityRef.Name}
+		}
+		var keys []string
+		if secretKey.Namespace != "" && secretKey.Name != "" {
+			keys = append(keys, secretKey.String())
+		}
+		if nicoMachine.Spec.PowerControlIdentityRef.Name != "" {
+			powerKey := client.ObjectKey{Namespace: nicoMachine.Namespace, Name: nicoMachine.Spec.PowerControlIdentityRef.Name}
+			if powerKey != secretKey {
+				keys = append(keys, powerKey.String())
+			}
+		}
+		return keys
+	}); err != nil {
+		return fmt.Errorf("index NicoMachines by credentials Secret: %w", err)
+	}
+
 	log := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoMachine")
 	clusterToNicoMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.NicoMachineList{}, mgr.GetScheme())
 	if err != nil {
@@ -1163,13 +1199,26 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 					listOptions = append(listOptions, client.InNamespace(secretKey.Namespace))
 				}
 
+				var nicoMachines infrav1.NicoMachineList
+				if err := r.List(ctx, &nicoMachines, listOptions...); err != nil {
+					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoMachines for credentials Secret", "secret", secretKey)
+					return nil
+				}
+				requests := []reconcile.Request{}
+				for i := range nicoMachines.Items {
+					nicoMachine := &nicoMachines.Items[i]
+					if r.WatchFilterValue != "" && nicoMachine.Labels[clusterv1.WatchLabel] != r.WatchFilterValue {
+						continue
+					}
+					requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(nicoMachine)})
+				}
+
 				var nicoClusters infrav1.NicoClusterList
 				if err := r.List(ctx, &nicoClusters, listOptions...); err != nil {
 					ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoClusters for credentials Secret", "secret", secretKey)
-					return nil
+					return requests
 				}
 
-				requests := []reconcile.Request{}
 				for i := range nicoClusters.Items {
 					cluster, err := util.GetOwnerCluster(ctx, r.Client, nicoClusters.Items[i].ObjectMeta)
 					if err != nil {

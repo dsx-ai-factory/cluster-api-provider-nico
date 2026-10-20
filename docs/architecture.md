@@ -66,10 +66,12 @@ The API group is `infrastructure.cluster.x-k8s.io/v1alpha1`. `metadata.yaml`
 records the Cluster API contract each release series implements. That contract
 is currently `v1beta2`.
 
-The site and the VPC come from different objects. The site applies to the whole
-cluster, and the VPC applies to one machine. A reconcile reads
-`nicoCluster.Spec.SiteID` and `nicoMachine.Spec.VPCID` separately, and the
-create request carries the machine's VPC.
+`NicoCluster` supplies the site by default, and each machine supplies its VPC.
+Setting `NicoMachine.spec.siteID` overrides the cluster settings for that
+machine. The controller uses the machine's site, identity references, and
+failure-domain label key without reading a `NicoCluster`. It does not inherit
+omitted fields from the cluster. The same settings apply throughout creation,
+adoption, placement, reboot, and deletion.
 
 ## Credential Resolution
 
@@ -87,6 +89,11 @@ For graceful reboot, `NicoCluster.spec.powerControlIdentityRef.name` can name a
 second Secret in the cluster namespace. It supplies the provider organization
 and credential required by NICo's Machine power API. When unset, CAPNICo uses
 the regular NICo credential for the graceful action.
+
+For machines with `spec.siteID` set, the same credential rules use the
+machine's identity references and namespace. An omitted `identityRef` uses the
+provider-level Secret, and an omitted `powerControlIdentityRef` uses the
+ordinary NICo identity. Changes to these Secrets also requeue affected machines.
 
 **Clients are cached per Secret revision.** The cache key is
 `namespace/name@resourceVersion`, and inserting a new revision evicts earlier
