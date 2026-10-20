@@ -1086,6 +1086,28 @@ func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTyp
 	}, nil
 }
 
+func (r *NicoMachineReconciler) machineCredentialsSecretKeys(object client.Object) []string {
+	nicoMachine := object.(*infrav1.NicoMachine)
+	if nicoMachine.Spec.SiteID == "" {
+		return nil
+	}
+	secretKey := r.ProviderConfig.Credentials
+	if nicoMachine.Spec.IdentityRef.Name != "" {
+		secretKey = client.ObjectKey{Namespace: nicoMachine.Namespace, Name: nicoMachine.Spec.IdentityRef.Name}
+	}
+	var keys []string
+	if secretKey.Namespace != "" && secretKey.Name != "" {
+		keys = append(keys, secretKey.String())
+	}
+	if nicoMachine.Spec.PowerControlIdentityRef.Name != "" {
+		powerKey := client.ObjectKey{Namespace: nicoMachine.Namespace, Name: nicoMachine.Spec.PowerControlIdentityRef.Name}
+		if powerKey != secretKey {
+			keys = append(keys, powerKey.String())
+		}
+	}
+	return keys
+}
+
 func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	if r.Recorder == nil {
 		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
@@ -1105,27 +1127,7 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		return fmt.Errorf("index NicoClusters by credentials Secret for NicoMachines: %w", err)
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoMachine{}, nicoMachineCredentialsSecretRefIndex, func(object client.Object) []string {
-		nicoMachine := object.(*infrav1.NicoMachine)
-		if nicoMachine.Spec.SiteID == "" {
-			return nil
-		}
-		secretKey := r.ProviderConfig.Credentials
-		if nicoMachine.Spec.IdentityRef.Name != "" {
-			secretKey = client.ObjectKey{Namespace: nicoMachine.Namespace, Name: nicoMachine.Spec.IdentityRef.Name}
-		}
-		var keys []string
-		if secretKey.Namespace != "" && secretKey.Name != "" {
-			keys = append(keys, secretKey.String())
-		}
-		if nicoMachine.Spec.PowerControlIdentityRef.Name != "" {
-			powerKey := client.ObjectKey{Namespace: nicoMachine.Namespace, Name: nicoMachine.Spec.PowerControlIdentityRef.Name}
-			if powerKey != secretKey {
-				keys = append(keys, powerKey.String())
-			}
-		}
-		return keys
-	}); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoMachine{}, nicoMachineCredentialsSecretRefIndex, r.machineCredentialsSecretKeys); err != nil {
 		return fmt.Errorf("index NicoMachines by credentials Secret: %w", err)
 	}
 
