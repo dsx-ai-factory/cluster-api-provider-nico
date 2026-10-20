@@ -245,6 +245,12 @@ var _ = Describe("Bootstrap", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 
+		By("waiting for the CAPNICo admission webhook to be ready")
+		cmd = exec.Command("kubectl", "--context", kindContext(), "rollout", "status",
+			"deployment/controller-manager", "-n", "capnico-system", "--timeout=2m")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "CAPNICo controller-manager did not become ready")
+
 		By("deploying the fake NICo API")
 		cmd = exec.Command("kubectl", "--context", kindContext(), "apply", "-f", "hack/tilt/fake-nico-api.yaml")
 		_, err = utils.Run(cmd)
