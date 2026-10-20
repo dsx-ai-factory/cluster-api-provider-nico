@@ -100,7 +100,8 @@ Changing a cluster's own `identityRef` requeues the cluster but not its
 machines, because the machine controller does not watch `NicoCluster` objects.
 The machines pick up the new reference on their next periodic requeue.
 Each controller keeps its own indexes of clusters by Secret and by Identity,
-because client-go rejects a second index with the same name.
+and of Identities by the Secret they name, because client-go rejects a second
+index with the same name.
 
 For graceful reboot, `NicoCluster.spec.powerControlIdentityRef.name` can name a
 second Secret in the cluster namespace. It supplies the provider organization
