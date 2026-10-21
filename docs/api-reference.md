@@ -185,16 +185,26 @@ output prints the Available, Synced, Provisioned, Instance, and Age columns.
 
 After the controller assigns `spec.providerID`, the entire spec is immutable,
 and CEL validation rules reject any edit to it. Metadata and status updates
-remain allowed. The controller uses these fields only to build the NICo instance
-create request, and it never reapplies them to a live instance. Refer to
+remain allowed. Replace the machine to change its configuration after
+provisioning. Refer to
 [machine reconciliation](architecture.md#machine-reconciliation) for why.
 
 ### Spec
 
 The spec describes one NICo instance, from its placement to its boot script.
 
+`NicoCluster` supplies the site and identity settings unless you set `siteID`
+on the machine. Setting it selects all four machine settings below, without
+reading a `NicoCluster` or inheriting any of its fields. The other three
+overrides require `siteID`. These fields are also available in
+`NicoMachineTemplate.spec.template.spec`.
+
 | Field | Type | Meaning |
 |---|---|---|
+| `siteID` | string, optional, at least 1 character | Selects machine overrides and specifies the site used to create and look up instances. |
+| `identityRef` | object, optional | Names the NICo credentials Secret in the machine namespace. Requires `siteID`. When unset, uses the provider-level credentials Secret. |
+| `powerControlIdentityRef` | object, optional | Names the power-control credentials Secret in the machine namespace. Requires `siteID`. When unset, uses the ordinary NICo identity. |
+| `failureDomainLabelKey` | string, optional, 1 to 255 characters | The NICo Machine label key used for placement. Requires `siteID`. When unset, a Machine requesting a failure domain cannot be placed. This field does not publish cluster failure domains. |
 | `vpcID` | string, required | The VPC where this provider creates the instance. |
 | `instanceTypeID` | string | The instance type ID to provision. Set exactly one of `instanceTypeID` and `machineID`. |
 | `machineID` | string | The machine ID for targeted instance creation. Set exactly one of `instanceTypeID` and `machineID`. |
@@ -210,6 +220,26 @@ The spec describes one NICo instance, from its placement to its boot script.
 | `labels` | map | Labels applied to the instance. |
 | `allowUnhealthyMachine` | bool | Allows targeted instance creation on a machine in Error status. |
 | `providerID` | string | Set by the controller to `nico://<instance-id>` after the NICo instance is created. |
+
+For example, this template supplies NICo settings independently of the
+provider named by `Cluster.spec.infrastructureRef`.
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: nico-workers
+spec:
+  template:
+    spec:
+      siteID: site-1
+      identityRef:
+        name: nico-creds
+      vpcID: vpc-1
+      instanceTypeID: type-1
+      interfaces:
+      - subnetID: subnet-1
+```
 
 ### Status
 
