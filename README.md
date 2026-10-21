@@ -138,6 +138,10 @@ Secret supports either a static bearer token or OAuth2 client-credentials.
 
 Each `NicoCluster` supplies the target site. The VPC is set per machine, on
 `NicoMachine.spec.vpcID`.
+Set `NicoMachine.spec.siteID` to override cluster settings with the machine's
+site and identity settings, without requiring a `NicoCluster`. Refer to the
+[machine API reference](docs/api-reference.md#nicomachine) for the fields and a
+template example.
 Each `NicoMachine` becomes one NICo instance, and `NicoMachineTemplate` is intended for use from `KubeadmControlPlane` and `MachineDeployment`.
 
 The controller discovers the current tenant through the NICo API and caches it in the client.
