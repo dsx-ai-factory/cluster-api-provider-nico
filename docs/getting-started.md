@@ -528,11 +528,13 @@ manager:
 If the management cluster cannot reach `ghcr.io`, copy both artifacts into your
 own registry. `crane copy` preserves the digest, so the pin stays valid. Log
 both tools in to your registry first if it needs authentication. Each keeps its
-own credentials, and neither uses a Kubernetes pull Secret:
+own credentials, and neither uses a Kubernetes pull Secret. Read the token
+without echoing it, so it stays out of your shell history:
 
 ```bash
-crane auth login <your-registry> -u <user> --password-stdin <<< "<token>"
-helm registry login <your-registry> -u <user> --password-stdin <<< "<token>"
+printf 'Registry token: '; read -rs REGISTRY_TOKEN; echo
+printf '%s' "${REGISTRY_TOKEN}" | crane auth login <your-registry> -u <user> --password-stdin
+printf '%s' "${REGISTRY_TOKEN}" | helm registry login <your-registry> -u <user> --password-stdin
 
 crane copy "${IMAGE}@${DIGEST}" "<your-registry>/cluster-api-provider-nico/controller:${VERSION}"
 helm pull "${CHART}" --version "${VERSION#v}"
@@ -547,7 +549,8 @@ in the same namespace and name it on the release:
 ```bash
 kubectl create secret docker-registry regcred -n capnico-system \
   --docker-server=<your-registry> \
-  --docker-username=<user> --docker-password=<token>
+  --docker-username=<user> --docker-password="${REGISTRY_TOKEN}"
+unset REGISTRY_TOKEN
 
 helm upgrade --install capi-provider-nico "${CHART}" \
   --version "${VERSION#v}" \
