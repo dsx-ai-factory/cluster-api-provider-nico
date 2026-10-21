@@ -526,17 +526,23 @@ manager:
 ```
 
 If the management cluster cannot reach `ghcr.io`, copy both artifacts into your
-own registry. `crane copy` preserves the digest, so the pin stays valid:
+own registry. `crane copy` preserves the digest, so the pin stays valid. Log
+both tools in to your registry first if it needs authentication. Each keeps its
+own credentials, and neither uses a Kubernetes pull Secret:
 
 ```bash
+crane auth login <your-registry> -u <user> --password-stdin <<< "<token>"
+helm registry login <your-registry> -u <user> --password-stdin <<< "<token>"
+
 crane copy "${IMAGE}@${DIGEST}" "<your-registry>/cluster-api-provider-nico/controller:${VERSION}"
 helm pull "${CHART}" --version "${VERSION#v}"
 helm push "capi-provider-nico-${VERSION#v}.tgz" oci://<your-registry>/charts
 ```
 
 Then point `CHART` and `IMAGE` at your registry. If that registry needs
-authentication, create the pull Secret in the same namespace and name it on the
-release:
+authentication, the `helm registry login` above covers Helm pulling the chart.
+The kubelet pulls the controller image separately, so also create a pull Secret
+in the same namespace and name it on the release:
 
 ```bash
 kubectl create secret docker-registry regcred -n capnico-system \
