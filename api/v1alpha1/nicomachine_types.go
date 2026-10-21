@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -91,7 +92,33 @@ type NicoMachineNVLinkInterface struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.nvLinkLogicalPartitionID) && has(self.nvLinkInterfaces))",message="nvLinkLogicalPartitionID and nvLinkInterfaces are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!has(self.nvLinkLogicalPartitionID) || has(self.instanceTypeID)",message="nvLinkLogicalPartitionID requires instanceTypeID"
 // +kubebuilder:validation:XValidation:rule="!(has(self.ipxeScript) && has(self.operatingSystemID))",message="ipxeScript and operatingSystemID are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.identityRef) || has(self.siteID)",message="identityRef requires siteID"
+// +kubebuilder:validation:XValidation:rule="!has(self.powerControlIdentityRef) || has(self.siteID)",message="powerControlIdentityRef requires siteID"
+// +kubebuilder:validation:XValidation:rule="!has(self.failureDomainLabelKey) || has(self.siteID)",message="failureDomainLabelKey requires siteID"
 type NicoMachineSpec struct {
+	// SiteID overrides NicoCluster settings with this machine's site and identity settings.
+	// When set, the controller does not read a NicoCluster.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	SiteID string `json:"siteID,omitempty"`
+
+	// IdentityRef names the Secret in this machine's namespace for NICo access.
+	// Requires SiteID. When unset, the provider-level credentials Secret is used.
+	// +optional
+	IdentityRef corev1.LocalObjectReference `json:"identityRef,omitempty,omitzero"`
+
+	// PowerControlIdentityRef names the Secret in this machine's namespace for NICo power control.
+	// Requires SiteID. When unset, the ordinary NICo identity is used.
+	// +optional
+	PowerControlIdentityRef corev1.LocalObjectReference `json:"powerControlIdentityRef,omitempty,omitzero"`
+
+	// FailureDomainLabelKey is the NICo Machine label key used for placement.
+	// Requires SiteID. When unset, failure domain placement is disabled.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	FailureDomainLabelKey string `json:"failureDomainLabelKey,omitempty"`
+
 	// VPCID is the VPC where this provider should create the instance.
 	// +kubebuilder:validation:MinLength=1
 	VPCID string `json:"vpcID"`
@@ -287,6 +314,10 @@ type NicoMachineStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,categories=cluster-api,shortName=nicom
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.siteID) == has(oldSelf.spec.siteID) && (!has(self.spec.siteID) || self.spec.siteID == oldSelf.spec.siteID))",message="spec.siteID is immutable after providerID is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.identityRef) == has(oldSelf.spec.identityRef) && (!has(self.spec.identityRef) || self.spec.identityRef == oldSelf.spec.identityRef))",message="spec.identityRef is immutable after providerID is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.powerControlIdentityRef) == has(oldSelf.spec.powerControlIdentityRef) && (!has(self.spec.powerControlIdentityRef) || self.spec.powerControlIdentityRef == oldSelf.spec.powerControlIdentityRef))",message="spec.powerControlIdentityRef is immutable after providerID is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.failureDomainLabelKey) == has(oldSelf.spec.failureDomainLabelKey) && (!has(self.spec.failureDomainLabelKey) || self.spec.failureDomainLabelKey == oldSelf.spec.failureDomainLabelKey))",message="spec.failureDomainLabelKey is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || self.spec.vpcID == oldSelf.spec.vpcID",message="spec.vpcID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.instanceTypeID) == has(oldSelf.spec.instanceTypeID) && (!has(self.spec.instanceTypeID) || self.spec.instanceTypeID == oldSelf.spec.instanceTypeID))",message="spec.instanceTypeID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || self.spec.interfaces == oldSelf.spec.interfaces",message="spec.interfaces is immutable after providerID is set"
