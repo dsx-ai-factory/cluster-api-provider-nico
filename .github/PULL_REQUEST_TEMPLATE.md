@@ -1,6 +1,7 @@
 ## Description
 <!-- Provide a standalone description of changes in this PR. -->
-<!-- Reference any issues closed by this PR with "closes #1234". -->
+<!-- Reference implementation issues with "Related #1234". Close fixed issues
+     after the release containing the fix is published. Refer to docs/issue-triage.md. -->
 <!-- Note: GitHub generates release notes from merged pull requests, so write
      the pull request title for a reader. Maintainers can also preview the
      commit history with `make changelog`. -->
