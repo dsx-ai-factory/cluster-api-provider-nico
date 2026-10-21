@@ -21,7 +21,7 @@ helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system \
   --create-namespace \
   --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
-  --set manager.image.tag=v0.0.43 \
+  --set manager.image.tag=v0.0.45 \
   --wait
 ```
 
