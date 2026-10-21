@@ -6,7 +6,7 @@ module github.com/dsx-ai-factory/cluster-api-provider-nico
 // govulncheck measures -- not a minimum it may exceed. Leaving it behind the
 // Dockerfile makes the scan report standard-library advisories against a Go
 // nobody ships. Keep this in step with the Dockerfile.
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2
