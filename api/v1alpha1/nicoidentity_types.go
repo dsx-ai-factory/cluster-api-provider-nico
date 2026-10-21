@@ -14,9 +14,11 @@ type NicoIdentityCredentialsReference struct {
 	Name string `json:"name"`
 }
 
-// NicoIdentitySpec defines the credentials to observe without changing provisioning.
+// NicoIdentitySpec names the Secret this Identity checks. NicoClusters whose
+// identityRef names this Identity take their credentials from that Secret.
 type NicoIdentitySpec struct {
-	// CredentialsRef names the Secret in this Identity's namespace. The reference is mutable.
+	// CredentialsRef names the Secret in this Identity's namespace. The reference is mutable:
+	// changing it changes the credentials of every NicoCluster that names this Identity.
 	CredentialsRef NicoIdentityCredentialsReference `json:"credentialsRef"`
 }
 
@@ -45,8 +47,10 @@ type NicoIdentityStatus struct {
 // +kubebuilder:printcolumn:name="LastChecked",type="date",JSONPath=".status.lastCheckedTime",description="Completion time of the reported validation attempt"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// NicoIdentity is an observation of NICo credentials, not a provisioning dependency.
-// Status stays absent until the controller completes a check; absent status is not a successful check.
+// NicoIdentity names a Secret with NICo credentials and reports the result of checking it.
+// A NicoCluster can take its credentials from an Identity; the Identity's status never
+// gates or selects them. Status stays absent until the controller completes a check;
+// absent status is not a successful check.
 type NicoIdentity struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

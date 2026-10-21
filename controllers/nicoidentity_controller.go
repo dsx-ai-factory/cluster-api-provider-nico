@@ -11,7 +11,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -46,9 +45,6 @@ const (
 // nicoIdentityOwnedConditions are the conditions this controller writes. Patches
 // keep its values for them and leave other writers' conditions alone.
 var nicoIdentityOwnedConditions = []string{nicoIdentityReadyCondition}
-
-// ErrNicoIdentityCRDMissing reports that the API server does not serve NicoIdentity.
-var ErrNicoIdentityCRDMissing = errors.New("the NicoIdentity CRD is not installed")
 
 // Secret states recorded for a check that did not read Secret contents.
 const (
@@ -217,16 +213,8 @@ func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
 // SetupWithManager watches every Identity in the manager's cache scope, narrowed
 // only by the watch-filter label, and the Secrets they name. Status-only
 // updates, including this controller's own lastCheckedTime writes, do not
-// trigger checks; Secret changes and the timed requeue do. It returns
-// ErrNicoIdentityCRDMissing when the API server does not serve NicoIdentity.
+// trigger checks; Secret changes and the timed requeue do.
 func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	gvk := infrav1.GroupVersion.WithKind("NicoIdentity")
-	if _, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-		if meta.IsNoMatchError(err) {
-			return fmt.Errorf("%w: %w", ErrNicoIdentityCRDMissing, err)
-		}
-		return fmt.Errorf("discover the NicoIdentity API: %w", err)
-	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}
@@ -234,9 +222,7 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 		r.clock = clock.RealClock{}
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, func(object client.Object) []string {
-		return []string{object.(*infrav1.NicoIdentity).Spec.CredentialsRef.Name}
-	}); err != nil {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
 		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
 	}
 
@@ -258,18 +244,16 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 // identitiesForSecret maps a Secret event to the Identities in its namespace
 // that name it and pass the watch filter.
 func (r *NicoIdentityReconciler) identitiesForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
-	identities := &infrav1.NicoIdentityList{}
-	if err := r.List(ctx, identities,
-		client.InNamespace(secret.GetNamespace()),
-		client.MatchingFields{nicoIdentityCredentialsRefIndex: secret.GetName()},
-	); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoIdentities for credentials Secret", "secret", client.ObjectKeyFromObject(secret))
+	secretKey := client.ObjectKeyFromObject(secret)
+	identities, err := nicoIdentitiesForSecret(ctx, r, secretKey, nicoIdentityCredentialsRefIndex)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to list NicoIdentities for credentials Secret", "secret", secretKey)
 		return nil
 	}
 
-	requests := make([]reconcile.Request, 0, len(identities.Items))
-	for i := range identities.Items {
-		identity := &identities.Items[i]
+	requests := make([]reconcile.Request, 0, len(identities))
+	for i := range identities {
+		identity := &identities[i]
 		if !r.inWatchScope(identity) {
 			continue
 		}

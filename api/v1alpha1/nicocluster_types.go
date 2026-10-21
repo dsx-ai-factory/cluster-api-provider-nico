@@ -11,13 +11,45 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
+// NicoClusterIdentityKind is the kind of object a NicoCluster identity reference names.
+// +kubebuilder:validation:Enum=Secret;NicoIdentity
+type NicoClusterIdentityKind string
+
+const (
+	// NicoClusterIdentityKindSecret names a Secret in the NicoCluster's namespace.
+	NicoClusterIdentityKindSecret NicoClusterIdentityKind = "Secret"
+
+	// NicoClusterIdentityKindNicoIdentity names a NicoIdentity in the NicoCluster's
+	// namespace, whose credentials Secret the cluster then uses.
+	NicoClusterIdentityKindNicoIdentity NicoClusterIdentityKind = "NicoIdentity"
+)
+
+// NicoClusterIdentityReference names the credentials a NicoCluster uses.
+// +structType=atomic
+// +kubebuilder:validation:XValidation:rule="!has(self.kind) || (has(self.name) && size(self.name) > 0)",message="name is required when kind is set"
+type NicoClusterIdentityReference struct {
+	// Kind is Secret or NicoIdentity. When omitted, Name names a Secret.
+	// +optional
+	Kind NicoClusterIdentityKind `json:"kind,omitempty"`
+
+	// Name is the Secret or NicoIdentity in the NicoCluster's namespace. An empty
+	// Name uses the provider-level credentials Secret, and is allowed only when
+	// Kind is omitted.
+	// +optional
+	// +kubebuilder:default=""
+	Name string `json:"name,omitempty"`
+}
+
 // NicoClusterSpec defines the desired state of NicoCluster.
 type NicoClusterSpec struct {
-	// IdentityRef points to the Secret with NICo endpoint and authentication settings.
-	// When unset, the controller falls back to the provider-level credentials Secret
-	// in the manager namespace.
+	// IdentityRef names the credentials for this cluster's NICo requests: a
+	// Secret with the NICo endpoint and authentication settings, or a
+	// NicoIdentity whose credentialsRef names that Secret. Both must be in the
+	// NicoCluster's namespace. When unset, the controller falls back to the
+	// provider-level credentials Secret in the manager namespace. A NicoIdentity's
+	// status never selects or blocks these credentials.
 	// +optional
-	IdentityRef corev1.LocalObjectReference `json:"identityRef,omitempty,omitzero"`
+	IdentityRef NicoClusterIdentityReference `json:"identityRef,omitempty,omitzero"`
 
 	// PowerControlIdentityRef names a Secret with provider credentials for NICo
 	// Machine power control. When unset, IdentityRef is used.

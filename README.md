@@ -13,10 +13,10 @@ not join nodes — the kubeadm bootstrap and control-plane providers do that. Yo
 declare a `Cluster` and a `MachineDeployment` as usual, and this provider turns
 each requested machine into a NICo instance on real hardware.
 
-* `NicoCluster` holds the target site, and may optionally reference a per-cluster credentials Secret.
+* `NicoCluster` holds the target site, and can reference a per-cluster credentials Secret or a `NicoIdentity`.
 * `NicoMachine` represents one NICo instance managed by Cluster API, and carries the VPC.
 * `NicoMachineTemplate` supports `KubeadmControlPlane` and `MachineDeployment`.
-* `NicoIdentity` reports the health of the credentials Secret it names. The manager checks every Identity in its watch scope.
+* `NicoIdentity` reports the health of the credentials Secret it names, and can supply those credentials to clusters that name it. The manager checks every Identity in its watch scope.
 
 ## Features
 
@@ -300,7 +300,11 @@ present at the same time:
    `NicoCluster` that does not set its own `spec.identityRef`.
 2. A per-cluster Secret referenced by `NicoCluster.spec.identityRef`, in the
    same namespace as the `NicoCluster`. When set, it overrides the
-   provider-level Secret for that `NicoCluster`.
+   provider-level Secret for that `NicoCluster`. The reference names the
+   Secret directly, or, with `kind: NicoIdentity`, names a `NicoIdentity` in
+   that namespace whose `credentialsRef` names the Secret. A reference that
+   cannot be resolved never falls back to the provider-level Secret. Refer to
+   [credentials through a NicoIdentity](docs/api-reference.md#credentials-through-a-nicoidentity).
 
 The provider-level Secret's name and namespace are configurable via two manager flags:
 

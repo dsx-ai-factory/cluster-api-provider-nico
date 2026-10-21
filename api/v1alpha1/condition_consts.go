@@ -39,6 +39,9 @@ const (
 	// WaitingForIdentitySecretReason indicates the configured identity Secret is not available yet.
 	WaitingForIdentitySecretReason = "WaitingForIdentitySecret"
 
+	// WaitingForNicoIdentityReason indicates the NicoIdentity named by identityRef is not available yet.
+	WaitingForNicoIdentityReason = "WaitingForNicoIdentity"
+
 	// IdentityConfigurationFailedReason indicates the identity configuration is invalid.
 	IdentityConfigurationFailedReason = "IdentityConfigurationFailed"
 
