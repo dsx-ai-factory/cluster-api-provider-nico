@@ -93,9 +93,15 @@ A reference that is set never falls back: a missing Identity or Secret stops
 the reconcile instead of trying a Secret with the same name or the
 provider-level Secret.
 
+A `NicoMachine` with `spec.siteID` resolves its credentials the same way from
+its own `spec.identityRef`, in the machine's namespace. That reference names a
+Secret; it cannot name a `NicoIdentity`.
+
 The cluster and machine controllers both watch these inputs. A Secret event
 requeues the clusters that use the Secret, whether they name it, use it by
 default, or name an Identity whose `credentialsRef` names it, and their machines.
+It also requeues the machines with `spec.siteID` whose `identityRef` or
+`powerControlIdentityRef` names the Secret, or that use it by default.
 Creating or deleting an Identity, or changing its spec, requeues the clusters
 that name it and their machines; the Identity controller's status writes do not.
 Changing a cluster's own `identityRef` requeues the cluster but not its

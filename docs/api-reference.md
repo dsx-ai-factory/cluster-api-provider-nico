@@ -311,7 +311,9 @@ The spec describes one NICo instance, from its placement to its boot script.
 on the machine. Setting it selects all four machine settings below, without
 reading a `NicoCluster` or inheriting any of its fields. The other three
 overrides require `siteID`. These fields are also available in
-`NicoMachineTemplate.spec.template.spec`.
+`NicoMachineTemplate.spec.template.spec`. A machine's `identityRef` names a
+Secret only; to use a `NicoIdentity`, leave `siteID` unset and set the
+reference on the `NicoCluster`.
 
 | Field | Type | Meaning |
 |---|---|---|
