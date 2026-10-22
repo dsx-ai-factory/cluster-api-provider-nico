@@ -39,7 +39,7 @@ and its subnet or VPC prefix must already exist.
 
 ## The Resources
 
-The provider defines four kinds, and the following table shows what each one
+CAPNICo defines five kinds, and the following table shows what each one
 holds.
 
 | Kind | Holds |
@@ -48,6 +48,7 @@ holds.
 | `NicoMachine` | One NICo instance. `spec.vpcID` is required and lives here, not on `NicoCluster`. |
 | `NicoMachineTemplate` | The template consumed by `KubeadmControlPlane` and `MachineDeployment`. |
 | `NicoClusterTemplate` | A type that exists and generates a CRD. Nothing in this repository consumes it yet. There is no ClusterClass or topology handling, and no example uses it. |
+| `NicoIdentity` | A same-namespace credential Secret reference and observation status. A controller periodically checks the Secret each Identity names. A `NicoCluster` can name an Identity in `identityRef` to use its Secret; the Identity's status never selects or gates provisioning credentials. |
 
 `NicoMachine.spec` remains editable until the controller assigns
 `spec.providerID`. After that assignment, the entire spec is immutable because
@@ -65,27 +66,60 @@ The API group is `infrastructure.cluster.x-k8s.io/v1alpha1`. `metadata.yaml`
 records the Cluster API contract each release series implements. That contract
 is currently `v1beta2`.
 
-The site and the VPC come from different objects. The site applies to the whole
-cluster, and the VPC applies to one machine. A reconcile reads
-`nicoCluster.Spec.SiteID` and `nicoMachine.Spec.VPCID` separately, and the
-create request carries the machine's VPC.
+`NicoCluster` supplies the site by default, and each machine supplies its VPC.
+Setting `NicoMachine.spec.siteID` overrides the cluster settings for that
+machine. The controller uses the machine's site, identity references, and
+failure-domain label key without reading a `NicoCluster`. It does not inherit
+omitted fields from the cluster. The same settings apply throughout creation,
+adoption, placement, reboot, and deletion.
 
 ## Credential Resolution
 
 Every reconcile resolves credentials in a fixed order.
 
-1. The Secret named by `NicoCluster.spec.identityRef.name`, in the
+1. With `NicoCluster.spec.identityRef.kind: NicoIdentity`, the `NicoIdentity`
+   of that name in the `NicoCluster`'s namespace, then the Secret its
+   `credentialsRef` names, in the same namespace. The Identity's status is not
+   read.
+2. Otherwise the Secret named by `NicoCluster.spec.identityRef.name`, in the
    `NicoCluster`'s own namespace, when that field is set.
-2. Otherwise the provider-level Secret in the manager's namespace, named by
+3. Otherwise the provider-level Secret in the manager's namespace, named by
    `--provider-credentials-namespace` (default `$POD_NAMESPACE`, falling back to
    `capnico-system`) and `--provider-credentials-secret-name` (default
    `nico-credentials`).
-3. Otherwise the reconcile fails with a not-found error.
+4. Otherwise the reconcile fails with a not-found error.
+
+A reference that is set never falls back: a missing Identity or Secret stops
+the reconcile instead of trying a Secret with the same name or the
+provider-level Secret.
+
+A `NicoMachine` with `spec.siteID` resolves its credentials the same way from
+its own `spec.identityRef`, in the machine's namespace. That reference names a
+Secret; it cannot name a `NicoIdentity`.
+
+The cluster and machine controllers both watch these inputs. A Secret event
+requeues the clusters that use the Secret, whether they name it, use it by
+default, or name an Identity whose `credentialsRef` names it, and their machines.
+It also requeues the machines with `spec.siteID` whose `identityRef` or
+`powerControlIdentityRef` names the Secret, or that use it by default.
+Creating or deleting an Identity, or changing its spec, requeues the clusters
+that name it and their machines; the Identity controller's status writes do not.
+Changing a cluster's own `identityRef` requeues the cluster but not its
+machines, because the machine controller does not watch `NicoCluster` objects.
+The machines pick up the new reference on their next periodic requeue.
+Each controller keeps its own indexes of clusters by Secret and by Identity,
+and of Identities by the Secret they name, because client-go rejects a second
+index with the same name.
 
 For graceful reboot, `NicoCluster.spec.powerControlIdentityRef.name` can name a
 second Secret in the cluster namespace. It supplies the provider organization
 and credential required by NICo's Machine power API. When unset, CAPNICo uses
 the regular NICo credential for the graceful action.
+
+For machines with `spec.siteID` set, the same credential rules use the
+machine's identity references and namespace. An omitted `identityRef` uses the
+provider-level Secret, and an omitted `powerControlIdentityRef` uses the
+ordinary NICo identity. Changes to these Secrets also requeue affected machines.
 
 **Clients are cached per Secret revision.** The cache key is
 `namespace/name@resourceVersion`, and inserting a new revision evicts earlier
@@ -103,6 +137,31 @@ helper for acquiring one.
 Refer to the
 [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md#nico-credentials-secret)
 for the Secret's key layout and both authentication modes.
+
+### Credential Health Observation
+
+The NicoIdentity controller checks the Secret each Identity names, separately
+from provisioning. Each check reads the Secret directly, builds a new
+client, acquires a new OAuth token instead of reusing a cached one (or uses the
+Secret's static token), and calls NICo's current-tenant endpoint. One deadline,
+`--provider-identity-validation-timeout`, covers the whole check. Provisioning
+clients, their cached tokens and their tenant cache are not used or changed, so
+a revoked client secret shows up at the next check even while provisioning still
+holds a valid token.
+
+Like the NicoCluster controller, it reconciles every Identity in the manager's
+cache scope, narrowed only by the watch-filter label. Spec and label changes
+trigger a check, and
+an index from each Identity to its Secret lets a Secret change recheck exactly
+the Identities that name it. Its own status writes do not trigger a check, so
+a requeue of four to five minutes, offset by each Identity's UID, sets the
+cadence when nothing changes. Before publishing, it rereads the Identity and the Secret and
+discards a result whose Identity generation or Secret revision changed during
+the check. It also checks the watch-filter label on every reconcile, including
+the timed requeues that bypass the event filter, so an Identity whose label
+stops matching is no longer checked and keeps its last status. Refer to the
+[API reference](api-reference.md#nicoidentity) for enabling the observation and
+the status reasons.
 
 ## Machine Reconciliation
 
@@ -313,7 +372,7 @@ annotation after handling it and emits events for acceptance and fallback.
 - The [README](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/README.md)
   has the installation steps, the credentials Secret, and the worked
   `clusterctl` examples.
-- The [API Reference](api-reference.md) documents all four CRDs, field by field.
+- The [API Reference](api-reference.md) documents all five CRDs, field by field.
 - [Troubleshooting](troubleshooting.md) gives the symptom, cause, and fix for
   problems beyond the stall-reason table in Getting Started.
 - The [contributing guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md)

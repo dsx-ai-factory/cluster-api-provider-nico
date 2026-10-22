@@ -15,9 +15,9 @@
 #
 # The shape is copied from NVIDIA/NVSentinel's dependabot-gomod-fixup.yml, the
 # only implementation of this pattern in the organisation. This is the small
-# variant: NVIDIA/nke#93 also regenerates go.work, go.work.sum and vendor/,
-# because that repository is a workspace with a vendor tree. This one has
-# neither, so `make notices` is the whole job.
+# variant: dsx-ai-factory/nvke#93 also regenerates go.work, go.work.sum and
+# vendor/, because that repository is a workspace with a vendor tree. This one
+# has neither, so `make notices` is the whole job.
 #
 # WHY pull_request_target, WHICH IS NORMALLY AN ANTI-PATTERN
 #
@@ -62,8 +62,9 @@ on:
 concurrency:
   # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
   # expression is the CALLER's name, so every workflow the gate calls would
-  # compute the same group and cancel each other. NVIDIA/nke#160 lost 8 of 9
-  # calls to exactly that, reported as failures with no jobs and no error.
+  # compute the same group and cancel each other. dsx-ai-factory/nvke#160 lost
+  # 8 of 9 calls to exactly that, reported as failures with no jobs and no
+  # error.
   group: Dependabot Fixup-${{ github.event.pull_request.number || 'refresh' }}
   cancel-in-progress: true
 
@@ -199,9 +200,10 @@ jobs:
       # base64: the mutation takes contents, not git objects, so there is no
       # push and nothing on the runner needs a credential.
       #
-      # NVIDIA/nke runs the `git push` form of this same job and is green. That
-      # is not evidence this is unnecessary -- nke has no signed-commits ruleset
-      # and this repository does. Do not collapse the two by diffing them.
+      # dsx-ai-factory/nvke runs the `git push` form of this same job and is
+      # green. That is not evidence this is unnecessary -- nvke has no
+      # signed-commits ruleset and this repository does. Do not collapse the
+      # two by diffing them.
       - name: Commit onto the Dependabot branch
         if: steps.dependency-only.outputs.skip != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

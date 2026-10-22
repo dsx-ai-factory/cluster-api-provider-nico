@@ -38,6 +38,8 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/actionlint.yaml'
+      - '.github/tests/**'
+      - '.github/ISSUE_TEMPLATE/**'
   workflow_call:
   workflow_dispatch: {}
 
@@ -105,3 +107,6 @@ jobs:
 
       - name: Lint the workflows
         run: actionlint
+
+      - name: Test issue triage automation
+        run: node --test .github/tests/*.test.cjs

@@ -1,9 +1,10 @@
 instance_types:
-- org: org-1
-  resource:
-    allocationStats:
-      total: 0
-      unused: 0
-      unusedUsable: 0
-      used: 0
-    id: type-1
+  resources:
+  - org: org-1
+    resource:
+      allocationStats:
+        total: 0
+        unused: 0
+        unusedUsable: 0
+        used: 0
+      id: type-1

@@ -2,17 +2,26 @@
 
 This is the native Helm distribution of the Cluster API infrastructure
 provider for NICo. It installs the controller, ServiceAccount, RBAC, metrics
-Service, and four provider CRDs without embedding a pre-rendered Kustomize
+Service, and five CAPNICo CRDs without embedding a pre-rendered Kustomize
 manifest.
 
 ## Install from a checkout
+
+Install cert-manager in the management cluster before installing this chart.
+The chart creates the certificate resources for its validating webhook but
+does not install cert-manager. `clusterctl init` installs cert-manager when
+required.
+
+Keep `webhook.enabled` and `certManager.enabled` set to `true`. The chart rejects
+disabled settings because template validation and webhook certificates are required.
+External webhook certificates are not supported.
 
 ```bash
 helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system \
   --create-namespace \
   --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
-  --set manager.image.tag=v0.0.43 \
+  --set manager.image.tag=v0.0.45 \
   --wait
 ```
 
@@ -75,6 +84,9 @@ create a Kubernetes registry Secret for kubelet to pull the controller image.
 | `crd.keep` | `true` | Retain CRDs during Helm uninstall |
 | `metrics.enabled` | `true` | Install the HTTP metrics Service |
 | `metrics.port` | `8080` | Metrics Service port |
+| `webhook.enabled` | `true` | Required template validation webhook. |
+| `webhook.port` | `9443` | Webhook server port. |
+| `certManager.enabled` | `true` | Required webhook certificate resources. |
 | `prometheus.enabled` | `false` | Install a ServiceMonitor |
 | `networkPolicy.enabled` | `false` | Restrict metrics ingress |
 

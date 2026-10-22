@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# License enforcement, modelled on .github/workflows/license.yml in NVIDIA/nke.
+# License enforcement, modelled on .github/workflows/license.yml in
+# dsx-ai-factory/nvke.
 #
 #   header-check     runs `make file-license-check`, which applies addlicense in
 #                    place and fails on the resulting diff. See the Makefile for

@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# Issue inactivity handling. Pull requests follow the maintainer response process.
+
+name: Stale Issues
+
+on:
+  schedule:
+    - cron: '21 4 * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: Stale Issues
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    if: github.repository == 'dsx-ai-factory/cluster-api-provider-nico'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      issues: write
+    steps:
+      - name: Mark and close inactive issues
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          days-before-issue-stale: 90
+          days-before-issue-close: 30
+          # Explicitly disable both PR operations instead of inheriting defaults.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: lifecycle/stale
+          exempt-issue-labels: lifecycle/frozen
+          stale-issue-message: >-
+            This issue has had no activity for 90 days and is marked stale.
+            It will close after another 30 days unless activity resumes or the
+            lifecycle/stale label is removed. Engineering maintainers can apply
+            lifecycle/frozen to exempt an issue from inactivity handling.
+          close-issue-message: >-
+            This issue was automatically closed after another 30 days of inactivity.
+            Closure due to inactivity does not mean that a fix has been released.
+            If the issue still applies, comment with current details so maintainers
+            can reassess it.
+          remove-issue-stale-when-updated: true
+          operations-per-run: 1000

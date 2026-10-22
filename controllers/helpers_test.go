@@ -44,6 +44,9 @@ const (
 	// testNamespace is where every case's objects live.
 	testNamespace       = "default"
 	testWorkloadCluster = "cluster-1"
+	// testDefaultCredentials is the provider-level Secret the reconcilers fall
+	// back to when a NicoCluster sets no identityRef.
+	testDefaultCredentials = "nico-default-creds"
 )
 
 // caseFakes keeps each case's fake reachable from its assertions. Cases run in
@@ -56,13 +59,13 @@ func seedFakeResources(tc *fixture.Case, server *fake.Server) error {
 	tenant := nicosdk.NewTenant()
 	tenant.SetId("tenant-1")
 	tenant.SetOrg("org-1")
-	server.SeedTenant("org-1", *tenant)
+	server.SeedTenant("org-1", tenant, 0)
 
 	site := nicosdk.NewSite()
 	site.SetId("site-1")
 	site.SetName("fake-site")
 	site.SetOrg("org-1")
-	server.SeedSite("org-1", *site)
+	server.SeedSite("org-1", site, 0)
 
 	vpc := nicosdk.NewVPC()
 	vpc.SetId("vpc-1")
@@ -70,7 +73,7 @@ func seedFakeResources(tc *fixture.Case, server *fake.Server) error {
 	vpc.SetOrg("org-1")
 	vpc.SetTenantId("tenant-1")
 	vpc.SetSiteId("site-1")
-	server.SeedVPC("org-1", *vpc)
+	server.SeedVPC("org-1", vpc, 0)
 
 	input, ok := tc.Input("input_nico_objects.yaml")
 	if !ok {
@@ -213,7 +216,7 @@ func startFake(server *fake.Server) string {
 }
 
 func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
-	for _, name := range []string{"nico-creds", "provider-power"} {
+	for _, name := range []string{"nico-creds", "nico-identity", "nico-identity-creds", "provider-power", testDefaultCredentials} {
 		secret := &corev1.Secret{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: name}, secret); err != nil {
 			if client.IgnoreNotFound(err) == nil {
@@ -352,10 +355,12 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory 
 	})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+	providerConfig := nico.ProviderConfig{Credentials: types.NamespacedName{Namespace: testNamespace, Name: testDefaultCredentials}}
+	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme, ProviderConfig: providerConfig}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 	gomega.Expect((&NicoMachineReconciler{
 		Client:                mgr.GetClient(),
 		Scheme:                tc.Scheme,
+		ProviderConfig:        providerConfig,
 		WorkloadClientFactory: workloadFactory,
 	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 

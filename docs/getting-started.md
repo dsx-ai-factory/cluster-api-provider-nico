@@ -416,78 +416,163 @@ kubectl create secret generic nico-credentials -n capnico-system \
 Never set `token` alongside the OAuth keys, because supplying both is rejected.
 
 If your site's API uses a private CA, pass `ca.crt`. Prefer that over
-`insecureSkipTLSVerify`.
+`insecureSkipTLSVerify`. Two details of `ca.crt` catch people out:
+
+- It replaces the system trust store rather than adding to it. With `ca.crt`
+  set, the controller trusts only the certificates in that bundle.
+- It applies to the OAuth `tokenURL` as well as to `endpoint`, because both
+  calls share one HTTP client. If the token issuer uses a public CA or a
+  different private CA, put that CA in the same bundle, or the token request
+  fails with `x509: certificate signed by unknown authority` even though the
+  API itself verifies.
 
 The management cluster must reach both service endpoints and pull the controller
 image.
 
 - Reach `endpoint`. Resolve and route it from a pod, not from your laptop.
-- Pull the controller image from a registry it has credentials for. Build and
-  push your own, as step 4 describes.
+- Pull the controller image. Releases publish it to GHCR, as step 4 describes.
+  Mirror it into your own registry if the cluster cannot reach `ghcr.io`.
 - Reach the OAuth `tokenURL`, which is often a different host from the API.
 
 Separate provider and tenant organizations are supported, but one token must
 carry the required role in both.
 
-### 4. Build the Image, Push It, and Install
+If the management cluster reaches NICo through an HTTP proxy, set the standard
+`HTTPS_PROXY`, `HTTP_PROXY`, and `NO_PROXY` variables on the controller. It reads
+them from its environment, and they apply to both `endpoint` and `tokenURL`.
+`NO_PROXY` must include the Kubernetes API server, either its Service IP or the
+cluster's Service CIDR, along with `.svc` and `.cluster.local`. Otherwise, the
+controller's calls to the Kubernetes API go through the proxy and usually fail.
+Find the API server's Service IP with
+`kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'`.
 
-Build the controller from this checkout and push it to a registry your
-management cluster can pull from. `IMG` is one variable, used by both targets:
+Put the variables in a values file that step 4 passes to Helm. `NO_PROXY` holds
+commas, and a values file avoids escaping them for `--set`:
 
-```bash
-export IMG=<your-registry>/cluster-api-provider-nico/controller:v0.0.43
-
-make docker-build IMG="${IMG}"
-make docker-push  IMG="${IMG}"
+```yaml
+# capnico-values.yaml
+manager:
+  envOverrides:
+    HTTPS_PROXY: http://proxy.example.com:3128
+    HTTP_PROXY: http://proxy.example.com:3128
+    NO_PROXY: 10.96.0.1,10.96.0.0/12,.svc,.cluster.local,localhost,127.0.0.1
 ```
 
-For a cluster whose nodes are not all the same architecture, build a multi-arch
-manifest instead. This target builds and pushes in a single step:
+Skip this file if the cluster reaches NICo directly.
+
+### 4. Install the Published Chart
+
+Each release publishes a Helm chart and a multi-arch controller image to GHCR,
+so you do not need a checkout or a build. Pick a version from the
+[releases page](https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases).
+The chart version is the release tag without the leading `v`.
 
 ```bash
-make docker-buildx IMG="${IMG}" PLATFORMS=linux/amd64,linux/arm64
+export VERSION=v0.0.45
+export CHART=oci://ghcr.io/dsx-ai-factory/cluster-api-provider-nico/charts/capi-provider-nico
+export IMAGE=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller
 ```
 
-Then install Cluster API and the provider, pointing the chart at that image.
-Split `IMG` at the colon, where the part before it is `repository` and the part
-after it is `tag`.
+Pin the controller image by digest, so the cluster runs the exact build you
+reviewed even if a tag is later moved. The release workflow summary lists each
+digest. You can also read it from the registry:
+
+```bash
+crane digest "${IMAGE}:${VERSION}"
+# or: docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest.Digest}}'
+```
+
+```bash
+export DIGEST=sha256:<digest-from-above>
+```
+
+Install Cluster API:
 
 ```bash
 clusterctl init --bootstrap kubeadm --control-plane kubeadm
+```
 
-helm upgrade --install capi-provider-nico ./chart \
-  --namespace capnico-system --create-namespace \
-  --set manager.image.repository="${IMG%:*}" \
-  --set manager.image.tag="${IMG##*:}" \
+The chart renders `capnico-system` as a Namespace, and step 3 already created
+it for the credentials Secret. Give Helm ownership of that namespace first, or
+the install fails with `invalid ownership metadata`:
+
+```bash
+kubectl label    namespace capnico-system app.kubernetes.io/managed-by=Helm --overwrite
+kubectl annotate namespace capnico-system meta.helm.sh/release-name=capi-provider-nico --overwrite
+kubectl annotate namespace capnico-system meta.helm.sh/release-namespace=capnico-system --overwrite
+```
+
+Then install the provider. A `repository` value that contains `@` is used as is,
+so the chart ignores the tag and pulls by digest. Drop the `--values` line if
+you skipped the proxy file in step 3:
+
+```bash
+helm upgrade --install capi-provider-nico "${CHART}" \
+  --version "${VERSION#v}" \
+  --namespace capnico-system \
+  --set manager.image.repository="${IMAGE}@${DIGEST}" \
+  --values capnico-values.yaml \
   --wait
 ```
 
-Tag with a released version rather than `latest`, so a site can say which build
-it is running.
+For GitOps, keep the same inputs in the values file and commit it. The chart
+version and the image digest together pin the whole install:
 
-If the registry needs authentication, create the pull Secret in the same
-namespace and name it on the release:
+```yaml
+# capnico-values.yaml
+manager:
+  image:
+    repository: ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller@sha256:<digest>
+```
+
+If the management cluster cannot reach `ghcr.io`, copy both artifacts into your
+own registry. `crane copy` preserves the digest, so the pin stays valid. Log
+both tools in to your registry first if it needs authentication. Each keeps its
+own credentials, and neither uses a Kubernetes pull Secret. Read the token
+without echoing it, so it stays out of your shell history:
+
+```bash
+printf 'Registry token: '; read -rs REGISTRY_TOKEN; echo
+printf '%s' "${REGISTRY_TOKEN}" | crane auth login <your-registry> -u <user> --password-stdin
+printf '%s' "${REGISTRY_TOKEN}" | helm registry login <your-registry> -u <user> --password-stdin
+
+crane copy "${IMAGE}@${DIGEST}" "<your-registry>/cluster-api-provider-nico/controller:${VERSION}"
+helm pull "${CHART}" --version "${VERSION#v}"
+helm push "capi-provider-nico-${VERSION#v}.tgz" oci://<your-registry>/charts
+```
+
+Then point `CHART` and `IMAGE` at your registry. If that registry needs
+authentication, the `helm registry login` above covers Helm pulling the chart.
+The kubelet pulls the controller image separately, so also create a pull Secret
+in the same namespace and name it on the release:
 
 ```bash
 kubectl create secret docker-registry regcred -n capnico-system \
   --docker-server=<your-registry> \
-  --docker-username=<user> --docker-password=<token>
+  --docker-username=<user> --docker-password="${REGISTRY_TOKEN}"
+unset REGISTRY_TOKEN
 
-helm upgrade --install capi-provider-nico ./chart \
+helm upgrade --install capi-provider-nico "${CHART}" \
+  --version "${VERSION#v}" \
   --namespace capnico-system \
-  --set manager.image.repository="${IMG%:*}" \
-  --set manager.image.tag="${IMG##*:}" \
+  --set manager.image.repository="${IMAGE}@${DIGEST}" \
   --set-json 'imagePullSecrets=[{"name":"regcred"}]' \
+  --values capnico-values.yaml \
   --wait
 ```
+
+To run an unreleased build instead, build and push it from a checkout with
+`make docker-buildx IMG=<your-registry>/cluster-api-provider-nico/controller:<tag> PLATFORMS=linux/amd64,linux/arm64`,
+then point `manager.image.repository` and `manager.image.tag` at that image.
 
 Released deployments log structured JSON, and `--zap-devel` is a local-only
 value.
 
 Credentials can be provider-level, meaning one Secret in `capnico-system` used
 by every cluster, or per-cluster through `NicoCluster.spec.identityRef` in the
-`NicoCluster`'s namespace. Use per-cluster credentials when one management
-cluster drives several sites or tenants.
+`NicoCluster`'s namespace, naming a Secret or a `NicoIdentity` that names one.
+Use per-cluster credentials when one management cluster drives several sites or
+tenants.
 
 ### 5. Prove the Credentials Before Creating Machines
 
@@ -606,6 +691,7 @@ generic timeout.
 | Reason | Means |
 |---|---|
 | `WaitingForIdentitySecret` | The Secret is missing or misnamed. |
+| `WaitingForNicoIdentity` | The `NicoIdentity` that `identityRef` names is missing or misnamed. |
 | `TenantResolutionFailed` | The tenant lookup failed. The cause is a wrong org or `apiName`, an expired or rejected token, an unroutable endpoint, or a CA mismatch. All four land here. |
 | `InstanceTypeNotFound` | The instance type ID is wrong, or the org is wrong. |
 | `InstanceTypeUnavailable` | There is no free allocation, which step 2 covers. |
@@ -635,8 +721,8 @@ right to do so.
 
 The following table lists six requirements. All of them come from the two things
 CAPNICo actually sets on the create request, a boot source (`ipxeScript` or
-`operatingSystemId`) and `userData`, where
-`controllers/nicomachine_controller.go:902` sets the latter.
+`operatingSystemId`) and `userData`, where `buildInstanceCreateRequest` in
+`controllers/nicomachine_controller.go` sets the latter.
 
 | Number | Requirement | Why |
 |---|---|---|

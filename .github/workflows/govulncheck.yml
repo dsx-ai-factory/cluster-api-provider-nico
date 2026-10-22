@@ -7,7 +7,7 @@
 # This job does not gate. In SARIF mode govulncheck exits 0 whether or not it
 # finds anything, so a non-zero exit here is a real tool or module failure and
 # does fail the job. Findings are triaged in the Security tab, not by a red
-# check — three of the four NKE repositories have findings today, and a gating
+# check — three of the four NVKE repositories have findings today, and a gating
 # job would bury a new regression in that backlog.
 #
 # The root module is covered. hack/kubebuilder/plugins/capnico-layout/v1 is
@@ -103,12 +103,11 @@ jobs:
             echo "::error::govulncheck produced no SARIF at ${raw}"
             exit 1
           fi
-          # GitHub validates SARIF with uniqueItems on properties.tags, and
-          # govulncheck can list the same CVE alias twice on one rule, which
-          # gets the whole upload rejected as invalid. Only reachable when
-          # there are findings, which is why the one clean repository in the
-          # fleet never hit it.
-          jq '(.runs[]?.tool?.driver?.rules[]?.properties?.tags) |= unique' \
+          # GitHub rejects duplicate rule tags and result stacks in SARIF.
+          jq '
+            (.runs[]?.tool?.driver?.rules[]?.properties?.tags) |= unique
+            | (.runs[]?.results[]? | select(.stacks != null) | .stacks) |= unique
+          ' \
             "${raw}" > "${out}"
           echo "sarif=${out}" >> "${GITHUB_OUTPUT}"
 
@@ -133,7 +132,7 @@ jobs:
         # paths under GITHUB_WORKSPACE, so against RUNNER_TEMP it silently
         # returns '' and skips the upload while the job still reports green.
         if: always() && steps.scan.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           checkout_path: ${{ github.workspace }}/${{ env.GO_MODULE }}

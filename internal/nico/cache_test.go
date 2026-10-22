@@ -73,7 +73,7 @@ func TestClientCacheInvalidatesOnSecretRevisionChange(t *testing.T) {
 func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 	api := fake.New()
 	api.SeedClient("client-id", "client-secret")
-	api.SeedTenant("test-org", testTenant())
+	api.SeedTenant("test-org", testTenant(), 0)
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
 
@@ -101,7 +101,7 @@ func TestClientResolveTenantIDCachesDiscovery(t *testing.T) {
 
 	replacement := testTenant()
 	replacement.SetId("tenant-2")
-	api.SeedTenant("test-org", replacement)
+	api.SeedTenant("test-org", replacement, 0)
 
 	tenantID, err = client.ResolveTenantID(context.Background())
 	if err != nil {

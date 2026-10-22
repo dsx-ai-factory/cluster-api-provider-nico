@@ -55,11 +55,11 @@ func TestUnit_ClientGetMachine(t *testing.T) {
 func TestClientGetSite(t *testing.T) {
 	api := fake.New()
 	api.SeedToken("static-token")
-	api.SeedTenant("test-org", testTenant())
+	api.SeedTenant("test-org", testTenant(), 0)
 	siteResource := nicosdk.NewSite()
 	siteResource.SetId("site-1")
 	siteResource.SetName("Site / West")
-	api.SeedSite("test-org", *siteResource)
+	api.SeedSite("test-org", siteResource, 0)
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
 
@@ -79,7 +79,7 @@ func TestClientGetVPC(t *testing.T) {
 	vpcResource := nicosdk.NewVPC()
 	vpcResource.SetId("vpc-1")
 	vpcResource.SetName("VPC / Production")
-	api.SeedVPC("test-org", *vpcResource)
+	api.SeedVPC("test-org", vpcResource, 0)
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
 
@@ -96,12 +96,12 @@ func TestClientGetVPC(t *testing.T) {
 func TestClientGetSiteQueriesAdditionalPagesUntilFound(t *testing.T) {
 	api := fake.New()
 	api.SeedToken("static-token")
-	api.SeedTenant("test-org", testTenant())
+	api.SeedTenant("test-org", testTenant(), 0)
 	for i := range 101 {
 		siteResource := nicosdk.NewSite()
 		siteResource.SetId(fmt.Sprintf("site-%03d", i))
 		siteResource.SetName(fmt.Sprintf("Site %03d", i))
-		api.SeedSite("test-org", *siteResource)
+		api.SeedSite("test-org", siteResource, 0)
 	}
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
@@ -116,11 +116,11 @@ func TestClientGetSiteQueriesAdditionalPagesUntilFound(t *testing.T) {
 	}
 }
 
-func testTenant() nicosdk.Tenant {
+func testTenant() *nicosdk.Tenant {
 	tenant := nicosdk.NewTenant()
 	tenant.SetId(testTenantID)
 	tenant.SetOrg("test-org")
-	return *tenant
+	return tenant
 }
 
 func newStaticTokenClient(t *testing.T, endpoint string) *Client {

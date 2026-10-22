@@ -65,11 +65,20 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - nicoclusters/status
+  - nicoidentities/status
   - nicomachines/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - nicoidentities
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:

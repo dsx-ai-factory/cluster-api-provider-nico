@@ -30,6 +30,7 @@ It currently exposes:
 * `NicoMachine`
 * `NicoClusterTemplate`
 * `NicoMachineTemplate`
+* `NicoIdentity`, whose controller periodically checks the credentials Secret each Identity names
 
 The provider uses the published NICo SDK under the alias `nicosdk`.
 
@@ -40,7 +41,10 @@ The provider uses the published NICo SDK under the alias `nicosdk`.
 * NICo connection details live in a namespaced Secret. Each reconcile resolves
   credentials in this order:
   1. The Secret named by `NicoCluster.spec.identityRef.name` in the
-     `NicoCluster`'s own namespace, when set.
+     `NicoCluster`'s own namespace, when set. With `identityRef.kind:
+     NicoIdentity`, the name is a `NicoIdentity` in that namespace, and the
+     Secret is the one its `credentialsRef` names. A set reference never falls
+     back to the provider-level Secret.
   2. The provider-level Secret in the manager's namespace, configured via the
      `--provider-credentials-namespace` and `--provider-credentials-secret-name`
      manager flags (defaults: `$POD_NAMESPACE` or `capnico-system`, and

@@ -80,6 +80,9 @@ jobs:
         run: |
           helm lint ./chart
 
+      - name: Install cert-manager
+        run: make install-cert-manager
+
       - name: Deploy manager via Helm
         run: |
           make helm-deploy
