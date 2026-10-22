@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     control-plane: controller-manager
   name: {{ include "cluster-api-provider-nico.resourceName" (dict "suffix" "controller-manager-metrics-monitor" "context" $) }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
 spec:
   endpoints:
   - {{- if .Values.metrics.secure }}
@@ -20,7 +20,7 @@ spec:
     scheme: {{ if .Values.metrics.secure }}https{{ else }}http{{ end }}
     {{- if .Values.metrics.secure }}
     tlsConfig:
-      serverName: {{ include "cluster-api-provider-nico.resourceName" (dict "suffix" "controller-manager-metrics-service" "context" $) }}.{{ .Release.Namespace }}.svc
+      serverName: {{ include "cluster-api-provider-nico.resourceName" (dict "suffix" "controller-manager-metrics-service" "context" $) }}.{{ include "cluster-api-provider-nico.namespaceName" . }}.svc
       {{- if .Values.certManager.enabled }}
       ca:
         secret:

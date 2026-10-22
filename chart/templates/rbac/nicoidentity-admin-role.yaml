@@ -7,7 +7,7 @@ kind: ClusterRole
 {{- end }}
 metadata:
 {{- if .Values.rbac.namespaced }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
 {{- end }}
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}

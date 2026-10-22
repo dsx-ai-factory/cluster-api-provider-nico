@@ -4,3 +4,6 @@
 {{- if not .Values.certManager.enabled }}
 {{- fail "certManager.enabled must be true to provision webhook certificates; external certificates are not supported" }}
 {{- end }}
+{{- if and .Values.createNamespace .Values.namespaceOverride (ne .Values.namespaceOverride .Release.Namespace) }}
+{{- fail "createNamespace must be false when namespaceOverride names a namespace other than the release namespace: Helm stores the release in the release namespace, so the chart would create one namespace and Helm would require another to already exist. Create the namespace yourself, or leave namespaceOverride empty." }}
+{{- end }}

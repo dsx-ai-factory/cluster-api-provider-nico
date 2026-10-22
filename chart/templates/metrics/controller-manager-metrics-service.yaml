@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     control-plane: controller-manager
   name: controller-manager-metrics-service
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
 spec:
   ports:
   - name: http

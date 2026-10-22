@@ -6,7 +6,7 @@ kind: ClusterRoleBinding
 {{- end }}
 metadata:
 {{- if .Values.rbac.namespaced }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
 {{- end }}
   name: metrics-auth-rolebinding
 roleRef:
@@ -20,4 +20,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "cluster-api-provider-nico.serviceAccountName" . }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}

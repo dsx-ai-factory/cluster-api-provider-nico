@@ -61,6 +61,8 @@ create a Kubernetes registry Secret for kubelet to pull the controller image.
 
 | Value | Default | Purpose |
 |---|---|---|
+| `namespaceOverride` | `""` | Namespace the chart installs into. Empty means the release namespace |
+| `createNamespace` | `true` | Create the Namespace object |
 | `manager.replicas` | `1` | Controller Deployment replicas |
 | `manager.image.repository` | `controller` | Controller image repository |
 | `manager.image.tag` | chart `appVersion` | Controller image tag |
@@ -97,6 +99,51 @@ manifest-wrapper chart.
 CAPNICo watches infrastructure resources cluster-wide, so leave
 `rbac.namespaced` set to `false`. CAPNICo currently serves metrics over HTTP;
 leave the generator-provided `metrics.secure` setting at `false`.
+
+## Namespace
+
+By default the chart installs into the release namespace and creates the
+Namespace object itself. Both defaults are unchanged, and a default install
+renders byte-identically to earlier versions.
+
+### Installing with Helm 3
+
+The chart declares the namespace it installs into. Helm 3 cannot reconcile that
+with `--create-namespace`: the namespace Helm creates carries no release
+ownership metadata, and the chart's own object then fails to adopt it. Without
+`--create-namespace`, Helm 3 cannot write its release record into a namespace
+that does not exist yet. Helm 4 adopts the namespace and needs neither change.
+
+Set `createNamespace=false` to install with Helm 3:
+
+```bash
+helm install capi-provider-nico <chart> \
+  --namespace capnico-system --create-namespace \
+  --set createNamespace=false \
+  --wait
+```
+
+### Installing as a dependency of another chart
+
+A subchart has no namespace of its own: every object it renders lands in the
+parent release's namespace. `namespaceOverride` decouples the two, so an
+umbrella chart released into one namespace can still place CAPNICo in another.
+Every namespaced object, and every namespace reference inside a
+ClusterRoleBinding, a webhook configuration or a certificate DNS name, follows
+the value.
+
+The namespace must already exist, because Helm stores the parent release
+elsewhere and nothing in this chart runs before the parent's own objects:
+
+```yaml
+capi-provider-nico:
+  namespaceOverride: capnico-system
+  createNamespace: false
+```
+
+Setting `namespaceOverride` to a namespace other than the release namespace
+while `createNamespace` is true is refused at render time: the chart would
+create one namespace while Helm required another to already exist.
 
 ## Upgrade compatibility
 

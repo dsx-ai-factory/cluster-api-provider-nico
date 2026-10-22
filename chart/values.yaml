@@ -6,6 +6,27 @@
 ##
 # fullnameOverride: ""
 
+## Namespace the chart installs into.
+##
+## Empty means the release namespace, which is the historical behavior and
+## remains the default. Set it when the release namespace is not where the
+## provider belongs, such as when this chart is a dependency of an umbrella
+## chart released into another namespace. Every namespaced object the chart
+## creates, and every namespace reference inside a ClusterRoleBinding, a
+## webhook configuration or a certificate DNS name, follows this value.
+##
+namespaceOverride: ""
+
+## Create the Namespace object.
+##
+## The chart has always declared the namespace it installs into. Helm 3 cannot
+## reconcile that with "--create-namespace", because the namespace Helm creates
+## carries no release ownership metadata and the chart's own object then fails
+## to adopt it. Helm 4 adopts it. Set this to false to let the caller create
+## the namespace, with "--create-namespace" or any other mechanism.
+##
+createNamespace: true
+
 ## Backward-compatible image pull secrets. Existing chart consumers set this
 ## top-level value; manager.imagePullSecrets takes precedence when non-empty.
 ##

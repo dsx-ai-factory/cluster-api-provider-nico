@@ -14,7 +14,7 @@ metadata:
     {{- end }}
     {{- end }}
   name: controller-manager
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
   {{- if .Values.manager.annotations }}
   annotations:
     {{- toYaml .Values.manager.annotations | nindent 4 }}

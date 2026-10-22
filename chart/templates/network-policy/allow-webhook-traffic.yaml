@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/name: {{ include "cluster-api-provider-nico.name" . }}
   name: {{ include "cluster-api-provider-nico.resourceName" (dict "suffix" "allow-webhook-traffic" "context" $) }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
 spec:
   podSelector:
     matchLabels:

@@ -6,7 +6,7 @@ kind: ClusterRole
 {{- end }}
 metadata:
 {{- if .Values.rbac.namespaced }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "cluster-api-provider-nico.namespaceName" . }}
 {{- end }}
   name: metrics-auth-role
 rules:

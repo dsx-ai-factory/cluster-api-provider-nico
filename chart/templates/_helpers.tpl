@@ -24,11 +24,18 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 
 {{/*
-Namespace for generated references.
-Always uses the Helm release namespace.
+Namespace the chart installs into.
+
+Defaults to the Helm release namespace. namespaceOverride decouples the two, so
+the chart can be a dependency of an umbrella chart released somewhere else.
+
+Every namespaced object, and every namespace reference inside a cluster-scoped
+object, resolves through this template. A direct .Release.Namespace anywhere in
+the chart is a bug: it would place that one object outside the namespace the
+rest of the chart uses.
 */}}
 {{- define "cluster-api-provider-nico.namespaceName" -}}
-{{- .Release.Namespace }}
+{{- default .Release.Namespace .Values.namespaceOverride }}
 {{- end }}
 
 {{/*
