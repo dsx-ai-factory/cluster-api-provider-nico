@@ -13,8 +13,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/moby/moby/client"
-
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
 	fakedocker "github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake/docker"
 )
@@ -40,12 +38,7 @@ func main() {
 		if *dockerControlPlaneHostname == "" {
 			log.Fatal("--docker-control-plane-hostname is required with --backend=docker")
 		}
-		dockerClient, err := client.New(client.FromEnv)
-		if err != nil {
-			log.Fatalf("create docker client: %v", err)
-		}
 		endpoint.SetBackend(&fakedocker.Backend{
-			Client:               dockerClient,
 			Image:                *dockerImage,
 			ControlPlaneHostname: *dockerControlPlaneHostname,
 		})

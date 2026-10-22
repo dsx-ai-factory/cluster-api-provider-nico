@@ -7,29 +7,28 @@ package docker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
-	"github.com/moby/moby/api/pkg/stdcopy"
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/network"
-	"github.com/moby/moby/client"
 	"sigs.k8s.io/yaml"
 )
 
 const (
 	defaultNetwork = "kind"
+	commandTimeout = 90 * time.Second
 
 	controlPlaneLabel = "capnico-fake/control-plane"
 )
 
 // Backend runs instances as containers on the kind Docker network.
 type Backend struct {
-	Client *client.Client
+	run func(context.Context, io.Reader, ...string) ([]byte, error)
 
 	// Image is the node image to run.
 	Image string
@@ -62,52 +61,37 @@ func (b *Backend) network() string {
 func (b *Backend) Create(ctx context.Context, instanceID, machineName, userData string, labels map[string]string) error {
 	name := containerName(instanceID)
 
-	options := client.ContainerCreateOptions{
-		Name: name,
-		Config: &container.Config{
-			Hostname: machineName,
-			Image:    b.Image,
-			Volumes:  map[string]struct{}{"/var": {}},
-		},
-		HostConfig: &container.HostConfig{
-			Privileged:   true,
-			CgroupnsMode: container.CgroupnsModePrivate,
-			SecurityOpt:  []string{"seccomp=unconfined", "apparmor=unconfined"},
-			Tmpfs:        map[string]string{"/tmp": "", "/run": ""},
-			NetworkMode:  container.NetworkMode(b.network()),
-			Binds:        []string{"/lib/modules:/lib/modules:ro"},
-		},
+	args := []string{
+		"create", "--pull=never", "--name", name, "--hostname", machineName,
+		"--privileged", "--cgroupns=private",
+		"--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined",
+		"--tmpfs", "/tmp", "--tmpfs", "/run", "--network", b.network(),
+		"--volume", "/var", "--volume", "/lib/modules:/lib/modules:ro",
 	}
-
 	if labels[controlPlaneLabel] == "true" {
 		if b.ControlPlaneHostname == "" {
 			return fmt.Errorf("control-plane hostname is required")
 		}
-		options.NetworkingConfig = &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{
-				b.network(): {
-					Aliases: []string{b.ControlPlaneHostname},
-				},
-			},
-		}
+		args = append(args, "--network-alias", b.ControlPlaneHostname)
 	}
-
-	created, err := b.Client.ContainerCreate(ctx, options)
+	args = append(args, b.Image)
+	output, err := b.docker(ctx, nil, args...)
 	if err != nil {
 		return fmt.Errorf("create node container: %w", err)
 	}
-	if _, err := b.Client.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
-		_, _ = b.Client.ContainerRemove(context.WithoutCancel(ctx), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	containerID := strings.TrimSpace(string(output))
+	if _, err := b.docker(ctx, nil, "start", containerID); err != nil {
+		_, _ = b.docker(context.WithoutCancel(ctx), nil, "rm", "--force", "--volumes", containerID)
 		return fmt.Errorf("start node container: %w", err)
 	}
 
 	// Run bootstrap asynchronously so instance readiness remains independent of kubeadm.
 	go func() {
-		if err := b.waitForContainerRuntime(context.WithoutCancel(ctx), created.ID); err != nil {
+		if err := b.waitForContainerRuntime(context.WithoutCancel(ctx), containerID); err != nil {
 			log.Printf("fake/docker: wait for container runtime in %s: %v", name, err)
 			return
 		}
-		if err := b.applyCloudConfig(context.WithoutCancel(ctx), created.ID, userData); err != nil {
+		if err := b.applyCloudConfig(context.WithoutCancel(ctx), containerID, userData); err != nil {
 			log.Printf("fake/docker: apply cloud-config for %s: %v", name, err)
 		}
 	}()
@@ -122,19 +106,18 @@ func (b *Backend) waitForContainerRuntime(ctx context.Context, containerID strin
 
 // Ready reports whether the container is running, independently of kubeadm bootstrap.
 func (b *Backend) Ready(ctx context.Context, instanceID string) (bool, error) {
-	result, err := b.Client.ContainerInspect(ctx, containerName(instanceID), client.ContainerInspectOptions{})
+	running, err := b.docker(ctx, nil, "container", "inspect", "--format", "{{.State.Running}}", containerName(instanceID))
 	if err != nil {
 		return false, nil
 	}
-	return result.Container.State != nil && result.Container.State.Running, nil
+	return strings.TrimSpace(string(running)) == "true", nil
 }
 
 func (b *Backend) Delete(ctx context.Context, instanceID string) error {
 	name := containerName(instanceID)
-	timeout := 10
-	_, _ = b.Client.ContainerStop(ctx, name, client.ContainerStopOptions{Timeout: &timeout})
-	_, err := b.Client.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-	if err != nil && !cerrdefs.IsNotFound(err) {
+	_, _ = b.docker(ctx, nil, "stop", "--timeout", "10", name)
+	_, err := b.docker(ctx, nil, "rm", "--force", "--volumes", name)
+	if err != nil && !isMissing(err) {
 		return fmt.Errorf("remove node container: %w", err)
 	}
 	return nil
@@ -205,43 +188,55 @@ func (b *Backend) applyCloudConfig(ctx context.Context, containerID, userData st
 }
 
 func (b *Backend) execIn(ctx context.Context, containerID string, stdin io.Reader, cmd ...string) error {
-	created, err := b.Client.ExecCreate(ctx, containerID, client.ExecCreateOptions{
-		Cmd:          cmd,
-		AttachStdin:  stdin != nil,
-		AttachStdout: true,
-		AttachStderr: true,
-	})
-	if err != nil {
-		return fmt.Errorf("create exec: %w", err)
-	}
-
-	attached, err := b.Client.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
-	if err != nil {
-		return fmt.Errorf("attach exec: %w", err)
-	}
-	defer attached.Close()
-
+	args := []string{"exec"}
 	if stdin != nil {
-		go func() {
-			_, _ = io.Copy(attached.Conn, stdin)
-			_ = attached.CloseWrite()
-		}()
+		args = append(args, "-i")
 	}
+	args = append(args, containerID)
+	args = append(args, cmd...)
+	_, err := b.docker(ctx, stdin, args...)
+	return err
+}
 
+func (b *Backend) docker(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	if b.run != nil {
+		return b.run(ctx, stdin, args...)
+	}
+	return runDocker(ctx, stdin, args...)
+}
+
+type commandError struct {
+	operation string
+	stderr    string
+	err       error
+}
+
+func (e *commandError) Error() string {
+	return fmt.Sprintf("docker %s: %v: %s", e.operation, e.err, e.stderr)
+}
+
+func (e *commandError) Unwrap() error { return e.err }
+
+func isMissing(err error) bool {
+	var commandErr *commandError
+	return errors.As(err, &commandErr) &&
+		(strings.Contains(commandErr.stderr, "No such container:") || strings.Contains(commandErr.stderr, "No such object:"))
+}
+
+func runDocker(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
-		return fmt.Errorf("read exec output: %w", err)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return nil, &commandError{operation: args[0], stderr: strings.TrimSpace(stderr.String()), err: err}
 	}
-
-	inspected, err := b.Client.ExecInspect(ctx, created.ID, client.ExecInspectOptions{})
-	if err != nil {
-		return fmt.Errorf("inspect exec: %w", err)
-	}
-	if inspected.ExitCode != 0 {
-		output := strings.TrimSpace(stdout.String() + stderr.String())
-		return fmt.Errorf("exec %q exited %d: %s", cmd, inspected.ExitCode, output)
-	}
-	return nil
+	return stdout.Bytes(), nil
 }
 
 func singleQuote(s string) string {

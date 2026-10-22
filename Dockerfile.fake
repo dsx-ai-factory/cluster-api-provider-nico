@@ -15,9 +15,12 @@ COPY internal/ internal/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o /fake ./cmd/fake
 
+FROM docker:28.3.3-cli@sha256:0135662b510037ea581d99c2e5929c5e01185139c0b86986a418bd4da0b98a44 AS docker-cli
+
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 WORKDIR /
 COPY --from=builder /fake /fake
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /licenses/
 
 LABEL org.opencontainers.image.licenses="Apache-2.0" \
