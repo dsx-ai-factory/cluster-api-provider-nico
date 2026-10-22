@@ -821,11 +821,13 @@ preKubeadmCommands:
     SYSCTL
     sysctl --system
     apt-get update
+    apt-get install -y ca-certificates curl gpg
     apt-get install -y containerd
     mkdir -p /etc/containerd
     containerd config default | tee /etc/containerd/config.toml
     sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
     systemctl restart containerd
+    mkdir -p /etc/apt/keyrings
     curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.36/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
     echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.36/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
     apt-get update
@@ -848,18 +850,18 @@ postKubeadmCommands:
   - |
     export KUBECONFIG=/etc/kubernetes/admin.conf
     curl -fsSL -o /tmp/kube-flannel.yml https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-    pod_cidr=$(kubectl get node "$(hostname)" -o jsonpath='{.spec.podCIDR}')
+    pod_cidr='192.168.0.0/16'
     sed -i "s#10.244.0.0/16#${pod_cidr}#" /tmp/kube-flannel.yml
     kubectl apply -f /tmp/kube-flannel.yml
 ```
 
-Flannel's manifest hardcodes `10.244.0.0/16` — if that doesn't match your
-`Cluster.spec.clusterNetwork.pods.cidrBlocks` (it won't, for
-`examples/kubeadm/cluster.yaml`'s own `192.168.0.0/16`), Flannel refuses to
-start at all: `subnet "10.244.0.0/16" ... doesn't contain "<real-cidr>"
-PodCIDR`. The `sed` above rewrites it to the node's real `podCIDR`, read
-straight off the `Node` object rather than assumed, so it self-corrects
-regardless of what CIDR your cluster actually uses.
+Flannel's manifest defaults to `10.244.0.0/16`. The `sed` command above
+replaces it with `192.168.0.0/16`, matching `examples/kubeadm/cluster.yaml`.
+Set `pod_cidr` to the same cluster-wide Pod CIDR used by
+`Cluster.spec.clusterNetwork.pods.cidrBlocks` and kubeadm's
+`networking.podSubnet`. Do not use `Node.spec.podCIDR`, which contains only
+one node's assigned subnet. Flannel's network must contain the Pod subnets
+assigned to every node.
 
 Flannel is just an example, not a recommendation — pin a version rather than
 `latest` for anything beyond a one-off test, and match whatever CNI your
