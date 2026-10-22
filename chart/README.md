@@ -16,6 +16,9 @@ Keep `webhook.enabled` and `certManager.enabled` set to `true`. The chart reject
 disabled settings because template validation and webhook certificates are required.
 External webhook certificates are not supported.
 
+The examples below assume Helm 4. On Helm 3, add `--set createNamespace=false`;
+see [Namespace](#namespace) for why.
+
 ```bash
 helm upgrade --install capi-provider-nico ./chart \
   --namespace capnico-system \
