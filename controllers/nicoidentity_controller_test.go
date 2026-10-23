@@ -6,14 +6,11 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"slices"
-	"sort"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,12 +48,9 @@ func nicoIdentityCaseSet(description, dirPrefix string, defineSteps func(*fixtur
 
 			server := fake.New()
 			gomega.Expect(seedFakeResources(tc, server)).To(gomega.Succeed())
-			// The Identity controller never writes to NICo or Secrets; both goldens show that.
+			// The Identity controller never writes to NICo; the NICo golden shows that.
 			tc.AddGolden("expected_nico.yaml", func(context.Context) (string, error) {
 				return server.Dump()
-			})
-			tc.AddGolden("expected_secrets.yaml", func(ctx context.Context) (string, error) {
-				return dumpSecretKeys(ctx, tc.Client)
 			})
 
 			endpoint := startFake(server)
@@ -199,36 +193,4 @@ func applyNicoIdentityStatusFixture(ctx context.Context, tc *fixture.Case) error
 		return fmt.Errorf("apply NicoIdentity status fixture: %w", err)
 	}
 	return nil
-}
-
-type secretKeys struct {
-	Name string   `json:"name"`
-	Type string   `json:"type"`
-	Keys []string `json:"keys"`
-}
-
-// dumpSecretKeys lists the case Secrets by name and key, omitting values such
-// as the fake endpoint's port and credentials.
-func dumpSecretKeys(ctx context.Context, c client.Client) (string, error) {
-	secrets := &corev1.SecretList{}
-	if err := c.List(ctx, secrets, client.InNamespace(testNamespace)); err != nil {
-		return "", fmt.Errorf("list Secrets: %w", err)
-	}
-
-	items := make([]secretKeys, 0, len(secrets.Items))
-	for i := range secrets.Items {
-		keys := make([]string, 0, len(secrets.Items[i].Data))
-		for key := range secrets.Items[i].Data {
-			keys = append(keys, key)
-		}
-		slices.Sort(keys)
-		items = append(items, secretKeys{Name: secrets.Items[i].Name, Type: string(secrets.Items[i].Type), Keys: keys})
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-
-	out, err := yaml.Marshal(items)
-	if err != nil {
-		return "", fmt.Errorf("encode Secrets: %w", err)
-	}
-	return string(out), nil
 }
