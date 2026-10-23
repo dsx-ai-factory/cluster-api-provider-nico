@@ -210,6 +210,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			log.Info("adopting existing NICo instance", "instanceID", instance.GetId())
 			nicoMachine.Status.InstanceID = instance.GetId()
 			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
+			r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
 			// Persist providerID and its new generation before a reboot can
 			// interrupt normal status reconciliation.
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
@@ -295,6 +296,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			FailureDomain: failureDomain,
 			LabelKey:      nicoCluster.Spec.FailureDomainLabelKey,
 		})
+		created := err == nil
 		if err != nil {
 			if errors.Is(err, nico.ErrAlreadyExists) {
 				log.Info("backing NICo instance already exists, find by name")
@@ -324,6 +326,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		nicoMachine.Status.InstanceID = instance.GetId()
 		nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
+		if created {
+			r.instanceEvent(&nicoMachine, "InstanceCreated", "Create", fmt.Sprintf("Created NICo instance %s", instance.GetId()))
+		} else {
+			r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
+		}
 
 		// Written before the first poll, so a restart resumes this instance rather
 		// than creating a second one for the same Machine.
@@ -367,6 +374,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, nil
 		}
 		nicoMachine.Status.InstanceID = instance.GetId()
+		r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
 	}
 
 	requestedDomain := ownerMachine.Spec.FailureDomain
@@ -516,6 +524,7 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	instance, err := nicoClient.GetInstance(ctx, instanceID)
 	if errors.Is(err, nico.ErrNotFound) {
 		log.Info("NICo instance is released", "instanceID", instanceID)
+		r.instanceEvent(nicoMachine, "InstanceDeleted", "Delete", fmt.Sprintf("NICo instance %s is released", instanceID))
 		nicoMachine.Status.InstanceID = ""
 		return true, nil
 	}
@@ -526,6 +535,7 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	switch {
 	case nico.IsTerminated(instance):
 		log.Info("NICo instance is released", "instanceID", instanceID, "status", nico.InstanceStatus(instance))
+		r.instanceEvent(nicoMachine, "InstanceDeleted", "Delete", fmt.Sprintf("NICo instance %s is released", instanceID))
 		nicoMachine.Status.InstanceID = ""
 		return true, nil
 	case nico.IsTerminating(instance):
@@ -539,12 +549,22 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	} else {
 		log.Info("deleting NICo instance", "instanceID", instanceID)
 	}
-	if err := nicoClient.DeleteInstance(ctx, instanceID, healthIssue); err != nil && !errors.Is(err, nico.ErrNotFound) {
-		return false, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
+	if err := nicoClient.DeleteInstance(ctx, instanceID, healthIssue); err != nil {
+		if !errors.Is(err, nico.ErrNotFound) {
+			return false, fmt.Errorf("delete NicoMachine: failed to delete NICo instance: %w", err)
+		}
+	} else {
+		r.instanceEvent(nicoMachine, "InstanceDeletionRequested", "Delete", fmt.Sprintf("Requested deletion of NICo instance %s", instanceID))
 	}
 	log.Info("requested NICo instance deletion", "instanceID", instanceID)
 
 	return false, nil
+}
+
+func (r *NicoMachineReconciler) instanceEvent(machine *infrav1.NicoMachine, reason, action, message string) {
+	if r.Recorder != nil {
+		r.Recorder.Eventf(machine, nil, corev1.EventTypeNormal, reason, action, "%s", message)
+	}
 }
 
 func (r *NicoMachineReconciler) machineHealthIssue(ctx context.Context, ownerMachine *clusterv1.Machine, instanceID string) *nicosdk.MachineHealthIssue {
