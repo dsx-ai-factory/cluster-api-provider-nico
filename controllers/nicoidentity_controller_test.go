@@ -173,6 +173,8 @@ func startIdentityReconciler(ctx ginkgo.SpecContext, tc *fixture.Case) {
 		},
 		// Goldens record lastCheckedTime, so every check is dated at the epoch.
 		clock: clocktesting.NewFakePassiveClock(time.Unix(0, 0).UTC()),
+		// They also record nextCheckTime, so the delay skips the per-UID jitter.
+		nextCheckDelay: func(*infrav1.NicoIdentity) time.Duration { return identityCheckInterval },
 	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
