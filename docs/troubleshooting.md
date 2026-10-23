@@ -88,6 +88,22 @@ cloud-init, or network reachability to the control-plane endpoint. Refer to the
 through its
 [image proving checklist](getting-started.md#proving-an-image-before-you-trust-it).
 
+### Inspect Instance Lifecycle Events
+
+The controller records the following Normal events on each `NicoMachine`.
+
+| Reason | Meaning |
+|---|---|
+| `InstanceCreated` | NICo successfully created the instance. |
+| `InstanceAdopted` | The provider adopted an existing instance, including an explicit import. |
+| `InstanceDeletionRequested` | NICo accepted the instance deletion request. |
+| `InstanceDeleted` | The provider confirmed that the instance is `Terminated` or no longer exists. |
+
+Inspect these events with `kubectl describe nicomachine <name> -n <namespace>`.
+Reboot events remain on the owning CAPI `Machine`, where reboot requests originate.
+Events are best effort and can repeat after reconciliation retries. Use conditions
+and NICo state to determine current progress.
+
 ### A Machine Is Stuck Deleting, or an Instance Looks Leaked
 
 The controller reads the instance before deleting it, holds the finalizer, and
