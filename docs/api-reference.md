@@ -431,6 +431,8 @@ do about it. [Troubleshooting](troubleshooting.md) covers the rest.
 | `WaitingForNicoIdentity` | Yes | The `NicoIdentity` named by `identityRef` is not available yet. |
 | `IdentityConfigurationFailed` | | The identity configuration is invalid. |
 | `TenantResolutionFailed` | Yes | NICo tenant resolution failed. |
+| `TLSVerifyFailed` | Yes | The NICo API connection failed TLS certificate verification. |
+| `EndpointUnreachable` | Yes | The NICo API request encountered a network failure before receiving an HTTP response. |
 | `InfrastructureReady` | | The infrastructure resource is ready. |
 | `Synced`, `NotSynced`, `SyncUnknown` | | The desired infrastructure was reconciled, was not reconciled, or its reconciliation state is unknown. |
 | `WaitingForClusterInfrastructure` | | The owning cluster's infrastructure is not ready yet. |

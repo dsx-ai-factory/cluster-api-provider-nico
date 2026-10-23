@@ -132,7 +132,7 @@ func (c *Client) GetCurrentTenantID(ctx context.Context) (string, error) {
 func (c *Client) getCurrentTenantID(authCtx context.Context) (string, error) {
 	tenant, resp, err := c.api.TenantAPI.GetCurrentTenant(authCtx, c.orgID).Execute()
 	if err != nil {
-		return "", normalizeError(resp, err)
+		return "", normalizeError(authCtx, resp, err)
 	}
 	if tenant == nil || tenant.GetId() == "" {
 		return "", fmt.Errorf("current tenant response did not include an id")
@@ -151,7 +151,7 @@ func (c *Client) GetInstanceTypeWithAllocationStats(ctx context.Context, instanc
 		IncludeAllocationStats(true).
 		Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		return nil, normalizeError(ctx, resp, err)
 	}
 	return instanceType, nil
 }
@@ -171,7 +171,7 @@ func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateR
 		InstanceCreateRequest(req).
 		Execute()
 	if err != nil {
-		normalized := normalizeError(resp, err)
+		normalized := normalizeError(ctx, resp, err)
 		if placement.FailureDomain != "" &&
 			((!explicitMachine && responseContains(resp, err, http.StatusForbidden,
 				"Tenant does not have capability to create Instances using Machine label selector")) ||
@@ -241,7 +241,7 @@ func (c *Client) DeleteInstance(ctx context.Context, instanceID string, healthIs
 		req = req.InstanceDeleteRequest(*deleteReq)
 	}
 	_, resp, err := req.Execute()
-	return normalizeError(resp, err)
+	return normalizeError(ctx, resp, err)
 }
 
 // TriggerInstanceReboot requests a power cycle for the NICo instance.
@@ -257,7 +257,7 @@ func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (
 		InstanceUpdateRequest(*req).
 		Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		return nil, normalizeError(ctx, resp, err)
 	}
 	return instance, nil
 }
@@ -273,7 +273,7 @@ func (c *Client) GracefulRestartMachine(ctx context.Context, machineID string) e
 	req.SetAcknowledgeAttachedInstance(true)
 	_, resp, err := c.api.MachineAPI.MachinePowerControlMachine(authCtx, c.orgID, machineID).
 		MachinePowerControlRequest(*req).Execute()
-	return normalizeError(resp, err)
+	return normalizeError(ctx, resp, err)
 }
 
 // ApplyInstanceLabels applies labels to a NICo instance. CAPNICo uses this
@@ -291,7 +291,7 @@ func (c *Client) ApplyInstanceLabels(ctx context.Context, instanceID string, lab
 		InstanceUpdateRequest(*req).
 		Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		return nil, normalizeError(ctx, resp, err)
 	}
 	return instance, nil
 }
@@ -313,7 +313,7 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 				return terminated, nil
 			}
 		}
-		return nil, normalizeError(resp, err)
+		return nil, normalizeError(ctx, resp, err)
 	}
 	return instance, nil
 }
@@ -402,7 +402,7 @@ func (c *Client) GetMachine(ctx context.Context, machineID string) (*nicosdk.Mac
 		IncludeMetadata(true).
 		Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		return nil, normalizeError(ctx, resp, err)
 	}
 	return machine, nil
 }
@@ -424,7 +424,7 @@ func (c *Client) GetSite(ctx context.Context, siteID string) (*nicosdk.Site, err
 			PageSize(pageSize).
 			Execute()
 		if err != nil {
-			return nil, normalizeError(resp, err)
+			return nil, normalizeError(ctx, resp, err)
 		}
 		for i := range sites {
 			if sites[i].GetId() == siteID {
@@ -445,7 +445,7 @@ func (c *Client) GetVPC(ctx context.Context, vpcID string) (*nicosdk.VPC, error)
 	}
 	vpc, resp, err := c.api.VPCAPI.GetVpc(authCtx, c.orgID, vpcID).Execute()
 	if err != nil {
-		return nil, normalizeError(resp, err)
+		return nil, normalizeError(ctx, resp, err)
 	}
 	return vpc, nil
 }
@@ -476,7 +476,7 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 		// the whole list, so recover it the same way GetInstance does.
 		recovered, ok := decodeTerminatedInstances(err)
 		if !ok || resp == nil || resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-			return nil, normalizeError(resp, err)
+			return nil, normalizeError(ctx, resp, err)
 		}
 		instances = recovered
 	}

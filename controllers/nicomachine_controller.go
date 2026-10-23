@@ -214,7 +214,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// interrupt normal status reconciliation.
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		} else if !errors.Is(err, nico.ErrNotFound) {
-			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateFailedReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, infrav1.InstanceCreateFailedReason), err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to find existing instance before create: %w", err)
 		}
 	}
@@ -253,7 +253,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		tenantID, err := nicoClient.ResolveTenantID(ctx)
 		if err != nil {
-			setMachineProvisionedFalse(&nicoMachine, infrav1.TenantResolutionFailedReason, err.Error())
+			setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, infrav1.TenantResolutionFailedReason), err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to resolve tenant ID: %w", err)
 		}
 
@@ -264,7 +264,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			// check avoids spamming the NICo API logs with errors, and changes the re-queue interval.
 			availability, err := instanceTypeAvailable(ctx, nicoClient, nicoMachine.Spec.InstanceTypeID)
 			if err != nil {
-				setMachineProvisionedFalse(&nicoMachine, infrav1.AvailabilityCheckFailedReason, err.Error())
+				setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, infrav1.AvailabilityCheckFailedReason), err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to check instance type availability: %w", err)
 			}
 			instanceTypeCapabilities = nicomachine.ParseInstanceTypeCapabilities(availability.instanceType)
@@ -317,7 +317,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					// NOTE: This reason is not in allowlisted in capacityWaitReasons that prioritize control-plane machines
 					reason = infrav1.InstanceCreateRequestInvalidReason
 				}
-				setMachineProvisionedFalse(&nicoMachine, reason, err.Error())
+				setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, reason), err.Error())
 				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
 		}
@@ -358,7 +358,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if instanceTypeID := instance.GetInstanceTypeId(); instanceTypeID != "" {
 			instanceType, err = nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
 			if err != nil {
-				setMachineProvisionedFalse(&nicoMachine, clusterv1.InspectionFailedReason, fmt.Sprintf("failed to inspect instance type: %s", err.Error()))
+				setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, clusterv1.InspectionFailedReason), fmt.Sprintf("failed to inspect instance type: %s", err.Error()))
 				return ctrl.Result{}, nil
 			}
 		}
@@ -372,7 +372,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	requestedDomain := ownerMachine.Spec.FailureDomain
 	observedDomain, err := observeFailureDomain(ctx, nicoClient, &nicoMachine, nicoCluster.Spec.FailureDomainLabelKey, instance, requestedDomain)
 	if err != nil {
-		setMachineProvisionedFalse(&nicoMachine, infrav1.FailureDomainVerificationFailedReason, err.Error())
+		setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, infrav1.FailureDomainVerificationFailedReason), err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to verify machine failure domain: %w", err)
 	}
 

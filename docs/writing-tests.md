@@ -24,6 +24,12 @@ Two rules govern where golden state lives and how you regenerate it.
   you commit it, because an unexpected change there usually means a behavior
   change.
 
+Cluster and machine cases can select a transport failure with
+`input_nico_transport.txt`. Use `tls-untrusted` to serve the stateful fake over
+HTTPS with an untrusted test certificate. Use `closed` to close the fake server
+before reconciliation. Both modes use the production NICo client. Omit the file
+to use the default HTTP server.
+
 ## CAPNICo Generation Invariants
 
 Each case set settles at a known generation, so an unexpected generation is a

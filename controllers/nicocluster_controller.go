@@ -142,7 +142,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// NicoCluster has no cluster-scoped NICo resources to reconcile, so readiness here is a validation check:
 	// can this identity reach NICo and resolve the tenant context needed for machine operations?
 	if err := nicoClient.ValidateReadiness(ctx); err != nil {
-		setNicoReadyFalse(&nicoCluster, infrav1.TenantResolutionFailedReason, err.Error())
+		setNicoReadyFalse(&nicoCluster, nicoErrorReason(err, infrav1.TenantResolutionFailedReason), err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to validate nico client readiness: %w", err)
 	}
 
@@ -158,7 +158,7 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Preserve the last known domains: an empty list reads as "no spread required".
 		log.Error(err, "failed to list NICo failure domains; keeping last known list")
 		if !provisionedOnce(nicoCluster) {
-			setNicoReadyFalse(&nicoCluster, infrav1.FailureDomainDiscoveryFailedReason, err.Error())
+			setNicoReadyFalse(&nicoCluster, nicoErrorReason(err, infrav1.FailureDomainDiscoveryFailedReason), err.Error())
 			return ctrl.Result{RequeueAfter: failureDomainRetryRequeue}, nil
 		}
 		requeue = failureDomainRetryRequeue

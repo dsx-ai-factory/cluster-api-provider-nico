@@ -616,8 +616,9 @@ kubectl -n demo describe nicocluster credcheck | sed -n '/Conditions/,$p'
 Ready means the identity resolved a tenant, so auth, TLS, routing, and org are
 all correct. Not ready names the failure: `WaitingForIdentitySecret` for a
 missing or misnamed Secret, `IdentityConfigurationFailed` for one the provider
-cannot parse, and `TenantResolutionFailed` for everything else, which step 7
-covers.
+cannot parse, `TLSVerifyFailed` for certificate verification failures, and
+`EndpointUnreachable` for network failures before an HTTP response. Other tenant
+lookup failures use `TenantResolutionFailed`. Step 7 covers these reasons.
 
 Fix this before you create a single Machine, then clean up. Delete the `Cluster`
 first, as described in [Common Pitfalls](#common-pitfalls) below:
@@ -692,7 +693,9 @@ generic timeout.
 |---|---|
 | `WaitingForIdentitySecret` | The Secret is missing or misnamed. |
 | `WaitingForNicoIdentity` | The `NicoIdentity` that `identityRef` names is missing or misnamed. |
-| `TenantResolutionFailed` | The tenant lookup failed. The cause is a wrong org or `apiName`, an expired or rejected token, an unroutable endpoint, or a CA mismatch. All four land here. |
+| `TenantResolutionFailed` | The tenant lookup failed. Check the org, `apiName`, and authentication configuration against your site operator's requirements. |
+| `TLSVerifyFailed` | The NICo API connection failed TLS certificate verification. Check the certificate's validity, hostname, and trust chain with your site operator. |
+| `EndpointUnreachable` | The NICo API request failed before receiving an HTTP response. Check DNS, routing, firewall rules, and NICo availability from the management cluster. |
 | `InstanceTypeNotFound` | The instance type ID is wrong, or the org is wrong. |
 | `InstanceTypeUnavailable` | There is no free allocation, which step 2 covers. |
 | `ControlPlanePriorityDeferred` | A control-plane machine is waiting on this type, so workers wait. |
