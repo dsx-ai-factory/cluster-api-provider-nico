@@ -68,13 +68,18 @@ default.
 
 A check runs when the Identity is created, when its spec or labels change, and
 when the manager starts. Another runs four to five minutes after each completed
-check, including failed ones. The interval is fixed, and each Identity gets a
-stable offset within the last minute, so Identities do not all recheck at once.
-Creating, changing or deleting a Secret triggers a check of the Identities in
-its namespace that name it within seconds, and the scheduled check still runs
-if that event is missed. Checks run one at a
-time, so during a NICo outage, when each check can take the full timeout, a
-round over many Identities takes proportionally longer. Each check
+check, including failed ones, at the time that check publishes in
+`nextCheckTime`. The interval is fixed, and each Identity gets a stable offset
+within the last minute, so Identities do not all recheck at once. Creating,
+changing or deleting a Secret triggers a check of the Identities in its
+namespace that name it within seconds, so a check can come before
+`nextCheckTime`, and the scheduled check still runs if that event is missed.
+Checks run one at a time, so during a NICo outage, when each check can take the
+full timeout, a round over many Identities takes proportionally longer. With
+more Identities than the five-minute grace divided by the timeout, about ten at
+the default `30s`, the last checks of a round can start more than five minutes
+after their `nextCheckTime`, and readers see those Identities as overdue while
+the manager is still running. Each check
 acquires a new OAuth token, or uses the static token, and calls NICo's
 current-tenant endpoint. That endpoint creates the organization's Tenant record
 if none exists. Enabling the observation before any cluster exists can therefore
@@ -89,6 +94,7 @@ controller writes them.
 |---|---|---|
 | `conditions` | list, up to 32 items | Standard Kubernetes conditions, keyed by `type`. `Ready` records the latest completed validation result. |
 | `lastCheckedTime` | timestamp | Completion time of the reported attempt, including failures. Absent before a completed attempt. |
+| `nextCheckTime` | timestamp | When the controller next checks the Identity on its own schedule: four to five minutes after `lastCheckedTime`. A change to the Identity or its Secret can start a check sooner. Absent before a completed attempt. |
 
 For `Ready`, `True` means the completed credential check passed the NICo
 current-tenant lookup baseline. `False` means a known configuration, credential,
@@ -107,16 +113,40 @@ principal. Reasons can be extended; messages are diagnostic text for people.
 | `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got an unexpected response. |
 
 Readers select `Ready` by type and compare its `observedGeneration` with
-`metadata.generation`. They also inspect `lastCheckedTime` for freshness. The
-controller writes `Ready` and `lastCheckedTime` in separate requests, so for a
-moment after a check `lastCheckedTime` can still show the previous one.
-Missing or outdated observations do not establish current health. Condition
-`lastTransitionTime` records a change in truth value, not the last check.
-Additional conditions must not change those existing meanings.
+`metadata.generation`. The controller writes `Ready` in one request and
+`lastCheckedTime` with `nextCheckTime` in the next, so for a moment after a
+check the times can still show the previous one. Missing or outdated
+observations do not establish current health. Condition `lastTransitionTime`
+records a change in truth value, not the last check. Additional conditions must
+not change those existing meanings.
 
-The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age.
-Compare LastChecked with the current time: a stopped manager cannot mark its
-last result stale, and `kubectl wait --for=condition=Ready` does not check age.
+Readers judge freshness by the controller's own schedule. The reported result is
+overdue once the current time is more than five minutes past `nextCheckTime`.
+Trust `nextCheckTime` only when it is later than `lastCheckedTime`: a controller
+from before this field, for example after a rollback that keeps the current
+CRD, advances `lastCheckedTime` and leaves an older `nextCheckTime` in place.
+When `nextCheckTime` is absent or not later, the result is overdue once
+`lastCheckedTime` is more than ten minutes old, the five-minute interval plus
+the grace.
+
+`nextCheckTime` is not a credential expiry. It says when CAPNICo plans to look
+again, not when the credentials stop working. It comes from the manager's
+clock, and readers compare it with their own. A reader clock ahead of the
+manager's uses up part of the five-minute grace. A reader clock behind it, or a
+manager clock that runs ahead, delays the overdue verdict for a stopped manager
+by the difference.
+
+The `kubectl get nicoidentities` columns show Ready, LastChecked, and Age, and
+`-o wide` adds NextCheck. A stopped manager cannot mark its last result stale,
+and `kubectl wait --for=condition=Ready` does not check age, so compare
+NextCheck with the current time. For example, list every Identity with its
+NextCheck, then with the soonest first:
+
+```shell
+kubectl get nicoidentities -A -o wide
+kubectl get nicoidentities -A -o wide --sort-by=.status.nextCheckTime
+```
+
 A failed check updates status only; it raises no Event or alert. Deleting an
 Identity does not delete its Secret or any NICo resource. It does stop the
 reconciliation of every cluster that names it, and of their machines, until the

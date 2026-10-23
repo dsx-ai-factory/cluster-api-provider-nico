@@ -38,6 +38,14 @@ type NicoIdentityStatus struct {
 	// a condition's lastTransitionTime does not establish observation freshness.
 	// +optional
 	LastCheckedTime *metav1.Time `json:"lastCheckedTime,omitempty"`
+
+	// NextCheckTime is when the controller next checks this Identity on its own
+	// schedule. A change to the Identity or its Secret can start a check sooner.
+	// It is absent before the first completed attempt. When it is later than
+	// lastCheckedTime, readers treat the reported result as overdue once the
+	// current time is more than five minutes past it.
+	// +optional
+	NextCheckTime *metav1.Time `json:"nextCheckTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -46,6 +54,7 @@ type NicoIdentityStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Result of the last completed credential validation"
 // +kubebuilder:printcolumn:name="LastChecked",type="date",JSONPath=".status.lastCheckedTime",description="Completion time of the reported validation attempt"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="NextCheck",type="string",JSONPath=".status.nextCheckTime",priority=1,description="When the controller next checks this Identity on its own schedule"
 
 // NicoIdentity names a Secret with NICo credentials and reports the result of checking it.
 // A NicoCluster can take its credentials from an Identity; the Identity's status never

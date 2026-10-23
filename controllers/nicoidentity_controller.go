@@ -64,6 +64,9 @@ type NicoIdentityReconciler struct {
 	WatchFilterValue string
 	// clock dates each completed check. SetupWithManager defaults it to the real clock.
 	clock clock.PassiveClock
+	// nextCheckDelay sets how long after a completed check the next periodic
+	// check runs. When nil, the reconciler uses recheckAfter.
+	nextCheckDelay func(*infrav1.NicoIdentity) time.Duration
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
@@ -126,9 +129,12 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		Message:            result.Message,
 	})
 	identity.Status.LastCheckedTime = &completed
+	delay := r.delayBeforeNextCheck(identity)
+	next := metav1.NewTime(completed.Add(delay))
+	identity.Status.NextCheckTime = &next
 
 	log.Info("checked NicoIdentity credentials", "ready", result.Status, "reason", result.Reason)
-	return ctrl.Result{RequeueAfter: recheckAfter(identity)}, nil
+	return ctrl.Result{RequeueAfter: delay}, nil
 }
 
 // check validates the Secret the Identity names in its own namespace and
@@ -195,10 +201,20 @@ func secretRevision(secret *corev1.Secret, err error) string {
 	}
 }
 
+// delayBeforeNextCheck returns how long after a completed check the next
+// periodic check runs.
+func (r *NicoIdentityReconciler) delayBeforeNextCheck(identity *infrav1.NicoIdentity) time.Duration {
+	if r.nextCheckDelay != nil {
+		return r.nextCheckDelay(identity)
+	}
+	return recheckAfter(identity)
+}
+
 // recheckAfter spreads Identities across the last fifth of the check interval,
 // as the cluster controller spreads clusters. It subtracts the jitter rather
-// than adding it, so no Identity's nominal interval exceeds five minutes, the
-// age at which readers treat an observation as stale.
+// than adding it, so no Identity's nominal interval exceeds five minutes. Each
+// completed check publishes its nextCheckTime this long after it, and requeues
+// with the same delay.
 func recheckAfter(identity *infrav1.NicoIdentity) time.Duration {
 	return identityCheckInterval - deterministicJitter(string(identity.UID), identityCheckInterval/5)
 }
