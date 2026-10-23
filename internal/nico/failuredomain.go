@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"time"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
@@ -39,6 +40,7 @@ func (c *Client) ListFailureDomains(ctx context.Context, siteID, labelKey string
 
 	names := map[string]struct{}{}
 	for page := int32(1); ; page++ {
+		started := time.Now()
 		machines, resp, err := c.api.MachineAPI.
 			GetAllMachine(authCtx, c.orgID).
 			SiteId(siteID).
@@ -47,6 +49,7 @@ func (c *Client) ListFailureDomains(ctx context.Context, siteID, labelKey string
 			PageNumber(page).
 			PageSize(pageSize).
 			Execute()
+		c.metrics.observe("list_machines", time.Since(started), resp)
 		if err != nil {
 			return nil, normalizeError(resp, err)
 		}

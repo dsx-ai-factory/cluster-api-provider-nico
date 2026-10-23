@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	"golang.org/x/oauth2"
@@ -27,6 +28,7 @@ type Client struct {
 	orgID       string
 	tokenSource oauth2.TokenSource
 	api         *nicosdk.APIClient
+	metrics     *apiRequestMetrics
 	tenantMu    sync.RWMutex
 	tenantID    string
 }
@@ -79,6 +81,7 @@ func newClient(ctx context.Context, secretConfig SecretConfig, httpClient *http.
 		orgID:       secretConfig.OrgID,
 		tokenSource: tokenSource,
 		api:         nicosdk.NewAPIClient(cfg),
+		metrics:     apiMetrics,
 	}, nil
 }
 
@@ -130,7 +133,9 @@ func (c *Client) GetCurrentTenantID(ctx context.Context) (string, error) {
 
 // getCurrentTenantID uses an already authenticated context without acquiring another token.
 func (c *Client) getCurrentTenantID(authCtx context.Context) (string, error) {
+	started := time.Now()
 	tenant, resp, err := c.api.TenantAPI.GetCurrentTenant(authCtx, c.orgID).Execute()
+	c.metrics.observe("get_current_tenant", time.Since(started), resp)
 	if err != nil {
 		return "", normalizeError(resp, err)
 	}
@@ -146,10 +151,12 @@ func (c *Client) GetInstanceTypeWithAllocationStats(ctx context.Context, instanc
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	instanceType, resp, err := c.api.InstanceTypeAPI.
 		GetInstanceType(authCtx, c.orgID, instanceTypeID).
 		IncludeAllocationStats(true).
 		Execute()
+	c.metrics.observe("get_instance_type", time.Since(started), resp)
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}
@@ -166,10 +173,12 @@ func (c *Client) CreateInstance(ctx context.Context, req nicosdk.InstanceCreateR
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	instance, resp, err := c.api.InstanceAPI.
 		CreateInstance(authCtx, c.orgID).
 		InstanceCreateRequest(req).
 		Execute()
+	c.metrics.observe("create_instance", time.Since(started), resp)
 	if err != nil {
 		normalized := normalizeError(resp, err)
 		if placement.FailureDomain != "" &&
@@ -240,7 +249,9 @@ func (c *Client) DeleteInstance(ctx context.Context, instanceID string, healthIs
 		deleteReq.SetMachineHealthIssue(*healthIssue)
 		req = req.InstanceDeleteRequest(*deleteReq)
 	}
+	started := time.Now()
 	_, resp, err := req.Execute()
+	c.metrics.observe("delete_instance", time.Since(started), resp)
 	return normalizeError(resp, err)
 }
 
@@ -253,9 +264,11 @@ func (c *Client) TriggerInstanceReboot(ctx context.Context, instanceID string) (
 
 	req := nicosdk.NewInstanceUpdateRequest()
 	req.SetTriggerReboot(true)
+	started := time.Now()
 	instance, resp, err := c.api.InstanceAPI.UpdateInstance(authCtx, c.orgID, instanceID).
 		InstanceUpdateRequest(*req).
 		Execute()
+	c.metrics.observe("update_instance", time.Since(started), resp)
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}
@@ -271,8 +284,10 @@ func (c *Client) GracefulRestartMachine(ctx context.Context, machineID string) e
 	}
 	req := nicosdk.NewMachinePowerControlRequest("GracefulRestart")
 	req.SetAcknowledgeAttachedInstance(true)
+	started := time.Now()
 	_, resp, err := c.api.MachineAPI.MachinePowerControlMachine(authCtx, c.orgID, machineID).
 		MachinePowerControlRequest(*req).Execute()
+	c.metrics.observe("machine_power_control", time.Since(started), resp)
 	return normalizeError(resp, err)
 }
 
@@ -287,9 +302,11 @@ func (c *Client) ApplyInstanceLabels(ctx context.Context, instanceID string, lab
 
 	req := nicosdk.NewInstanceUpdateRequest()
 	req.SetLabels(labels)
+	started := time.Now()
 	instance, resp, err := c.api.InstanceAPI.UpdateInstance(authCtx, c.orgID, instanceID).
 		InstanceUpdateRequest(*req).
 		Execute()
+	c.metrics.observe("update_instance", time.Since(started), resp)
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}
@@ -302,7 +319,9 @@ func (c *Client) GetInstance(ctx context.Context, instanceID string) (*nicosdk.I
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	instance, resp, err := c.api.InstanceAPI.GetInstance(authCtx, c.orgID, instanceID).Execute()
+	c.metrics.observe("get_instance", time.Since(started), resp)
 	if err != nil {
 		// nolint: NICo retains released instance records with status Terminated, but the
 		// v1.3.0 generated SDK omits that server status from its enum. Normalize
@@ -397,10 +416,12 @@ func (c *Client) GetMachine(ctx context.Context, machineID string) (*nicosdk.Mac
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	machine, resp, err := c.api.MachineAPI.
 		GetMachine(authCtx, c.orgID, machineID).
 		IncludeMetadata(true).
 		Execute()
+	c.metrics.observe("get_machine", time.Since(started), resp)
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}
@@ -418,11 +439,13 @@ func (c *Client) GetSite(ctx context.Context, siteID string) (*nicosdk.Site, err
 		return nil, err
 	}
 	for pageNumber := int32(1); ; pageNumber++ {
+		started := time.Now()
 		sites, resp, err := c.api.SiteAPI.GetAllSite(authCtx, c.orgID).
 			TenantId(tenantID).
 			PageNumber(pageNumber).
 			PageSize(pageSize).
 			Execute()
+		c.metrics.observe("list_sites", time.Since(started), resp)
 		if err != nil {
 			return nil, normalizeError(resp, err)
 		}
@@ -443,7 +466,9 @@ func (c *Client) GetVPC(ctx context.Context, vpcID string) (*nicosdk.VPC, error)
 	if err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	vpc, resp, err := c.api.VPCAPI.GetVpc(authCtx, c.orgID, vpcID).Execute()
+	c.metrics.observe("get_vpc", time.Since(started), resp)
 	if err != nil {
 		return nil, normalizeError(resp, err)
 	}
@@ -470,7 +495,9 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 		req = req.SiteId(lookup.SiteID)
 	}
 
+	started := time.Now()
 	instances, resp, err := req.Execute()
+	c.metrics.observe("list_instances", time.Since(started), resp)
 	if err != nil {
 		// A retained Terminated record in the page fails the SDK's enum decode for
 		// the whole list, so recover it the same way GetInstance does.
