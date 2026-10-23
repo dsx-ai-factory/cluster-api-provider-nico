@@ -48,7 +48,7 @@ func (c *Client) ListFailureDomains(ctx context.Context, siteID, labelKey string
 			PageSize(pageSize).
 			Execute()
 		if err != nil {
-			return nil, normalizeError(resp, err)
+			return nil, normalizeError(ctx, resp, err)
 		}
 		for i := range machines {
 			if name := machines[i].GetLabels()[labelKey]; name != "" {

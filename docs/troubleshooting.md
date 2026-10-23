@@ -29,9 +29,27 @@ Four reasons account for this symptom.
 - `IdentityConfigurationFailed` means the Secret exists, but its configuration
   is invalid. For example, required keys are missing, or the authentication
   mode is incomplete. Recheck its keys against the same credentials reference.
-- `TenantResolutionFailed` means the tenant lookup failed. Causes include a
-  wrong org or `apiName`, an expired or rejected token, an unroutable endpoint,
-  or a CA mismatch. All four land on this one reason.
+- `TenantResolutionFailed` means the tenant lookup failed for another reason.
+  Causes include a wrong org or `apiName`, rejected credentials, or an unexpected
+  API response.
+- `TLSVerifyFailed` means the NICo API connection failed TLS certificate
+  verification. Check the server certificate's validity, hostname, and trust
+  chain with your site operator. Configure the provider to trust the issuing
+  certificate authority (CA).
+- `EndpointUnreachable` means a DNS lookup, socket connection, or transport
+  failed before an HTTP response arrived. Check DNS, routing, firewall rules,
+  and NICo availability from the management cluster.
+
+The machine controller also uses `TLSVerifyFailed` and `EndpointUnreachable`
+on `MachineProvisioned` when these failures block a required NICo API operation.
+The cluster controller uses them on `NicoReady`. Neither reason indicates a
+capacity wait. Cancellation and expiration of the reconciliation context retain
+the operation's existing failure reason. A client timeout while that context
+remains active uses `EndpointUnreachable`.
+
+After NICo provisions an instance, a connectivity failure while the controller
+reads that instance does not change `MachineProvisioned`. Check the controller
+logs for the failed reconcile.
 
 ### The Failure Domain List Stays Empty
 

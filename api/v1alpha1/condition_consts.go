@@ -48,6 +48,12 @@ const (
 	// TenantResolutionFailedReason indicates NICo tenant resolution failed.
 	TenantResolutionFailedReason = "TenantResolutionFailed"
 
+	// TLSVerifyFailedReason indicates NICo's TLS certificate could not be verified.
+	TLSVerifyFailedReason = "TLSVerifyFailed"
+
+	// EndpointUnreachableReason indicates a NICo request failed to reach its endpoint.
+	EndpointUnreachableReason = "EndpointUnreachable"
+
 	// InfrastructureReadyReason indicates the infrastructure resource is ready.
 	InfrastructureReadyReason = "InfrastructureReady"
 
