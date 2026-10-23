@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -107,6 +108,7 @@ func TestClientGetSiteQueriesAdditionalPagesUntilFound(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := newStaticTokenClient(t, server.URL)
+	reg := isolatedMetrics(client)
 	site, err := client.GetSite(context.Background(), "site-100")
 	if err != nil {
 		t.Fatalf("GetSite() error = %v", err)
@@ -114,6 +116,91 @@ func TestClientGetSiteQueriesAdditionalPagesUntilFound(t *testing.T) {
 	if got, want := site.GetName(), "Site 100"; got != want {
 		t.Fatalf("site name = %q, want raw name %q", got, want)
 	}
+	requests, _ := requestSamples(t, reg, "list_sites", "200")
+	assert.InDelta(t, 2, requests, 0, "each requested page is one observation")
+}
+
+func TestClientRecordsAPIRequestMetrics(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		start      func() *httptest.Server
+		statusCode string
+	}{
+		{
+			name: "success",
+			start: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"id":"vpc-1"}`))
+				}))
+			},
+			statusCode: "200",
+		},
+		{
+			name: "error response",
+			start: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					http.Error(w, "nope", http.StatusNotFound)
+				}))
+			},
+			statusCode: "404",
+		},
+		{
+			name: "no response",
+			start: func() *httptest.Server {
+				server := httptest.NewServer(http.NotFoundHandler())
+				server.Close()
+				return server
+			},
+			statusCode: "none",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := tc.start()
+			t.Cleanup(server.Close)
+			client := newStaticTokenClient(t, server.URL)
+			reg := isolatedMetrics(client)
+
+			_, _ = client.GetVPC(context.Background(), "vpc-1")
+
+			requests, observations := requestSamples(t, reg, "get_vpc", tc.statusCode)
+			assert.InDelta(t, 1, requests, 0, "the request counter records the outcome")
+			assert.Equal(t, uint64(1), observations, "the duration histogram records the same outcome")
+		})
+	}
+}
+
+// isolatedMetrics gives the client its own registry so a test sees only its own requests.
+func isolatedMetrics(client *Client) prometheus.Gatherer {
+	m := newAPIRequestMetrics()
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(m.requests, m.duration)
+	client.metrics = m
+	return reg
+}
+
+func requestSamples(t *testing.T, reg prometheus.Gatherer, operation, statusCode string) (requests float64, observations uint64) {
+	t.Helper()
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		for _, metric := range family.GetMetric() {
+			labels := map[string]string{}
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["operation"] != operation || labels["status_code"] != statusCode {
+				continue
+			}
+			switch family.GetName() {
+			case "capnico_api_requests_total":
+				requests = metric.GetCounter().GetValue()
+			case "capnico_api_request_duration_seconds":
+				observations = metric.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return requests, observations
 }
 
 func testTenant() *nicosdk.Tenant {
