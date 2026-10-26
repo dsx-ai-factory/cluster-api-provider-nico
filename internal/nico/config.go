@@ -62,6 +62,10 @@ type ProviderConfig struct {
 	// IdentityValidationTimeout bounds each NicoIdentity check, from token
 	// acquisition through the current-tenant read.
 	IdentityValidationTimeout time.Duration
+
+	// DefaultPhoneHomeEnabled enables phone-home for iPXE NicoMachines that do
+	// not set spec.phoneHomeEnabled. Operating system machines use the OS setting.
+	DefaultPhoneHomeEnabled bool
 }
 
 // BindFlags binds the provider-level configuration to fs. The current values of
@@ -87,6 +91,8 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 		"Annotation key on the owner CAPI Machine whose presence triggers a repair flag on the NICo instance before deletion. The value is parsed as JSON ({category, summary, details}), or treated as a plain summary with category Other. Leave empty to disable.")
 	fs.DurationVar(&p.IdentityValidationTimeout, "provider-identity-validation-timeout", p.IdentityValidationTimeout,
 		"Maximum duration of one NicoIdentity credential check, from token acquisition through the current-tenant read.")
+	fs.BoolVar(&p.DefaultPhoneHomeEnabled, "default-phone-home-enabled", p.DefaultPhoneHomeEnabled,
+		"Enable NICo phone-home for iPXE NicoMachines that do not set spec.phoneHomeEnabled. NicoMachines with spec.operatingSystemID use the operating system's setting.")
 }
 
 // Validate reports provider settings that cannot work. It checks only the
