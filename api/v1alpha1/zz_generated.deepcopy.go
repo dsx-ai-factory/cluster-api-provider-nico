@@ -567,6 +567,11 @@ func (in *NicoMachineSpec) DeepCopyInto(out *NicoMachineSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.PhoneHomeEnabled != nil {
+		in, out := &in.PhoneHomeEnabled, &out.PhoneHomeEnabled
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Labels != nil {
 		in, out := &in.Labels, &out.Labels
 		*out = make(map[string]string, len(*in))

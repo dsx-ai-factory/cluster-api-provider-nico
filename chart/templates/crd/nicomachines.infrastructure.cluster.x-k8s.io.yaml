@@ -254,6 +254,11 @@ spec:
                   Mutually exclusive with IpxeScript.
                 minLength: 1
                 type: string
+              phoneHomeEnabled:
+                description: |-
+                  PhoneHomeEnabled requests that NICo wait for the cloud-init phone-home callback before reporting the instance Ready.
+                  When unset, NICo uses the operating system's setting, and iPXE machines use the --default-phone-home-enabled manager flag.
+                type: boolean
               powerControlIdentityRef:
                 description: |-
                   PowerControlIdentityRef names the Secret in this machine's namespace for NICo power control.
@@ -561,6 +566,10 @@ spec:
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.operatingSystemID)
             == has(oldSelf.spec.operatingSystemID) && (!has(self.spec.operatingSystemID)
             || self.spec.operatingSystemID == oldSelf.spec.operatingSystemID))'
+        - message: spec.phoneHomeEnabled is immutable after providerID is set
+          rule: '!has(oldSelf.spec.providerID) || (has(self.spec.phoneHomeEnabled)
+            == has(oldSelf.spec.phoneHomeEnabled) && (!has(self.spec.phoneHomeEnabled)
+            || self.spec.phoneHomeEnabled == oldSelf.spec.phoneHomeEnabled))'
         - message: spec.cloudInitInjectHostname is immutable after providerID is set
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.cloudInitInjectHostname)
             == has(oldSelf.spec.cloudInitInjectHostname) && (!has(self.spec.cloudInitInjectHostname)
