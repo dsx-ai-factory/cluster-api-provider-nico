@@ -88,6 +88,14 @@ cloud-init, or network reachability to the control-plane endpoint. Refer to the
 through its
 [image proving checklist](getting-started.md#proving-an-image-before-you-trust-it).
 
+### The Instance Stays Provisioning With Phone-Home Enabled
+
+NICo holds the instance in `Provisioning` until cloud-init on the host calls the
+site's phone-home URL. Check that the image enables cloud-init's `phone_home`
+module and can reach that URL. CAPNICo does not time out this wait, so set a
+`MachineHealthCheck` node startup timeout to replace a machine that never calls
+back.
+
 ### A Machine Is Stuck Deleting, or an Instance Looks Leaked
 
 The controller reads the instance before deleting it, holds the finalizer, and

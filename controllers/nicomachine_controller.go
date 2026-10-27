@@ -283,7 +283,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 
-		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoMachine, cluster.Name, bootstrapCloudConfig, instanceTypeCapabilities)
+		createReq, err := buildInstanceCreateRequest(ownerMachine.Name, tenantID, &nicoMachine, cluster.Name, bootstrapCloudConfig, instanceTypeCapabilities, r.ProviderConfig.DefaultPhoneHomeEnabled)
 		if err != nil {
 			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
 			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
@@ -898,6 +898,7 @@ func buildInstanceCreateRequest(
 	clusterName string,
 	bootstrapCloudConfig string,
 	instanceTypeCapabilities nicomachine.InstanceTypeCapabilities,
+	defaultPhoneHomeEnabled bool,
 ) (*nicosdk.InstanceCreateRequest, error) {
 	if len(nicoMachine.Spec.Interfaces) == 0 {
 		return nil, fmt.Errorf("spec.interfaces must contain at least one entry")
@@ -946,6 +947,12 @@ func buildInstanceCreateRequest(
 	}
 	if nicoMachine.Spec.OperatingSystemID != "" {
 		createReq.SetOperatingSystemId(nicoMachine.Spec.OperatingSystemID)
+	}
+	if nicoMachine.Spec.PhoneHomeEnabled != nil {
+		createReq.SetPhoneHomeEnabled(*nicoMachine.Spec.PhoneHomeEnabled)
+	} else if nicoMachine.Spec.OperatingSystemID == "" && defaultPhoneHomeEnabled {
+		// With an operating system, NICo applies the operating system's setting when the field is omitted.
+		createReq.SetPhoneHomeEnabled(true)
 	}
 	if len(nicoMachine.Spec.SSHKeyGroupIDs) > 0 {
 		createReq.SetSshKeyGroupIds(nicoMachine.Spec.SSHKeyGroupIDs)
