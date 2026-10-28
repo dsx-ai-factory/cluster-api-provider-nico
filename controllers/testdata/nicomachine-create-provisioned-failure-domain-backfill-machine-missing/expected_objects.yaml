@@ -136,3 +136,26 @@ items:
     vpcID: vpc-1
     vpcName: fake-vpc
 metadata: {}
+---
+items:
+- action: Adopt
+  deprecatedFirstTimestamp: null
+  deprecatedLastTimestamp: null
+  deprecatedSource: {}
+  eventTime: "1970-01-01T00:00:00.000000Z"
+  metadata:
+    creationTimestamp: null
+    name: InstanceAdopted
+    namespace: default
+  note: Adopted NICo instance seeded-1
+  reason: InstanceAdopted
+  regarding:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: NicoMachine
+    name: nicomachine-1
+    namespace: default
+    uid: 00000000-0000-0000-0000-000000000000
+  reportingController: nicomachine-controller
+  reportingInstance: <generated>
+  type: Normal
+metadata: {}

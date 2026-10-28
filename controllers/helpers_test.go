@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http/httptest"
 	"os/exec"
@@ -378,6 +379,11 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory 
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	providerConfig := nico.ProviderConfig{Credentials: types.NamespacedName{Namespace: testNamespace, Name: testDefaultCredentials}}
+	if input, ok := tc.Input("input_provider_flags.txt"); ok {
+		fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+		providerConfig.BindFlags(fs)
+		gomega.Expect(fs.Parse(strings.Fields(input))).To(gomega.Succeed())
+	}
 	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme, ProviderConfig: providerConfig}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 	gomega.Expect((&NicoMachineReconciler{
 		Client:                mgr.GetClient(),

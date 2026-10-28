@@ -173,6 +173,11 @@ type NicoMachineSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	OperatingSystemID string `json:"operatingSystemID,omitempty"`
 
+	// PhoneHomeEnabled requests that NICo wait for the cloud-init phone-home callback before reporting the instance Ready.
+	// When unset, NICo uses the operating system's setting, and iPXE machines use the --default-phone-home-enabled manager flag.
+	// +optional
+	PhoneHomeEnabled *bool `json:"phoneHomeEnabled,omitempty"`
+
 	// CloudInitInjectHostname prepends hostname directives to the bootstrap cloud-config.
 	// +optional
 	CloudInitInjectHostname bool `json:"cloudInitInjectHostname,omitempty"`
@@ -328,6 +333,7 @@ type NicoMachineStatus struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.sshKeyGroupIDs) == has(oldSelf.spec.sshKeyGroupIDs) && (!has(self.spec.sshKeyGroupIDs) || self.spec.sshKeyGroupIDs == oldSelf.spec.sshKeyGroupIDs))",message="spec.sshKeyGroupIDs is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.ipxeScript) == has(oldSelf.spec.ipxeScript) && (!has(self.spec.ipxeScript) || self.spec.ipxeScript == oldSelf.spec.ipxeScript))",message="spec.ipxeScript is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.operatingSystemID) == has(oldSelf.spec.operatingSystemID) && (!has(self.spec.operatingSystemID) || self.spec.operatingSystemID == oldSelf.spec.operatingSystemID))",message="spec.operatingSystemID is immutable after providerID is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.phoneHomeEnabled) == has(oldSelf.spec.phoneHomeEnabled) && (!has(self.spec.phoneHomeEnabled) || self.spec.phoneHomeEnabled == oldSelf.spec.phoneHomeEnabled))",message="spec.phoneHomeEnabled is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.cloudInitInjectHostname) == has(oldSelf.spec.cloudInitInjectHostname) && (!has(self.spec.cloudInitInjectHostname) || self.spec.cloudInitInjectHostname == oldSelf.spec.cloudInitInjectHostname))",message="spec.cloudInitInjectHostname is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.labels) == has(oldSelf.spec.labels) && (!has(self.spec.labels) || self.spec.labels == oldSelf.spec.labels))",message="spec.labels is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.machineID) == has(oldSelf.spec.machineID) && (!has(self.spec.machineID) || self.spec.machineID == oldSelf.spec.machineID))",message="spec.machineID is immutable after providerID is set"
