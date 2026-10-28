@@ -15,10 +15,6 @@ state, not workflow scripts. Four rules follow from that.
 
 ## Fixtures and Goldens
 
-The machine cases include this controller's events on both the owning `Machine`
-and the case's `NicoMachine` in `expected_objects.yaml`. Reboot events belong to
-`Machine`, and instance lifecycle events belong to `NicoMachine`.
-
 Two rules govern where golden state lives and how you regenerate it.
 
 - Keep Kubernetes and NICo goldens together. `expected_objects.yaml` covers
