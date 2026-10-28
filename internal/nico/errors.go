@@ -77,7 +77,8 @@ func normalizeConnectionError(ctx context.Context, err error) error {
 		cause = urlError.Err
 	}
 	var networkError net.Error
-	if errors.As(cause, &networkError) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.As(cause, &networkError) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, http.ErrSchemeMismatch) {
 		return &connectionError{kind: ErrEndpointUnreachable, cause: err}
 	}
 	return err

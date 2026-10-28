@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,17 @@ func TestNormalizeErrorDistinguishesForbiddenFromUnauthorized(t *testing.T) {
 				"only 403 reports the missing capability that means no failure domains exist")
 		})
 	}
+}
+
+func TestNormalizeErrorClassifiesSchemeMismatch(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+	endpoint := strings.Replace(server.URL, "http://", "https://", 1)
+
+	_, err := newStaticTokenClient(t, endpoint).GetVPC(context.Background(), "vpc-1")
+
+	require.ErrorIs(t, err, ErrEndpointUnreachable)
+	assert.EqualError(t, err, "NICo API endpoint could not be reached")
 }
 
 func TestNormalizeErrorClassifiesConnectionFailures(t *testing.T) {
