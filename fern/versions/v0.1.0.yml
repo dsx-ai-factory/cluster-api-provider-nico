@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Navigation tree for cluster-api-provider-nico documentation, read by
+# fern/docs.yml. Paths are relative to this docs/ directory.
+
+navigation:
+  - page: Overview
+    path: v0.1.0-content/README.md
+  - page: Getting Started
+    path: v0.1.0-content/getting-started.md
+  - page: Architecture
+    path: v0.1.0-content/architecture.md
+  - page: API Reference
+    path: v0.1.0-content/api-reference.md
+  - page: Troubleshooting
+    path: v0.1.0-content/troubleshooting.md
+  - page: Development
+    path: v0.1.0-content/development.md
+  - page: Writing Controller Tests
+    path: v0.1.0-content/writing-tests.md

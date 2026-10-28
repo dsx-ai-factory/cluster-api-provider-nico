@@ -29,9 +29,27 @@ Four reasons account for this symptom.
 - `IdentityConfigurationFailed` means the Secret exists, but its configuration
   is invalid. For example, required keys are missing, or the authentication
   mode is incomplete. Recheck its keys against the same credentials reference.
-- `TenantResolutionFailed` means the tenant lookup failed. Causes include a
-  wrong org or `apiName`, an expired or rejected token, an unroutable endpoint,
-  or a CA mismatch. All four land on this one reason.
+- `TenantResolutionFailed` means the tenant lookup failed for another reason.
+  Causes include a wrong org or `apiName`, rejected credentials, or an unexpected
+  API response.
+- `TLSVerifyFailed` means the NICo API connection failed TLS certificate
+  verification. Check the server certificate's validity, hostname, and trust
+  chain with your site operator. Configure the provider to trust the issuing
+  certificate authority (CA).
+- `EndpointUnreachable` means a DNS lookup, socket connection, or transport
+  failed before an HTTP response arrived. Check DNS, routing, firewall rules,
+  and NICo availability from the management cluster.
+
+The machine controller also uses `TLSVerifyFailed` and `EndpointUnreachable`
+on `MachineProvisioned` when these failures block a required NICo API operation.
+The cluster controller uses them on `NicoReady`. Neither reason indicates a
+capacity wait. Cancellation and expiration of the reconciliation context retain
+the operation's existing failure reason. A client timeout while that context
+remains active uses `EndpointUnreachable`.
+
+After NICo provisions an instance, a connectivity failure while the controller
+reads that instance does not change `MachineProvisioned`. Check the controller
+logs for the failed reconcile.
 
 ### The Failure Domain List Stays Empty
 
@@ -87,6 +105,30 @@ cloud-init, or network reachability to the control-plane endpoint. Refer to the
 [OS image contract](getting-started.md#what-has-to-be-in-the-os-image) and work
 through its
 [image proving checklist](getting-started.md#proving-an-image-before-you-trust-it).
+
+### Inspect Instance Lifecycle Events
+
+The controller records the following Normal events on each `NicoMachine`.
+
+| Reason | Meaning |
+|---|---|
+| `InstanceCreated` | NICo successfully created the instance. |
+| `InstanceAdopted` | The provider adopted an existing instance, including an explicit import. |
+| `InstanceDeletionRequested` | NICo accepted the instance deletion request. |
+| `InstanceDeleted` | The provider confirmed that the instance is `Terminated` or no longer exists. |
+
+Inspect these events with `kubectl describe nicomachine <name> -n <namespace>`.
+Reboot events remain on the owning CAPI `Machine`, where reboot requests originate.
+Events are best effort and can repeat after reconciliation retries. Use conditions
+and NICo state to determine current progress.
+
+### The Instance Stays Provisioning With Phone-Home Enabled
+
+NICo holds the instance in `Provisioning` until cloud-init on the host calls the
+site's phone-home URL. Check that the image enables cloud-init's `phone_home`
+module and can reach that URL. CAPNICo does not time out this wait, so set a
+`MachineHealthCheck` node startup timeout to replace a machine that never calls
+back.
 
 ### A Machine Is Stuck Deleting, or an Instance Looks Leaked
 

@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http/httptest"
 	"os/exec"
@@ -215,6 +216,28 @@ func startFake(server *fake.Server) string {
 	return endpoint.URL
 }
 
+// startFakeForCase serves the fake over the transport that the case's
+// input_nico_transport.txt selects, so a case can exercise a failed connection
+// through the production client. Without the file it behaves like startFake.
+func startFakeForCase(server *fake.Server, tc *fixture.Case) string {
+	mode, _ := tc.Input("input_nico_transport.txt")
+	var endpoint *httptest.Server
+	switch strings.TrimSpace(mode) {
+	case "":
+		return startFake(server)
+	case "tls-untrusted":
+		endpoint = httptest.NewTLSServer(server.Handler())
+	case "closed":
+		endpoint = httptest.NewServer(server.Handler())
+		endpoint.Close()
+	default:
+		ginkgo.Fail(fmt.Sprintf("unknown NICo transport mode %q", mode))
+		return ""
+	}
+	ginkgo.DeferCleanup(endpoint.Close)
+	return endpoint.URL
+}
+
 func pointIdentitySecretsAtFake(ctx context.Context, c client.Client, endpoint string) error {
 	for _, name := range []string{"nico-creds", "nico-identity", "nico-identity-creds", "provider-power", testDefaultCredentials} {
 		secret := &corev1.Secret{}
@@ -356,6 +379,11 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory 
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	providerConfig := nico.ProviderConfig{Credentials: types.NamespacedName{Namespace: testNamespace, Name: testDefaultCredentials}}
+	if input, ok := tc.Input("input_provider_flags.txt"); ok {
+		fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+		providerConfig.BindFlags(fs)
+		gomega.Expect(fs.Parse(strings.Fields(input))).To(gomega.Succeed())
+	}
 	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme, ProviderConfig: providerConfig}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
 	gomega.Expect((&NicoMachineReconciler{
 		Client:                mgr.GetClient(),

@@ -14,14 +14,38 @@ import (
 	"time"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
+	fakedocker "github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake/docker"
 )
 
 func main() {
 	addr := flag.String("addr", ":8090", "The address the fake endpoint binds to.")
 	seed := flag.String("seed", "", "Path to a YAML file of resources to seed into the endpoint.")
+	backend := flag.String("backend", "", `Instance backend: "" (in-memory, default) or "docker".`)
+	dockerImage := flag.String("docker-image", "", "Node image used by the Docker backend.")
+	dockerControlPlaneHostname := flag.String(
+		"docker-control-plane-hostname", "", "Control-plane hostname used by the Docker backend.",
+	)
 	flag.Parse()
 
 	endpoint := fake.New()
+
+	switch *backend {
+	case "":
+	case "docker":
+		if *dockerImage == "" {
+			log.Fatal("--docker-image is required with --backend=docker")
+		}
+		if *dockerControlPlaneHostname == "" {
+			log.Fatal("--docker-control-plane-hostname is required with --backend=docker")
+		}
+		endpoint.SetBackend(&fakedocker.Backend{
+			Image:                *dockerImage,
+			ControlPlaneHostname: *dockerControlPlaneHostname,
+		})
+		log.Print("using the docker backend: instances run as real containers")
+	default:
+		log.Fatalf("unknown backend %q", *backend)
+	}
 
 	if *seed != "" {
 		contents, err := os.ReadFile(*seed)

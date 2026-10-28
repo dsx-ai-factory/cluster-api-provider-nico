@@ -616,8 +616,9 @@ kubectl -n demo describe nicocluster credcheck | sed -n '/Conditions/,$p'
 Ready means the identity resolved a tenant, so auth, TLS, routing, and org are
 all correct. Not ready names the failure: `WaitingForIdentitySecret` for a
 missing or misnamed Secret, `IdentityConfigurationFailed` for one the provider
-cannot parse, and `TenantResolutionFailed` for everything else, which step 7
-covers.
+cannot parse, `TLSVerifyFailed` for certificate verification failures, and
+`EndpointUnreachable` for network failures before an HTTP response. Other tenant
+lookup failures use `TenantResolutionFailed`. Step 7 covers these reasons.
 
 Fix this before you create a single Machine, then clean up. Delete the `Cluster`
 first, as described in [Common Pitfalls](#common-pitfalls) below:
@@ -692,13 +693,15 @@ generic timeout.
 |---|---|
 | `WaitingForIdentitySecret` | The Secret is missing or misnamed. |
 | `WaitingForNicoIdentity` | The `NicoIdentity` that `identityRef` names is missing or misnamed. |
-| `TenantResolutionFailed` | The tenant lookup failed. The cause is a wrong org or `apiName`, an expired or rejected token, an unroutable endpoint, or a CA mismatch. All four land here. |
+| `TenantResolutionFailed` | The tenant lookup failed. Check the org, `apiName`, and authentication configuration against your site operator's requirements. |
+| `TLSVerifyFailed` | The NICo API connection failed TLS certificate verification. Check the certificate's validity, hostname, and trust chain with your site operator. |
+| `EndpointUnreachable` | The NICo API request failed before receiving an HTTP response. Check DNS, routing, firewall rules, and NICo availability from the management cluster. |
 | `InstanceTypeNotFound` | The instance type ID is wrong, or the org is wrong. |
 | `InstanceTypeUnavailable` | There is no free allocation, which step 2 covers. |
 | `ControlPlanePriorityDeferred` | A control-plane machine is waiting on this type, so workers wait. |
 | `WaitingForBootstrapData` | The kubeadm provider has not written the Secret yet. |
 | `InstanceCreateFailed` | NICo rejected the create, and the message carries its error. |
-| `InstanceNotReady` | The instance exists and is booting, which is normal for several minutes. |
+| `InstanceNotReady` | The instance exists and is booting, which is normal for several minutes. With phone-home enabled, it stays `Provisioning` until cloud-init finishes on the host. |
 
 Nothing here polls faster than it needs to. The intervals are 15 seconds on the
 fast path, 30 seconds while an instance boots or tears down, 2 minutes when
@@ -727,7 +730,7 @@ CAPNICo actually sets on the create request, a boot source (`ipxeScript` or
 | Number | Requirement | Why |
 |---|---|---|
 | 1 | It boots from your iPXE script or registered operating system. | `NicoMachine.spec.ipxeScript` is chained verbatim, and CAPNICo does not host it. Set `spec.operatingSystemID` instead to boot an operating system already registered in NICo. |
-| 2 | It runs cloud-init, reading NICo's datasource. | The kubeadm bootstrap provider writes a `#cloud-config`, and CAPNICo passes it through untouched as instance user data. |
+| 2 | It runs cloud-init, reading NICo's datasource. | The kubeadm bootstrap provider writes a `#cloud-config`, and CAPNICo passes it through untouched as instance user data. With phone-home enabled, NICo adds a `phone_home` block to it. |
 | 3 | It has `kubeadm`, `kubelet`, and a container runtime. | The cloud-config runs `kubeadm init` or `kubeadm join`. It does not install them. |
 | 4 | It has `curl`. | `preKubeadmCommands` shells out to it before kubeadm runs. |
 | 5 | It can route to `169.254.169.254:7777`. | This is the metadata service, served by the DPU agent, and the provider ID comes from here. |

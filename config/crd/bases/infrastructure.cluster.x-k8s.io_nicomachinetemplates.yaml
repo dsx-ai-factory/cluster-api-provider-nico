@@ -262,6 +262,11 @@ spec:
                           Mutually exclusive with IpxeScript.
                         minLength: 1
                         type: string
+                      phoneHomeEnabled:
+                        description: |-
+                          PhoneHomeEnabled requests that NICo wait for the cloud-init phone-home callback before reporting the instance Ready.
+                          When unset, NICo uses the operating system's setting, and iPXE machines use the --default-phone-home-enabled manager flag.
+                        type: boolean
                       powerControlIdentityRef:
                         description: |-
                           PowerControlIdentityRef names the Secret in this machine's namespace for NICo power control.

@@ -332,10 +332,23 @@ reference on the `NicoCluster`.
 | `sshKeyGroupIDs` | list | The allowed SSH key group IDs for Serial-over-LAN access. |
 | `ipxeScript` | string | The iPXE script used to boot this instance. This field is mutually exclusive with `operatingSystemID`. |
 | `operatingSystemID` | string | The ID of a registered NICo operating system used to boot this instance. This field is mutually exclusive with `ipxeScript`. |
+| `phoneHomeEnabled` | bool | Requests that NICo keep the instance in `Provisioning` until cloud-init's phone-home callback arrives. When unset, NICo uses the operating system's setting, and iPXE machines use `--default-phone-home-enabled`. |
 | `cloudInitInjectHostname` | bool | Prepends hostname directives to the bootstrap cloud-config. |
 | `labels` | map | Labels applied to the instance. |
 | `allowUnhealthyMachine` | bool | Allows targeted instance creation on a machine in Error status. |
 | `providerID` | string | Set by the controller to `nico://<instance-id>` after the NICo instance is created. |
+
+The following flag sets the phone-home default for iPXE machines that do not set
+`phoneHomeEnabled`. Machines with `operatingSystemID` use the operating system's
+setting instead. Changing the flag affects only instances created afterward.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--default-phone-home-enabled` | `false` | Enables phone-home for iPXE machines. When `false`, NICo leaves phone-home off. |
+
+Phone-home fires at the end of cloud-init, so `Ready` means cloud-init finished,
+not that kubeadm succeeded. NICo adds the callback to the user data, which must
+be `#cloud-config` YAML.
 
 For example, this template supplies NICo settings independently of the
 provider named by `Cluster.spec.infrastructureRef`.
@@ -431,6 +444,8 @@ do about it. [Troubleshooting](troubleshooting.md) covers the rest.
 | `WaitingForNicoIdentity` | Yes | The `NicoIdentity` named by `identityRef` is not available yet. |
 | `IdentityConfigurationFailed` | | The identity configuration is invalid. |
 | `TenantResolutionFailed` | Yes | NICo tenant resolution failed. |
+| `TLSVerifyFailed` | Yes | The NICo API connection failed TLS certificate verification. |
+| `EndpointUnreachable` | Yes | The NICo API request encountered a network failure before receiving an HTTP response. |
 | `InfrastructureReady` | | The infrastructure resource is ready. |
 | `Synced`, `NotSynced`, `SyncUnknown` | | The desired infrastructure was reconciled, was not reconciled, or its reconciliation state is unknown. |
 | `WaitingForClusterInfrastructure` | | The owning cluster's infrastructure is not ready yet. |

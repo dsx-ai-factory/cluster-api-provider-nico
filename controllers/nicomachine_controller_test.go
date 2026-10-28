@@ -45,7 +45,8 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 		Setup: func(ctx ginkgo.SpecContext, tc *fixture.Case, _ fixture.CaseSet) {
 			tc.IncludeEvent = func(event eventsv1.Event) bool {
 				return event.ReportingController == "nicomachine-controller" &&
-					event.Regarding.Kind == "Machine" && event.Regarding.Name == testOwnerMachine
+					((event.Regarding.Kind == "Machine" && event.Regarding.Name == testOwnerMachine) ||
+						(event.Regarding.Kind == "NicoMachine" && event.Regarding.Name == testMachine))
 			}
 			tc.Client = client.WithFieldOwner(tc.Client, "capnico-envtest")
 			gomega.Expect(tc.CreateObjects(ctx)).To(gomega.Succeed())
@@ -77,7 +78,7 @@ func nicoMachineCaseSet(description, dirPrefix string, defineSteps func(*fixture
 				return server.Dump()
 			})
 
-			endpoint := startFake(server)
+			endpoint := startFakeForCase(server, tc)
 			gomega.Expect(pointIdentitySecretsAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
 			startReconcilers(ctx, tc, workloadFactory)
 		},
