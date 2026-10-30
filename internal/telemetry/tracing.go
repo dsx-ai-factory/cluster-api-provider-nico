@@ -39,7 +39,11 @@ func Setup(ctx context.Context) (func(context.Context) error, error) {
 	otel.SetErrorHandler(newErrorHandler(ctrl.Log.WithName("tracing")))
 	res, err := serviceResource(ctx)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, resource.ErrPartialResource) {
+			return nil, err
+		}
+		ctrl.Log.WithName("tracing").Info("incomplete tracing resource; continuing with available attributes",
+			"reason", resource.ErrPartialResource.Error())
 	}
 	exporter, err := otlptracegrpc.New(ctx)
 	if err != nil {
@@ -77,7 +81,7 @@ func LogError(logger logr.Logger, err error, message string) {
 		errorTypes = append(errorTypes, fmt.Sprintf("%T", cause))
 	}
 	reason := "unclassified"
-	for _, known := range []error{context.Canceled, context.DeadlineExceeded, syscall.ECONNREFUSED, syscall.ETIMEDOUT} {
+	for _, known := range []error{context.Canceled, context.DeadlineExceeded, syscall.ECONNREFUSED, syscall.ETIMEDOUT, resource.ErrPartialResource} {
 		if errors.Is(err, known) {
 			reason = known.Error()
 			break

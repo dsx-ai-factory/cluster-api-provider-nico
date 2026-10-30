@@ -40,6 +40,34 @@ func TestSetupWithoutEndpoint(t *testing.T) {
 	require.NoError(t, shutdown(context.Background()))
 }
 
+func TestSetupWithPartialResource(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://127.0.0.1:1")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "k8s.pod.name=controller-pod,missing-value")
+	previousProvider := otel.GetTracerProvider()
+	previousPropagator := otel.GetTextMapPropagator()
+	previousHandler := otel.GetErrorHandler()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previousProvider)
+		otel.SetTextMapPropagator(previousPropagator)
+		otel.SetErrorHandler(previousHandler)
+	})
+	res, err := serviceResource(context.Background())
+	require.ErrorIs(t, err, resource.ErrPartialResource)
+	pod, ok := res.Set().Value("k8s.pod.name")
+	require.True(t, ok)
+	assert.Equal(t, "controller-pod", pod.AsString())
+	var diagnostic string
+	logger := funcr.New(func(_, entry string) { diagnostic = entry }, funcr.Options{})
+	LogError(logger, err, "resource detection failed")
+	assert.Contains(t, diagnostic, "partial resource")
+	assert.NotContains(t, diagnostic, "missing-value")
+	shutdown, err := Setup(context.Background())
+	require.NoError(t, err)
+	assert.NotSame(t, previousProvider, otel.GetTracerProvider())
+	require.NoError(t, shutdown(context.Background()))
+}
+
 func TestServiceResource(t *testing.T) {
 	for _, serviceName := range []string{"", "custom-controller"} {
 		t.Run(serviceName, func(t *testing.T) {
