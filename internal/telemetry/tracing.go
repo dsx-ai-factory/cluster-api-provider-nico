@@ -7,14 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -133,80 +132,9 @@ func MarkWaiting(ctx context.Context, reason string) {
 	)
 }
 
-// HTTPClient copies the client and adds NICo request spans and W3C propagation.
+// HTTPClient copies the client and instruments NICo requests with OpenTelemetry.
 func HTTPClient(client *http.Client) *http.Client {
 	traced := *client
-	base := client.Transport
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	traced.Transport = &transport{base: base}
+	traced.Transport = otelhttp.NewTransport(client.Transport)
 	return &traced
-}
-
-type transport struct {
-	base http.RoundTripper
-}
-
-func (t *transport) CloseIdleConnections() {
-	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
-		closer.CloseIdleConnections()
-	}
-}
-
-func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	ctx, span := otel.Tracer(instrumentationName).Start(req.Context(), "NICo "+req.Method,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String("http.request.method", req.Method)),
-	)
-	request := req.Clone(ctx)
-	if request.Header == nil {
-		request.Header = make(http.Header)
-	}
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(request.Header))
-	response, err := t.base.RoundTrip(request)
-	if err != nil {
-		span.SetStatus(codes.Error, "NICo transport failed")
-		span.End()
-		return response, err
-	}
-	span.SetAttributes(attribute.Int("http.response.status_code", response.StatusCode))
-	if response.StatusCode >= http.StatusBadRequest {
-		span.SetStatus(codes.Error, "NICo request failed")
-	}
-	if response.Body == nil || response.Body == http.NoBody {
-		span.End()
-	} else {
-		response.Body = &responseBody{ReadCloser: response.Body, span: span}
-	}
-	return response, err
-}
-
-type responseBody struct {
-	io.ReadCloser
-	span trace.Span
-	once sync.Once
-}
-
-func (b *responseBody) Read(p []byte) (int, error) {
-	n, err := b.ReadCloser.Read(p)
-	if err != nil {
-		b.finish(err)
-	}
-	return n, err
-}
-
-func (b *responseBody) Close() error {
-	err := b.ReadCloser.Close()
-	b.finish(err)
-	return err
-}
-
-func (b *responseBody) finish(err error) {
-	b.once.Do(func() {
-		if err != nil && !errors.Is(err, io.EOF) {
-			b.span.SetStatus(codes.Error, "NICo response failed")
-		}
-		b.span.End()
-	})
 }
