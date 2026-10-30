@@ -26,6 +26,8 @@ products:
         slug: v0.1.0
         availability: stable
 redirects:
+  - source: "/latest/metrics"
+    destination: "/latest/observability"
   - source: "/cluster-api-provider-nico/index.html"
     destination: "/cluster-api-provider-nico/"
 logo:

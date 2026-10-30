@@ -126,14 +126,14 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 	shutdownTracing, err := telemetry.Setup(ctx)
 	if err != nil {
-		setupLog.Error(errors.New("trace exporter initialization failed"), "unable to initialize tracing")
+		telemetry.LogError(setupLog, err, "unable to initialize tracing")
 		os.Exit(1)
 	}
 	flushTracing := func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdownTracing(shutdownCtx); err != nil {
-			setupLog.Error(errors.New("trace exporter shutdown failed"), "unable to flush traces")
+			telemetry.LogError(setupLog, err, "unable to flush traces")
 		}
 	}
 	defer flushTracing()

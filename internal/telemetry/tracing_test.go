@@ -6,22 +6,80 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"testing/iotest"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	grpccodes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestSetupWithoutEndpoint(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	previousProvider := otel.GetTracerProvider()
+	previousPropagator := otel.GetTextMapPropagator()
+	t.Cleanup(func() { otel.SetTextMapPropagator(previousPropagator) })
+	shutdown, err := Setup(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, previousProvider, otel.GetTracerProvider())
+	require.NoError(t, shutdown(context.Background()))
+}
+
+func TestServiceResource(t *testing.T) {
+	for _, serviceName := range []string{"", "custom-controller"} {
+		t.Run(serviceName, func(t *testing.T) {
+			t.Setenv("OTEL_SERVICE_NAME", serviceName)
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "k8s.pod.name=controller-pod")
+			res, err := serviceResource(context.Background())
+			require.NoError(t, err)
+			name, ok := res.Set().Value("service.name")
+			require.True(t, ok)
+			wantName := serviceName
+			if wantName == "" {
+				wantName = "capnico-controller"
+			}
+			assert.Equal(t, wantName, name.AsString())
+			pod, ok := res.Set().Value("k8s.pod.name")
+			require.True(t, ok)
+			assert.Equal(t, "controller-pod", pod.AsString())
+			for _, key := range []string{"telemetry.sdk.name", "telemetry.sdk.language", "telemetry.sdk.version"} {
+				value, exists := res.Set().Value(attribute.Key(key))
+				assert.True(t, exists)
+				assert.NotEmpty(t, value.AsString())
+			}
+		})
+	}
+}
+
+func TestSDKErrorHandler(t *testing.T) {
+	var entries []string
+	logger := funcr.New(func(_, entry string) { entries = append(entries, entry) }, funcr.Options{})
+	handler := newErrorHandler(logger)
+	err := fmt.Errorf("server detail: %w", status.Error(grpccodes.Unavailable, "collector detail"))
+	handler.Handle(err)
+	handler.Handle(err)
+	require.Len(t, entries, 1)
+	assert.Contains(t, entries[0], "OpenTelemetry SDK error")
+	assert.Contains(t, entries[0], "Unavailable")
+	assert.Contains(t, entries[0], "*status.Error")
+	assert.NotContains(t, entries[0], "server detail")
+	assert.NotContains(t, entries[0], "collector detail")
+}
 
 func TestHTTPClientResponseSpan(t *testing.T) {
 	readErr := errors.New("read failed")

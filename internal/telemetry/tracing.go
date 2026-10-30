@@ -6,11 +6,15 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sync"
+	"syscall"
+	"time"
 
+	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -19,6 +23,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/time/rate"
+	"google.golang.org/grpc/status"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -30,23 +36,54 @@ func Setup(ctx context.Context) (func(context.Context) error, error) {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" && os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "" {
 		return func(context.Context) error { return nil }, nil
 	}
+	otel.SetErrorHandler(newErrorHandler(ctrl.Log.WithName("tracing")))
+	res, err := serviceResource(ctx)
+	if err != nil {
+		return nil, err
+	}
 	exporter, err := otlptracegrpc.New(ctx)
 	if err != nil {
 		return nil, err
 	}
-	serviceName := os.Getenv("OTEL_SERVICE_NAME")
-	if serviceName == "" {
-		serviceName = "capnico-controller"
-	}
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", serviceName))),
+		sdktrace.WithResource(res),
 	)
-	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {
-		ctrl.Log.WithName("tracing").Error(errors.New("OTLP export failed"), "unable to export traces")
-	}))
 	otel.SetTracerProvider(provider)
 	return provider.Shutdown, nil
+}
+
+func serviceResource(ctx context.Context) (*resource.Resource, error) {
+	return resource.New(ctx,
+		resource.WithAttributes(attribute.String("service.name", "capnico-controller")),
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+	)
+}
+
+func newErrorHandler(logger logr.Logger) otel.ErrorHandler {
+	limiter := rate.NewLimiter(rate.Every(time.Minute), 1)
+	return otel.ErrorHandlerFunc(func(err error) {
+		if limiter.Allow() {
+			LogError(logger, err, "OpenTelemetry SDK error")
+		}
+	})
+}
+
+// LogError reports typed causes without logging arbitrary configuration or server text.
+func LogError(logger logr.Logger, err error, message string) {
+	var errorTypes []string
+	for cause := err; cause != nil; cause = errors.Unwrap(cause) {
+		errorTypes = append(errorTypes, fmt.Sprintf("%T", cause))
+	}
+	reason := "unclassified"
+	for _, known := range []error{context.Canceled, context.DeadlineExceeded, syscall.ECONNREFUSED, syscall.ETIMEDOUT} {
+		if errors.Is(err, known) {
+			reason = known.Error()
+			break
+		}
+	}
+	logger.Error(nil, message, "errorTypes", errorTypes, "grpcCode", status.Code(err).String(), "reason", reason)
 }
 
 // StartReconcile starts a reconcile span and correlates its context logger.
