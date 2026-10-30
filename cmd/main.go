@@ -4,9 +4,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"os"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +26,7 @@ import (
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/controllers"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/telemetry"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/webhooks"
 	// +kubebuilder:scaffold:imports
 )
@@ -120,6 +123,20 @@ func main() {
 	}
 
 	setupLog.Info("provider configuration", "config", providerConfig)
+	ctx := ctrl.SetupSignalHandler()
+	shutdownTracing, err := telemetry.Setup(ctx)
+	if err != nil {
+		telemetry.LogError(setupLog, err, "unable to initialize tracing")
+		os.Exit(1)
+	}
+	flushTracing := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			telemetry.LogError(setupLog, err, "unable to flush traces")
+		}
+	}
+	defer flushTracing()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -140,7 +157,6 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-	ctx := ctrl.SetupSignalHandler()
 
 	// Set up first, so a missing NicoIdentity CRD fails this controller's setup rather than another's.
 	if err := (&controllers.NicoIdentityReconciler{
@@ -190,6 +206,7 @@ func main() {
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
+		flushTracing()
 		os.Exit(1)
 	}
 }
