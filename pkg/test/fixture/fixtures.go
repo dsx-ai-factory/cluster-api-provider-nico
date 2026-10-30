@@ -43,6 +43,8 @@ const (
 	updateExpectedEnabled    = "true"
 )
 
+type ObjectMask func(*unstructured.Unstructured) error
+
 // CaseSet configures a group of file-backed Ginkgo testcases.
 type CaseSet struct {
 	// Description names the outer Ginkgo container.
@@ -51,6 +53,8 @@ type CaseSet struct {
 	DirPrefix string
 	// MaskExpectedMetadata normalizes volatile Kubernetes metadata before comparison.
 	MaskExpectedMetadata bool
+	// MaskObjectFn optionally masks collected object copies after the built-in masks.
+	MaskObjectFn ObjectMask
 	// SchemeFn creates an isolated runtime Scheme for each testcase.
 	SchemeFn func() *runtime.Scheme
 	// EnvironmentFn creates an isolated envtest environment for each testcase.
@@ -83,6 +87,14 @@ type Case struct {
 
 func DescribeCaseSet(set CaseSet) bool {
 	validateCaseSet(set)
+	var masks []ObjectMask
+	if set.MaskExpectedMetadata {
+		masks = append(masks, maskObjectMetadata)
+	}
+	if set.MaskObjectFn != nil {
+		masks = append(masks, set.MaskObjectFn)
+	}
+
 	cases, err := discoverCases("testdata", set.DirPrefix)
 	if err != nil {
 		panic(err)
@@ -120,7 +132,7 @@ func DescribeCaseSet(set CaseSet) bool {
 				set.DefineSteps(tc, set)
 
 				ginkgo.It("matches the expected objects", func(ctx ginkgo.SpecContext) {
-					errs := compareOrUpdateObjects(ctx, tc, set.CompareObjects(), set.MaskExpectedMetadata)
+					errs := compareOrUpdateObjects(ctx, tc, set.CompareObjects(), masks)
 					errs = append(errs, compareOrUpdateAdditionalGoldens(ctx, tc)...)
 					if len(errs) != 0 {
 						ginkgo.Fail(errors.Join(errs...).Error())
@@ -439,21 +451,16 @@ func (c *Case) decodeObjects(filename, data string) ([]client.Object, error) {
 	return objects, nil
 }
 
-func compareOrUpdateObjects(
-	ctx context.Context,
-	tc *Case,
-	compareObjects []client.ObjectList,
-	maskExpectedMetadata bool,
-) []error {
+func compareOrUpdateObjects(ctx context.Context, tc *Case, lists []client.ObjectList, masks []ObjectMask) []error {
 	if os.Getenv(updateExpectedEnv) != updateExpectedEnabled {
 		var errs []error
-		for _, list := range compareObjects {
+		for _, list := range lists {
 			if _, ok := list.(*eventsv1.EventList); !ok {
 				continue
 			}
 			expected, err := os.ReadFile(tc.ExpectedFilepath) // #nosec G304 -- fixture path under testdata
 			if os.IsNotExist(err) {
-				actual, collectErr := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+				actual, collectErr := collectObjects(ctx, tc, lists, masks)
 				gomega.Expect(collectErr).NotTo(gomega.HaveOccurred())
 				errs = append(errs, fmt.Errorf("%w\n\nExpected output for %s:\n\n%s", err, tc.ExpectedFilepath, actual))
 				continue
@@ -461,7 +468,7 @@ func compareOrUpdateObjects(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			newPath := tc.ExpectedFilepath + ".new"
 			gomega.Eventually(ctx, func() (string, error) {
-				actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+				actual, err := collectObjects(ctx, tc, lists, masks)
 				if err != nil {
 					return "", err
 				}
@@ -475,7 +482,7 @@ func compareOrUpdateObjects(
 			return errs
 		}
 	}
-	actual, err := collectObjects(ctx, tc, compareObjects, maskExpectedMetadata)
+	actual, err := collectObjects(ctx, tc, lists, masks)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	compareOrUpdateGolden(tc.ExpectedFilepath, actual)
 	return nil
@@ -524,14 +531,9 @@ func compareOrUpdateGolden(expectedPath, actual string) {
 	gomega.Expect(removeIfPresent(newPath)).To(gomega.Succeed())
 }
 
-func collectObjects(
-	ctx context.Context,
-	tc *Case,
-	compareObjects []client.ObjectList,
-	maskExpectedMetadata bool,
-) (string, error) {
+func collectObjects(ctx context.Context, tc *Case, lists []client.ObjectList, masks []ObjectMask) (string, error) {
 	var actual strings.Builder
-	for _, list := range compareObjects {
+	for _, list := range lists {
 		if list == nil {
 			return "", errors.New("CompareObjects returned a nil object list")
 		}
@@ -563,10 +565,13 @@ func collectObjects(
 		if err := tc.Scheme.Convert(list, unstructuredList, nil); err != nil {
 			return "", fmt.Errorf("convert %T to unstructured list: %w", list, err)
 		}
-		if maskExpectedMetadata {
+		if len(masks) > 0 {
 			for i := range unstructuredList.Items {
-				if err := maskObjectMetadata(&unstructuredList.Items[i]); err != nil {
-					return "", err
+				object := &unstructuredList.Items[i]
+				for _, mask := range masks {
+					if err := mask(object); err != nil {
+						return "", fmt.Errorf("mask %s %s: %w", object.GetKind(), client.ObjectKeyFromObject(object), err)
+					}
 				}
 			}
 			unstructured.RemoveNestedField(unstructuredList.Object, "metadata", "resourceVersion")

@@ -1,8 +1,8 @@
 {
   "ginkgoSpecs": {
-    "controllers/nicocluster_controller_test.go": 7,
-    "controllers/nicoidentity_controller_test.go": 7,
-    "controllers/nicomachine_controller_test.go": 8
+    "controllers/nicocluster_controller_test.go": 8,
+    "controllers/nicoidentity_controller_test.go": 8,
+    "controllers/nicomachine_controller_test.go": 9
   },
   "ordinaryGoTests": [
     "TestControllers"
