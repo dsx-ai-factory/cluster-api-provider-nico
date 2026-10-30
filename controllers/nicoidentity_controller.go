@@ -214,7 +214,11 @@ func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
 // only by the watch-filter label, and the Secrets they name. Status-only
 // updates, including this controller's own lastCheckedTime writes, do not
 // trigger checks; Secret changes and the timed requeue do.
-func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *NicoIdentityReconciler) SetupWithManager(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
+) error {
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}
@@ -224,6 +228,11 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
 		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
+	}
+
+	var reconciler reconcile.Reconciler = r
+	for _, wrap := range wrappers {
+		reconciler = wrap(reconciler)
 	}
 
 	// The watch filter applies to Identities only. As a global event filter it
@@ -238,7 +247,7 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}),
 		)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.identitiesForSecret)).
-		Complete(r)
+		Complete(reconciler)
 }
 
 // identitiesForSecret maps a Secret event to the Identities in its namespace
