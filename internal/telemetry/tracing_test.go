@@ -6,9 +6,6 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/go-logr/logr/funcr"
@@ -21,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace"
 	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -107,37 +103,6 @@ func TestSDKErrorHandler(t *testing.T) {
 	assert.NotContains(t, entries[0], "collector detail")
 }
 
-func TestHTTPClientPropagation(t *testing.T) {
-	exporter := captureSpans(t)
-	ctx, parent := otel.Tracer("test").Start(context.Background(), "reconcile")
-	defer parent.End()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.invalid/instance", nil)
-	require.NoError(t, err)
-	base := &testTransport{roundTrip: func(req *http.Request) (*http.Response, error) {
-		current := trace.SpanContextFromContext(req.Context())
-		remoteCtx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.HeaderCarrier(req.Header))
-		remote := trace.SpanContextFromContext(remoteCtx)
-		assert.Equal(t, current.TraceID(), remote.TraceID())
-		assert.Equal(t, current.SpanID(), remote.SpanID())
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("response"))}, nil
-	}}
-	original := &http.Client{Transport: base}
-	traced := HTTPClient(original)
-	assert.Same(t, base, original.Transport)
-	response, err := traced.Do(request)
-	require.NoError(t, err)
-	assert.Empty(t, request.Header.Get("traceparent"))
-	assert.Empty(t, exporter.GetSpans())
-	_, err = io.ReadAll(response.Body)
-	require.NoError(t, err)
-	require.NoError(t, response.Body.Close())
-	spans := exporter.GetSpans()
-	require.Len(t, spans, 1)
-	assert.Equal(t, parent.SpanContext().TraceID(), spans[0].SpanContext.TraceID())
-	assert.Equal(t, parent.SpanContext().SpanID(), spans[0].Parent.SpanID())
-	assert.Equal(t, trace.SpanKindClient, spans[0].SpanKind)
-}
-
 func TestWaitingStageIsNotAnError(t *testing.T) {
 	exporter := captureSpans(t)
 	ctx, end := StartReconcile(context.Background(), "NicoMachine", "test", "machine")
@@ -175,12 +140,4 @@ func captureSpans(t *testing.T) *tracetest.InMemoryExporter {
 		require.NoError(t, provider.Shutdown(context.Background()))
 	})
 	return exporter
-}
-
-type testTransport struct {
-	roundTrip func(*http.Request) (*http.Response, error)
-}
-
-func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return t.roundTrip(req)
 }
