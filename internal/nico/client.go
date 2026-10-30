@@ -16,6 +16,8 @@ import (
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	"golang.org/x/oauth2"
+
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/telemetry"
 )
 
 const (
@@ -62,7 +64,7 @@ func newClient(ctx context.Context, secretConfig SecretConfig, httpClient *http.
 	}
 
 	cfg := nicosdk.NewConfiguration()
-	cfg.HTTPClient = httpClient
+	cfg.HTTPClient = telemetry.HTTPClient(httpClient)
 	cfg.Servers = nicosdk.ServerConfigurations{
 		{
 			URL:         trimTrailingSlash(secretConfig.Endpoint),

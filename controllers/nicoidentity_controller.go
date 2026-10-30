@@ -26,6 +26,7 @@ import (
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/telemetry"
 )
 
 const (
@@ -71,6 +72,8 @@ type NicoIdentityReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, retErr error) {
+	ctx, endTrace := telemetry.StartReconcile(ctx, "NicoIdentity", req.Namespace, req.Name)
+	defer func() { endTrace(retErr) }()
 	log := ctrl.LoggerFrom(ctx)
 
 	identity := &infrav1.NicoIdentity{}
