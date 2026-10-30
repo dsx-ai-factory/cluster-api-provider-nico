@@ -4,7 +4,10 @@
 package v1alpha1
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,9 +23,35 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
+
+// nicoIdentityTableRow asks the API server for the table `kubectl get` renders
+// for one Identity, as kubectl does, and returns its columns and cells.
+func nicoIdentityTableRow(ctx context.Context, t *testing.T, config *rest.Config, namespace, name string) ([]metav1.TableColumnDefinition, []any) {
+	t.Helper()
+	httpClient, err := rest.HTTPClientFor(config)
+	require.NoError(t, err)
+	host := strings.TrimSuffix(config.Host, "/")
+	if !strings.Contains(host, "://") {
+		host = "https://" + host
+	}
+	url := fmt.Sprintf("%s/apis/%s/namespaces/%s/nicoidentities/%s", host, GroupVersion.String(), namespace, name)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	require.NoError(t, err)
+	request.Header.Set("Accept", "application/json;as=Table;v=v1;g=meta.k8s.io")
+	response, err := httpClient.Do(request)
+	require.NoError(t, err)
+	defer func() { _ = response.Body.Close() }()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	var table metav1.Table
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&table))
+	require.Len(t, table.Rows, 1)
+	return table.ColumnDefinitions, table.Rows[0].Cells
+}
 
 func TestNicoIdentityAPI(t *testing.T) {
 	ctx := t.Context()
@@ -193,5 +222,25 @@ func TestNicoIdentityAPI(t *testing.T) {
 
 		object.Status.Conditions = []metav1.Condition{updated, updated}
 		require.True(t, apierrors.IsInvalid(c.Status().Update(ctx, object)), "condition types must be unique")
+	})
+
+	t.Run("kubectl get -o wide shows the next check time", func(t *testing.T) {
+		object := &NicoIdentity{
+			ObjectMeta: metav1.ObjectMeta{Name: "next-check", Namespace: namespace.Name},
+			Spec:       NicoIdentitySpec{CredentialsRef: NicoIdentityCredentialsReference{Name: "nico-credentials"}},
+		}
+		require.NoError(t, c.Create(ctx, object))
+		checked := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
+		next := metav1.NewTime(checked.Add(5 * time.Minute))
+		object.Status.LastCheckedTime = &checked
+		object.Status.NextCheckTime = &next
+		require.NoError(t, c.Status().Update(ctx, object))
+
+		columns, cells := nicoIdentityTableRow(ctx, t, config, namespace.Name, object.Name)
+		index := slices.IndexFunc(columns, func(column metav1.TableColumnDefinition) bool { return column.Name == "NextCheck" })
+		require.GreaterOrEqual(t, index, 0, "there is no NextCheck column")
+		require.EqualValues(t, 1, columns[index].Priority, "NextCheck shows only with -o wide")
+		require.Equal(t, "string", columns[index].Type, "a date column renders a future time as <invalid>")
+		require.Equal(t, next.Format(time.RFC3339), cells[index])
 	})
 }

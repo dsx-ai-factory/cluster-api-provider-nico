@@ -65,6 +65,9 @@ type NicoIdentityReconciler struct {
 	WatchFilterValue string
 	// clock dates each completed check. SetupWithManager defaults it to the real clock.
 	clock clock.PassiveClock
+	// nextCheckDelay sets how long after a completed check the next periodic
+	// check runs. When nil, the reconciler uses recheckAfter.
+	nextCheckDelay func(*infrav1.NicoIdentity) time.Duration
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nicoidentities,verbs=get;list;watch
@@ -129,9 +132,12 @@ func (r *NicoIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		Message:            result.Message,
 	})
 	identity.Status.LastCheckedTime = &completed
+	delay := r.delayBeforeNextCheck(identity)
+	next := metav1.NewTime(completed.Add(delay))
+	identity.Status.NextCheckTime = &next
 
 	log.Info("checked NicoIdentity credentials", "ready", result.Status, "reason", result.Reason)
-	return ctrl.Result{RequeueAfter: recheckAfter(identity)}, nil
+	return ctrl.Result{RequeueAfter: delay}, nil
 }
 
 // check validates the Secret the Identity names in its own namespace and
@@ -198,10 +204,20 @@ func secretRevision(secret *corev1.Secret, err error) string {
 	}
 }
 
+// delayBeforeNextCheck returns how long after a completed check the next
+// periodic check runs.
+func (r *NicoIdentityReconciler) delayBeforeNextCheck(identity *infrav1.NicoIdentity) time.Duration {
+	if r.nextCheckDelay != nil {
+		return r.nextCheckDelay(identity)
+	}
+	return recheckAfter(identity)
+}
+
 // recheckAfter spreads Identities across the last fifth of the check interval,
 // as the cluster controller spreads clusters. It subtracts the jitter rather
-// than adding it, so no Identity's nominal interval exceeds five minutes, the
-// age at which readers treat an observation as stale.
+// than adding it, so no Identity's nominal interval exceeds five minutes. Each
+// completed check publishes its nextCheckTime this long after it, and requeues
+// with the same delay.
 func recheckAfter(identity *infrav1.NicoIdentity) time.Duration {
 	return identityCheckInterval - deterministicJitter(string(identity.UID), identityCheckInterval/5)
 }
@@ -217,7 +233,11 @@ func (r *NicoIdentityReconciler) validationTimeout() time.Duration {
 // only by the watch-filter label, and the Secrets they name. Status-only
 // updates, including this controller's own lastCheckedTime writes, do not
 // trigger checks; Secret changes and the timed requeue do.
-func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *NicoIdentityReconciler) SetupWithManager(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
+) error {
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}
@@ -227,6 +247,11 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
 		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
+	}
+
+	var reconciler reconcile.Reconciler = r
+	for _, wrap := range wrappers {
+		reconciler = wrap(reconciler)
 	}
 
 	// The watch filter applies to Identities only. As a global event filter it
@@ -241,7 +266,7 @@ func (r *NicoIdentityReconciler) SetupWithManager(ctx context.Context, mgr ctrl.
 			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}),
 		)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.identitiesForSecret)).
-		Complete(r)
+		Complete(reconciler)
 }
 
 // identitiesForSecret maps a Secret event to the Identities in its namespace

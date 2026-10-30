@@ -345,7 +345,11 @@ func clusterReadyRequeueAfter(nicoCluster infrav1.NicoCluster) time.Duration {
 	return clusterReadyRequeue + deterministicJitter(string(nicoCluster.UID), clusterReadyJitterWindow)
 }
 
-func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *NicoClusterReconciler) SetupWithManager(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
+) error {
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
 	}
@@ -358,6 +362,11 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 	}
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &infrav1.NicoIdentity{}, nicoClusterIdentityCredentialsRefIndex, nicoIdentityCredentialsRefIndexer); err != nil {
 		return fmt.Errorf("index NicoIdentities by credentials Secret: %w", err)
+	}
+
+	var reconciler reconcile.Reconciler = r
+	for _, wrap := range wrappers {
+		reconciler = wrap(reconciler)
 	}
 
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
@@ -401,7 +410,7 @@ func (r *NicoClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			}),
 			builder.WithPredicates(crpredicate.GenerationChangedPredicate{}),
 		).
-		Complete(r)
+		Complete(reconciler)
 }
 
 // nicoClusterRequests returns a reconcile request for each NicoCluster.
