@@ -58,11 +58,11 @@ commands are not listed, because they are not distributed.
 | [github.com/onsi/gomega](https://github.com/onsi/gomega/blob/v1.44.0/LICENSE) | MIT | github.com/onsi/gomega@v1.44.0 |
 | [github.com/pkg/errors](https://github.com/pkg/errors/blob/v0.9.1/LICENSE) | BSD-2-Clause | github.com/pkg/errors@v0.9.1 |
 | [github.com/pmezard/go-difflib/difflib](https://github.com/pmezard/go-difflib/blob/5d4384ee4fb2/LICENSE) | BSD-3-Clause | github.com/pmezard/go-difflib@v1.0.1-0.20181226105442-5d4384ee4fb2 |
-| [github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil](https://github.com/prometheus/client_golang/blob/v1.24.0/internal/github.com/golang/gddo/LICENSE) | BSD-3-Clause | github.com/prometheus/client_golang@v1.24.0 |
-| [github.com/prometheus/client_golang/prometheus](https://github.com/prometheus/client_golang/blob/v1.24.0/LICENSE) | Apache-2.0 | github.com/prometheus/client_golang@v1.24.0 |
-| [github.com/prometheus/client_model/go](https://github.com/prometheus/client_model/blob/v0.6.2/LICENSE) | Apache-2.0 | github.com/prometheus/client_model@v0.6.2 |
-| [github.com/prometheus/common](https://github.com/prometheus/common/blob/v0.70.0/LICENSE) | Apache-2.0 | — |
-| [github.com/prometheus/procfs](https://github.com/prometheus/procfs/blob/v0.21.1/LICENSE) | Apache-2.0 | github.com/prometheus/procfs@v0.21.1 |
+| [github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil](https://github.com/prometheus/client_golang/blob/v1.25.0/internal/github.com/golang/gddo/LICENSE) | BSD-3-Clause | github.com/prometheus/client_golang@v1.25.0 |
+| [github.com/prometheus/client_golang/prometheus](https://github.com/prometheus/client_golang/blob/v1.25.0/LICENSE) | Apache-2.0 | github.com/prometheus/client_golang@v1.25.0 |
+| [github.com/prometheus/client_model/go](https://github.com/prometheus/client_model/blob/v0.6.3/LICENSE) | Apache-2.0 | github.com/prometheus/client_model@v0.6.3 |
+| [github.com/prometheus/common](https://github.com/prometheus/common/blob/v0.72.0/LICENSE) | Apache-2.0 | — |
+| [github.com/prometheus/procfs](https://github.com/prometheus/procfs/blob/v0.22.0/LICENSE) | Apache-2.0 | github.com/prometheus/procfs@v0.22.0 |
 | [github.com/spf13/pflag](https://github.com/spf13/pflag/blob/v1.0.10/LICENSE) | BSD-3-Clause | github.com/spf13/pflag@v1.0.10 |
 | [github.com/x448/float16](https://github.com/x448/float16/blob/v0.8.4/LICENSE) | MIT | github.com/x448/float16@v0.8.4 |
 | [go.uber.org/multierr](https://github.com/uber-go/multierr/blob/v1.11.0/LICENSE.txt) | MIT | go.uber.org/multierr@v1.11.0 |
@@ -78,7 +78,7 @@ commands are not listed, because they are not distributed.
 | [golang.org/x/text](https://cs.opensource.google/go/x/text/+/v0.43.0:LICENSE) | BSD-3-Clause | — |
 | [golang.org/x/time/rate](https://cs.opensource.google/go/x/time/+/v0.15.0:LICENSE) | BSD-3-Clause | golang.org/x/time@v0.15.0 |
 | [gomodules.xyz/jsonpatch/v2](https://github.com/gomodules/jsonpatch/blob/v2.5.0/LICENSE) | Apache-2.0 | gomodules.xyz/jsonpatch/v2@v2.5.0 |
-| [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go/blob/f2248ac996af/LICENSE) | BSD-3-Clause | — |
+| [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go/blob/v1.36.12/LICENSE) | BSD-3-Clause | — |
 | [gopkg.in/evanphx/json-patch.v4](https://github.com/evanphx/json-patch/blob/v4.13.0/LICENSE) | BSD-3-Clause | gopkg.in/evanphx/json-patch.v4@v4.13.0 |
 | [gopkg.in/inf.v0](https://github.com/go-inf/inf/blob/v0.9.1/LICENSE) | BSD-3-Clause | gopkg.in/inf.v0@v0.9.1 |
 | [gopkg.in/validator.v2](https://github.com/go-validator/validator/blob/v2.0.1/LICENSE) | Apache-2.0 | gopkg.in/validator.v2@v2.0.1 |
