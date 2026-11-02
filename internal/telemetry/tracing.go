@@ -6,10 +6,8 @@ package telemetry
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -23,7 +21,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
-	"google.golang.org/grpc/status"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -68,25 +65,9 @@ func newErrorHandler(logger logr.Logger) otel.ErrorHandler {
 	limiter := rate.NewLimiter(rate.Every(time.Minute), 1)
 	return otel.ErrorHandlerFunc(func(err error) {
 		if limiter.Allow() {
-			LogError(logger, err, "OpenTelemetry SDK error")
+			logger.Error(err, "OpenTelemetry SDK error")
 		}
 	})
-}
-
-// LogError reports typed causes without logging arbitrary configuration or server text.
-func LogError(logger logr.Logger, err error, message string) {
-	var errorTypes []string
-	for cause := err; cause != nil; cause = errors.Unwrap(cause) {
-		errorTypes = append(errorTypes, fmt.Sprintf("%T", cause))
-	}
-	reason := "unclassified"
-	for _, known := range []error{context.Canceled, context.DeadlineExceeded, syscall.ECONNREFUSED, syscall.ETIMEDOUT, resource.ErrPartialResource} {
-		if errors.Is(err, known) {
-			reason = known.Error()
-			break
-		}
-	}
-	logger.Error(nil, message, "errorTypes", errorTypes, "grpcCode", status.Code(err).String(), "reason", reason)
 }
 
 // StartReconcile starts a reconcile span and correlates its context logger.
