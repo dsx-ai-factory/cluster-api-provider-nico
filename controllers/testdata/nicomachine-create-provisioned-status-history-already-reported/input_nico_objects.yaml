@@ -1,0 +1,31 @@
+instances:
+  resources:
+  - org: org-1
+    resource:
+      id: seeded-1
+      interfaces:
+      - ipAddresses:
+        - 10.0.0.10
+        subnetId: subnet-1
+      machineId: machine-id-1
+      name: machine-1
+      siteId: site-1
+      status: Ready
+      statusHistory:
+      - status: Ready
+        created: "2026-11-02T10:04:00Z"
+        updated: "2026-11-02T10:04:30Z"
+      - status: Pending
+        created: "2026-11-02T10:00:00Z"
+        updated: "2026-11-02T10:00:30Z"
+      - status: Provisioning
+        created: "2026-11-02T10:03:00Z"
+        updated: "2026-11-02T10:03:30Z"
+      - status: Configuring
+        created: "2026-11-02T10:02:00Z"
+        updated: "2026-11-02T10:02:30Z"
+      - status: Provisioning
+        created: "2026-11-02T10:01:00Z"
+        updated: "2026-11-02T10:01:30Z"
+      tenantId: tenant-1
+      vpcId: vpc-1
