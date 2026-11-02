@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
@@ -24,6 +26,7 @@ import (
 const testCluster = "nico-1"
 
 func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture.Case, fixture.CaseSet)) fixture.CaseSet {
+	reconcileLocks := make(map[*fixture.Case]*sync.RWMutex)
 	return fixture.CaseSet{
 		Description:          description,
 		DirPrefix:            dirPrefix,
@@ -52,9 +55,28 @@ func nicoClusterCaseSet(description, dirPrefix string, defineSteps func(*fixture
 
 			endpoint := startFakeForCase(server, tc)
 			gomega.Expect(pointIdentitySecretsAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
-			startReconcilers(ctx, tc, nil)
+			lock := new(sync.RWMutex)
+			reconcileLocks[tc] = lock
+			wrap := func(next reconcile.Reconciler) reconcile.Reconciler {
+				return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+					// Once golden collection starts, wait for shutdown without reconciling.
+					if !lock.TryRLock() {
+						<-ctx.Done()
+						return reconcile.Result{}, ctx.Err()
+					}
+					defer lock.RUnlock()
+
+					return next.Reconcile(ctx, req)
+				})
+			}
+			startReconcilers(ctx, tc, nil, wrap)
 		},
-		DefineSteps: defineSteps,
+		DefineSteps: func(tc *fixture.Case, set fixture.CaseSet) {
+			defineSteps(tc, set)
+			ginkgo.It("waits for reconciliation to complete", func() {
+				reconcileLocks[tc].Lock()
+			})
+		},
 	}
 }
 

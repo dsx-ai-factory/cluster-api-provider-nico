@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -22,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
@@ -35,6 +37,7 @@ import (
 const testIdentity = "nico-identity"
 
 func nicoIdentityCaseSet(description, dirPrefix string, defineSteps func(*fixture.Case, fixture.CaseSet)) fixture.CaseSet {
+	reconcileLocks := make(map[*fixture.Case]*sync.RWMutex)
 	return fixture.CaseSet{
 		Description:          description,
 		DirPrefix:            dirPrefix,
@@ -61,9 +64,28 @@ func nicoIdentityCaseSet(description, dirPrefix string, defineSteps func(*fixtur
 
 			endpoint := startFake(server)
 			gomega.Expect(pointIdentitySecretsAtFake(ctx, tc.Client, endpoint)).To(gomega.Succeed())
-			startIdentityReconciler(ctx, tc)
+			lock := new(sync.RWMutex)
+			reconcileLocks[tc] = lock
+			wrap := func(next reconcile.Reconciler) reconcile.Reconciler {
+				return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+					// Once golden collection starts, wait for shutdown without reconciling.
+					if !lock.TryRLock() {
+						<-ctx.Done()
+						return reconcile.Result{}, ctx.Err()
+					}
+					defer lock.RUnlock()
+
+					return next.Reconcile(ctx, req)
+				})
+			}
+			startIdentityReconciler(ctx, tc, wrap)
 		},
-		DefineSteps: defineSteps,
+		DefineSteps: func(tc *fixture.Case, set fixture.CaseSet) {
+			defineSteps(tc, set)
+			ginkgo.It("waits for reconciliation to complete", func() {
+				reconcileLocks[tc].Lock()
+			})
+		},
 	}
 }
 
@@ -157,7 +179,11 @@ func expectNicoIdentityChecked(ctx context.Context, tc *fixture.Case, generation
 // startIdentityReconciler runs only the Identity controller. Its provider
 // default is nico-creds in the case namespace, which the Identity controller
 // does not use: every Identity is checked against the Secret it names.
-func startIdentityReconciler(ctx ginkgo.SpecContext, tc *fixture.Case) {
+func startIdentityReconciler(
+	ctx ginkgo.SpecContext,
+	tc *fixture.Case,
+	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
+) {
 	mgr, err := manager.New(tc.Config, manager.Options{
 		Scheme:  tc.Scheme,
 		Metrics: metricsserver.Options{BindAddress: "0"},
@@ -173,7 +199,9 @@ func startIdentityReconciler(ctx ginkgo.SpecContext, tc *fixture.Case) {
 		},
 		// Goldens record lastCheckedTime, so every check is dated at the epoch.
 		clock: clocktesting.NewFakePassiveClock(time.Unix(0, 0).UTC()),
-	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+		// They also record nextCheckTime, so the delay skips the per-UID jitter.
+		nextCheckDelay: func(*infrav1.NicoIdentity) time.Duration { return identityCheckInterval },
+	}).SetupWithManager(ctx, mgr, wrappers...)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
 }

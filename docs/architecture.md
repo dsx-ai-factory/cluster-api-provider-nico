@@ -155,7 +155,10 @@ trigger a check, and
 an index from each Identity to its Secret lets a Secret change recheck exactly
 the Identities that name it. Its own status writes do not trigger a check, so
 a requeue of four to five minutes, offset by each Identity's UID, sets the
-cadence when nothing changes. Before publishing, it rereads the Identity and the Secret and
+cadence when nothing changes. Each completed check publishes that requeue's due
+time as `nextCheckTime`, in the same status request as `lastCheckedTime`, so
+readers judge freshness by the controller's schedule instead of assuming its
+interval. Before publishing, it rereads the Identity and the Secret and
 discards a result whose Identity generation or Secret revision changed during
 the check. It also checks the watch-filter label on every reconcile, including
 the timed requeues that bypass the event filter, so an Identity whose label

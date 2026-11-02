@@ -33,6 +33,11 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - description: When the controller next checks this Identity on its own schedule
+      jsonPath: .status.nextCheckTime
+      name: NextCheck
+      priority: 1
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -155,6 +160,15 @@ spec:
                   LastCheckedTime is when the reported attempt completed, including failures.
                   It is absent before the first completed attempt. Readers must check its age;
                   a condition's lastTransitionTime does not establish observation freshness.
+                format: date-time
+                type: string
+              nextCheckTime:
+                description: |-
+                  NextCheckTime is when the controller next checks this Identity on its own
+                  schedule. A change to the Identity or its Secret can start a check sooner.
+                  It is absent before the first completed attempt. When it is later than
+                  lastCheckedTime, readers treat the reported result as overdue once the
+                  current time is more than five minutes past it.
                 format: date-time
                 type: string
             type: object

@@ -1139,7 +1139,11 @@ func (r *NicoMachineReconciler) machineCredentialsSecretKeys(object client.Objec
 	return keys
 }
 
-func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *NicoMachineReconciler) SetupWithManager(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
+) error {
 	if r.Recorder == nil {
 		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
 	}
@@ -1181,6 +1185,11 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			}
 		}
 		return requests
+	}
+
+	var reconciler reconcile.Reconciler = r
+	for _, wrap := range wrappers {
+		reconciler = wrap(reconciler)
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -1291,5 +1300,5 @@ func (r *NicoMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 			}),
 			builder.WithPredicates(crpredicate.GenerationChangedPredicate{}),
 		).
-		Complete(r)
+		Complete(reconciler)
 }

@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
@@ -368,7 +369,12 @@ func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
-func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory workloadClientFactory) {
+func startReconcilers(
+	ctx ginkgo.SpecContext,
+	tc *fixture.Case,
+	workloadFactory workloadClientFactory,
+	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
+) {
 	defaultNicoClientCache = nico.NewClientCache()
 	mgr, err := manager.New(tc.Config, manager.Options{
 		Scheme:  tc.Scheme,
@@ -384,13 +390,17 @@ func startReconcilers(ctx ginkgo.SpecContext, tc *fixture.Case, workloadFactory 
 		providerConfig.BindFlags(fs)
 		gomega.Expect(fs.Parse(strings.Fields(input))).To(gomega.Succeed())
 	}
-	gomega.Expect((&NicoClusterReconciler{Client: mgr.GetClient(), Scheme: tc.Scheme, ProviderConfig: providerConfig}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+	gomega.Expect((&NicoClusterReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         tc.Scheme,
+		ProviderConfig: providerConfig,
+	}).SetupWithManager(ctx, mgr, wrappers...)).To(gomega.Succeed())
 	gomega.Expect((&NicoMachineReconciler{
 		Client:                mgr.GetClient(),
 		Scheme:                tc.Scheme,
 		ProviderConfig:        providerConfig,
 		WorkloadClientFactory: workloadFactory,
-	}).SetupWithManager(ctx, mgr)).To(gomega.Succeed())
+	}).SetupWithManager(ctx, mgr, wrappers...)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
 }

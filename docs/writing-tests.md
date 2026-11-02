@@ -30,6 +30,11 @@ HTTPS with an untrusted test certificate. Use `closed` to close the fake server
 before reconciliation. Both modes use the production NICo client. Omit the file
 to use the default HTTP server.
 
+### Custom Object Masking
+
+Use `fixture.CaseSet.MaskObjectFn` to normalize collected object copies after
+built-in masking.
+
 ## CAPNICo Generation Invariants
 
 Each case set settles at a known generation, so an unexpected generation is a
