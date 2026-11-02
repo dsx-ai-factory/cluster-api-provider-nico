@@ -93,7 +93,7 @@ commands are not listed, because they are not distributed.
 | [gomodules.xyz/jsonpatch/v2](https://github.com/gomodules/jsonpatch/blob/v2.5.0/LICENSE) | Apache-2.0 | gomodules.xyz/jsonpatch/v2@v2.5.0 |
 | [google.golang.org/genproto/googleapis/api/httpbody](https://github.com/googleapis/go-genproto/blob/6ac0973c030d/googleapis/api/LICENSE) | Apache-2.0 | google.golang.org/genproto/googleapis/api@v0.0.0-20260803160001-6ac0973c030d |
 | [google.golang.org/genproto/googleapis/rpc](https://github.com/googleapis/go-genproto/blob/6ac0973c030d/googleapis/rpc/LICENSE) | Apache-2.0 | — |
-| [google.golang.org/grpc](https://github.com/grpc/grpc-go/blob/v1.83.1/LICENSE) | Apache-2.0 | google.golang.org/grpc@v1.83.1 |
+| [google.golang.org/grpc](https://github.com/grpc/grpc-go/blob/v1.83.2/LICENSE) | Apache-2.0 | google.golang.org/grpc@v1.83.2 |
 | [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go/blob/f2248ac996af/LICENSE) | BSD-3-Clause | — |
 | [gopkg.in/evanphx/json-patch.v4](https://github.com/evanphx/json-patch/blob/v4.13.0/LICENSE) | BSD-3-Clause | gopkg.in/evanphx/json-patch.v4@v4.13.0 |
 | [gopkg.in/inf.v0](https://github.com/go-inf/inf/blob/v0.9.1/LICENSE) | BSD-3-Clause | gopkg.in/inf.v0@v0.9.1 |
