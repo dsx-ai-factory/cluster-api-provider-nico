@@ -27,7 +27,7 @@ The following table shows what you find on each one.
 | [Architecture](architecture.md) | Where this provider sits in Cluster API, the five CRDs and which fields belong to each, how credentials resolve and cache, credential health observation, machine reconciliation and what the finalizer guards, provider ID and node matching, teardown order, and the annotation-driven repair and reboot contracts. |
 | [API Reference](api-reference.md) | A field-by-field reference for all five CRDs, including the one that is scaffolded but unconsumed, and every condition and reason. |
 | [Troubleshooting](troubleshooting.md) | The symptom, cause, and fix for problems beyond the stall-reason table in Getting Started. |
-| [Metrics](metrics.md) | The NICo API request metrics, how to reach the metrics endpoint, and example Prometheus queries. |
+| [Observability](observability.md) | NICo API request metrics, Prometheus queries, and distributed tracing configuration. |
 | [Issue Triage](issue-triage.md) | Maintainer triage, priority labels, fix SLAs, and issue automation. |
 | [Development](development.md) | The local kind, Tilt, Helm, and fake-NICo development loop. |
 | [Writing Controller Tests](writing-tests.md) | The controller envtest boundary, fixture inputs, Kubernetes and NICo goldens, and how to extend the HTTP fake. |
