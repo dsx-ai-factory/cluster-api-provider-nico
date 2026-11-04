@@ -44,6 +44,7 @@ import (
 )
 
 const (
+	nicoMachineControllerName              = "nicomachine-controller"
 	nicoMachineFinalizer                   = "infrastructure.cluster.x-k8s.io/nicomachine"
 	nicoMachineCredentialsSecretRefIndex   = "nicoMachineCredentialsSecretRef"
 	nicoMachineIdentityRefIndex            = "nicoMachineIdentityRef"
@@ -648,8 +649,8 @@ func (r *NicoMachineReconciler) recordInstanceStatusEvents(ctx context.Context, 
 				UID:        machine.UID,
 			},
 			EventTime:           metav1.NewMicroTime(time.Now().UTC()),
-			ReportingController: "nicomachine-controller",
-			ReportingInstance:   "nicomachine-controller",
+			ReportingController: nicoMachineControllerName,
+			ReportingInstance:   nicoMachineControllerName,
 			Action:              "Observe",
 			Reason:              "InstanceStateObserved",
 			Type:                corev1.EventTypeNormal,
@@ -1270,7 +1271,7 @@ func (r *NicoMachineReconciler) SetupWithManager(
 	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
 ) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
+		r.Recorder = mgr.GetEventRecorder(nicoMachineControllerName)
 	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()
