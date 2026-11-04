@@ -5,13 +5,16 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,6 +44,7 @@ import (
 )
 
 const (
+	nicoMachineControllerName              = "nicomachine-controller"
 	nicoMachineFinalizer                   = "infrastructure.cluster.x-k8s.io/nicomachine"
 	nicoMachineCredentialsSecretRefIndex   = "nicoMachineCredentialsSecretRef"
 	nicoMachineIdentityRefIndex            = "nicoMachineIdentityRef"
@@ -51,6 +55,7 @@ const (
 	machineReadyJitterWindow               = 1 * time.Minute
 	instanceTypeUnavailableWait            = 2 * time.Minute
 	traceOutcomeWaiting                    = "waiting"
+	lastInstanceStatusEventTimeAnnotation  = "nico.nvidia.com/last-instance-status-event-time"
 
 	// These NVKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
@@ -221,6 +226,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			nicoMachine.Status.InstanceID = instance.GetId()
 			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
 			r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
+			r.recordInstanceStatusEvents(ctx, &nicoMachine, instance)
 			// Persist providerID and its new generation before a reboot can
 			// interrupt normal status reconciliation.
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
@@ -356,6 +362,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
 		}
+		r.recordInstanceStatusEvents(ctx, &nicoMachine, instance)
 
 		// Written before the first poll, so a restart resumes this instance rather
 		// than creating a second one for the same Machine.
@@ -408,6 +415,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nicoMachine.Status.InstanceID = instance.GetId()
 		r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
 	}
+
+	r.recordInstanceStatusEvents(ctx, &nicoMachine, instance)
 
 	requestedDomain := ownerMachine.Spec.FailureDomain
 	observedDomain, err := observeFailureDomain(ctx, nicoClient, &nicoMachine, nicoCluster.Spec.FailureDomainLabelKey, instance, requestedDomain)
@@ -576,6 +585,7 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	if err != nil {
 		return false, fmt.Errorf("delete NicoMachine: failed to get NICo instance: %w", err)
 	}
+	r.recordInstanceStatusEvents(ctx, nicoMachine, instance)
 
 	switch {
 	case nico.IsTerminated(instance):
@@ -604,6 +614,62 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	log.Info("requested NICo instance deletion", "instanceID", instanceID)
 
 	return false, nil
+}
+
+func (r *NicoMachineReconciler) recordInstanceStatusEvents(ctx context.Context, machine *infrav1.NicoMachine, instance *nicosdk.Instance) {
+	lastReported, err := time.Parse(time.RFC3339Nano, machine.Annotations[lastInstanceStatusEventTimeAnnotation])
+	if err != nil {
+		lastReported = time.Time{}
+	}
+
+	history := slices.Clone(instance.GetStatusHistory())
+	slices.SortStableFunc(history, func(a, b nicosdk.StatusDetail) int {
+		return a.GetCreated().Compare(b.GetCreated())
+	})
+
+	latest := lastReported
+	for _, entry := range history {
+		created := entry.GetCreated()
+		if entry.GetStatus() == "" || !created.After(lastReported) {
+			continue
+		}
+		transitionTime := created.UTC().Format(time.RFC3339Nano)
+		key := fmt.Sprintf("%s/%s/%s", instance.GetId(), entry.GetStatus(), transitionTime)
+		// The recorder groups different notes with the same reason and action.
+		stateEvent := &eventsv1.Event{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("nico-instance-state-%s.%x", machine.UID, sha256.Sum256([]byte(key))),
+				Namespace: machine.Namespace,
+			},
+			Regarding: corev1.ObjectReference{
+				APIVersion: infrav1.GroupVersion.String(),
+				Kind:       "NicoMachine",
+				Namespace:  machine.Namespace,
+				Name:       machine.Name,
+				UID:        machine.UID,
+			},
+			EventTime:           metav1.NewMicroTime(time.Now().UTC()),
+			ReportingController: nicoMachineControllerName,
+			ReportingInstance:   nicoMachineControllerName,
+			Action:              "Observe",
+			Reason:              "InstanceStateObserved",
+			Type:                corev1.EventTypeNormal,
+			Note: fmt.Sprintf("Observed NICo instance %s in %s; NICo transition time: %s.",
+				instance.GetId(), entry.GetStatus(), transitionTime),
+		}
+		if err := r.Create(ctx, stateEvent); err != nil && !apierrors.IsAlreadyExists(err) {
+			ctrl.LoggerFrom(ctx).Error(err, "failed to record NICo instance state event", "instanceID", instance.GetId())
+			return
+		}
+		latest = created
+	}
+
+	if latest.After(lastReported) {
+		if machine.Annotations == nil {
+			machine.Annotations = make(map[string]string)
+		}
+		machine.Annotations[lastInstanceStatusEventTimeAnnotation] = latest.UTC().Format(time.RFC3339Nano)
+	}
 }
 
 func (r *NicoMachineReconciler) instanceEvent(machine *infrav1.NicoMachine, reason, action, message string) {
@@ -1205,7 +1271,7 @@ func (r *NicoMachineReconciler) SetupWithManager(
 	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
 ) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
+		r.Recorder = mgr.GetEventRecorder(nicoMachineControllerName)
 	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()

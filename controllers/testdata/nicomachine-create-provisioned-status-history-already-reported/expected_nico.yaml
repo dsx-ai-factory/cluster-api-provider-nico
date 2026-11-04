@@ -1,0 +1,75 @@
+instance_types:
+- org: org-1
+  resource:
+    allocationStats:
+      total: 1
+      unused: 1
+      unusedUsable: 1
+      used: 0
+    id: type-1
+instances:
+- org: org-1
+  resource:
+    id: seeded-1
+    interfaces:
+    - ipAddresses:
+      - 10.0.0.10
+      subnetId: subnet-1
+    labels:
+      nvke.nvidia.com/machine-id: machine-id-1
+      nvke.nvidia.com/site-id: site-1
+      nvke.nvidia.com/site-name: fake-site
+      nvke.nvidia.com/vpc-id: vpc-1
+      nvke.nvidia.com/vpc-name: fake-vpc
+    machineId: machine-id-1
+    name: machine-1
+    siteId: site-1
+    status: Ready
+    statusHistory:
+    - created: "2026-11-02T10:04:00Z"
+      status: Ready
+      updated: "2026-11-02T10:04:30Z"
+    - created: "2026-11-02T10:00:00Z"
+      status: Pending
+      updated: "2026-11-02T10:00:30Z"
+    - created: "2026-11-02T10:03:00Z"
+      status: Provisioning
+      updated: "2026-11-02T10:03:30Z"
+    - created: "2026-11-02T10:02:00Z"
+      status: Configuring
+      updated: "2026-11-02T10:02:30Z"
+    - created: "2026-11-02T10:01:00Z"
+      status: Provisioning
+      updated: "2026-11-02T10:01:30Z"
+    tenantId: tenant-1
+    vpcId: vpc-1
+requests:
+- instance_id: seeded-1
+  operation: update-instance
+  org: org-1
+  update:
+    labels:
+      nvke.nvidia.com/machine-id: machine-id-1
+      nvke.nvidia.com/site-id: site-1
+      nvke.nvidia.com/site-name: fake-site
+      nvke.nvidia.com/vpc-id: vpc-1
+      nvke.nvidia.com/vpc-name: fake-vpc
+sites:
+- org: org-1
+  resource:
+    id: site-1
+    name: fake-site
+    org: org-1
+tenants:
+- org: org-1
+  resource:
+    id: tenant-1
+    org: org-1
+vpcs:
+- org: org-1
+  resource:
+    id: vpc-1
+    name: fake-vpc
+    org: org-1
+    siteId: site-1
+    tenantId: tenant-1
