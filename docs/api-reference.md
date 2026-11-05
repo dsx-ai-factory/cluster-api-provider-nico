@@ -107,10 +107,17 @@ principal. Reasons can be extended; messages are diagnostic text for people.
 | `True` | `ValidationSucceeded` | Authentication and the current-tenant lookup succeeded. The message says so if TLS certificate verification is disabled. |
 | `False` | `CredentialsNotFound` | The referenced Secret does not exist. |
 | `False` | `InvalidConfiguration` | The Secret lacks required keys or has invalid values. |
-| `False` | `AuthenticationFailed` | The token issuer or NICo rejected the credentials. |
+| `False` | `AuthenticationFailed` | The token issuer answered with HTTP 400 or 401, or NICo rejected the access token. The message says the issuer "rejected the client credentials" for a 401 or a 400 with the `invalid_client` error code, and "rejected the token request" for any other 400, for example for a scope the client is not granted. |
 | `False` | `AccessDenied` | NICo forbade the current-tenant lookup. |
 | `Unknown` | `SecretReadFailed` | The controller could not read the Secret, for example because of RBAC. |
-| `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got an unexpected response. |
+| `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got a response that does not establish credential health, such as a server error, rate limit, or HTTP 403 or 404 from the token issuer. |
+
+The controller classifies token issuer answers by HTTP status, so it does not
+depend on the issuer sending an OAuth 2.0 error code. The message names the
+status, for example "Token issuer rejected the client credentials with HTTP
+401." It never includes the issuer's response body. Some issuers also answer a
+request to an unknown path with HTTP 401, so for `AuthenticationFailed` from the
+token issuer, check `tokenURL` as well as `clientID` and `clientSecret`.
 
 Readers select `Ready` by type and compare its `observedGeneration` with
 `metadata.generation`. The controller writes `Ready` in one request and

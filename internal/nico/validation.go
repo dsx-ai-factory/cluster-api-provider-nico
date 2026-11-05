@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -66,9 +67,10 @@ func ValidateCredentials(ctx context.Context, secret *corev1.Secret, timeout tim
 	}
 	if err != nil {
 		var rejection *oauth2.RetrieveError
-		if errors.As(err, &rejection) && rejection.Response != nil && rejection.ErrorCode == "invalid_client" &&
-			(rejection.Response.StatusCode == http.StatusBadRequest || rejection.Response.StatusCode == http.StatusUnauthorized) {
-			return CredentialValidation{metav1.ConditionFalse, "AuthenticationFailed", "Token issuer rejected the client credentials."}
+		if errors.As(err, &rejection) && rejection.Response != nil {
+			if result, rejected := tokenIssuerRejection(rejection.Response.StatusCode, rejection.ErrorCode); rejected {
+				return result
+			}
 		}
 		return validationFailure(ctx, err, "Token acquisition")
 	}
@@ -97,6 +99,20 @@ func ValidateCredentials(ctx context.Context, secret *corev1.Secret, timeout tim
 func validCredentialURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && u.Hostname() != "" && (u.Scheme == "http" || u.Scheme == "https")
+}
+
+func tokenIssuerRejection(statusCode int, errorCode string) (CredentialValidation, bool) {
+	var rejected string
+	switch {
+	case statusCode == http.StatusUnauthorized, statusCode == http.StatusBadRequest && errorCode == "invalid_client":
+		rejected = "the client credentials"
+	case statusCode == http.StatusBadRequest:
+		rejected = "the token request"
+	default:
+		return CredentialValidation{}, false
+	}
+	message := "Token issuer rejected " + rejected + " with HTTP " + strconv.Itoa(statusCode) + "."
+	return CredentialValidation{metav1.ConditionFalse, "AuthenticationFailed", message}, true
 }
 
 func invalidCredentialConfiguration(message string) CredentialValidation {
