@@ -190,6 +190,17 @@ instance records, so both `Terminated` and not-found count as released. Do not
 remove the finalizer while `status.instanceID` can still refer to a live
 instance.
 
+A create can outlive a lost response or status patch, so an empty
+`status.instanceID` does not prove that no instance exists. When the owner
+`Machine` has bootstrap data, delete looks up the instance by name in the VPC
+and releases it if it carries the `cluster.x-k8s.io/cluster-name`,
+`cluster.x-k8s.io/machine-name`, and `nico.nvidia.com/namespace` labels for this
+machine. These labels take precedence over `spec.labels` at create. A same-named
+instance without all three is left alone, including one from another namespace
+and one created before the namespace label existed. When `spec.providerID` is
+set, the instance must also be the one it names. This lookup needs working credentials, so the finalizer stays in
+place until they are available.
+
 `NicoCluster` holds its own finalizer and refuses to release it while any
 `NicoMachine` remains in the same namespace carrying a matching
 `cluster.x-k8s.io/cluster-name` label.

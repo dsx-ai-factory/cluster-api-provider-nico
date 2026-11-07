@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -56,6 +57,8 @@ const (
 	instanceTypeUnavailableWait            = 2 * time.Minute
 	traceOutcomeWaiting                    = "waiting"
 	lastInstanceStatusEventTimeAnnotation  = "nico.nvidia.com/last-instance-status-event-time"
+	instanceMachineNameLabel               = "cluster.x-k8s.io/machine-name"
+	instanceNamespaceLabel                 = "nico.nvidia.com/namespace"
 
 	// These NVKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
@@ -514,7 +517,9 @@ func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachin
 	if !controllerutil.ContainsFinalizer(nicoMachine, nicoMachineFinalizer) {
 		return ctrl.Result{}, nil
 	}
-	if nicoMachine.Status.InstanceID == "" {
+	// Create waits for bootstrap data, so without it no instance can exist and
+	// deletion needs neither NICo nor credentials.
+	if nicoMachine.Status.InstanceID == "" && ptr.Deref(ownerMachine.Spec.Bootstrap.DataSecretName, "") == "" {
 		completeMachineDeletion(ctx, nicoMachine)
 		return ctrl.Result{}, nil
 	}
@@ -535,6 +540,17 @@ func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachin
 		return ctrl.Result{}, fmt.Errorf("delete NicoMachine: failed to get nico client: %w", err)
 	}
 
+	if nicoMachine.Status.InstanceID == "" {
+		found, err := r.adoptOrphanedInstance(ctx, nicoClient, ownerMachine, cluster, nicoMachine)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("delete NicoMachine: %w", err)
+		}
+		if !found {
+			completeMachineDeletion(ctx, nicoMachine)
+			return ctrl.Result{}, nil
+		}
+	}
+
 	done, err := r.releaseInstance(ctx, nicoClient, ownerMachine, nicoMachine)
 	if err != nil || !done {
 		if err == nil {
@@ -545,6 +561,51 @@ func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachin
 
 	completeMachineDeletion(ctx, nicoMachine)
 	return ctrl.Result{}, nil
+}
+
+// adoptOrphanedInstance finds an instance whose create outlived a lost response
+// or status patch, so deletion can release it. Deletion is destructive, so unlike
+// the create path it requires the labels this provider stamps at create. That
+// keeps a same-named instance this provider did not create, such as an import
+// that never passed validation, out of the release. The namespace label matters
+// because two namespaces can reuse Cluster and Machine names in a shared VPC.
+func (r *NicoMachineReconciler) adoptOrphanedInstance(
+	ctx context.Context,
+	nicoClient nico.API,
+	ownerMachine *clusterv1.Machine,
+	cluster *clusterv1.Cluster,
+	nicoMachine *infrav1.NicoMachine,
+) (bool, error) {
+	lookupCtx, lookupSpan := telemetry.StartStage(ctx, "capnico.lookup_instance")
+	// The lookup omits the configured site because NICo places an instance at its
+	// VPC's site, which can differ from it. The labels below still decide ownership.
+	instance, err := nicoClient.FindInstanceByName(lookupCtx, nico.InstanceLookup{
+		Name:              ownerMachine.Name,
+		VPCID:             nicoMachine.Spec.VPCID,
+		ExcludeTerminated: true,
+	})
+	if errors.Is(err, nico.ErrNotFound) {
+		telemetry.EndStage(lookupSpan, "not_found", nil)
+		return false, nil
+	}
+	if err != nil {
+		telemetry.EndStage(lookupSpan, "failed", err)
+		return false, fmt.Errorf("failed to find instance before finalizer removal: %w", err)
+	}
+	telemetry.EndStage(lookupSpan, "found", nil)
+
+	labels := instance.GetLabels()
+	if labels[clusterv1.ClusterNameLabel] != cluster.Name || labels[instanceMachineNameLabel] != ownerMachine.Name ||
+		labels[instanceNamespaceLabel] != nicoMachine.Namespace ||
+		(nicoMachine.Spec.ProviderID != "" && nicoMachine.Spec.ProviderID != nico.ProviderID(instance.GetId())) {
+		ctrl.LoggerFrom(ctx).Info("leaving same-named NICo instance this machine did not create", "instanceID", instance.GetId())
+		return false, nil
+	}
+
+	ctrl.LoggerFrom(ctx).Info("adopting orphaned NICo instance for release", "instanceID", instance.GetId())
+	nicoMachine.Status.InstanceID = instance.GetId()
+	r.instanceEvent(nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s for release", instance.GetId()))
+	return true, nil
 }
 
 func completeMachineDeletion(ctx context.Context, nicoMachine *infrav1.NicoMachine) {
@@ -1028,6 +1089,9 @@ func machineReadyRequeueAfter(nicoMachine infrav1.NicoMachine) time.Duration {
 	return machineReadyRequeue + deterministicJitter(string(nicoMachine.UID), machineReadyJitterWindow)
 }
 
+// buildInstanceCreateRequest builds the create request for a NicoMachine. Its
+// ownership labels win over spec.labels because deletion uses them to recognize
+// an instance whose create outlived a lost response or status patch.
 func buildInstanceCreateRequest(
 	name string,
 	tenantID string,
@@ -1105,11 +1169,12 @@ func buildInstanceCreateRequest(
 	createReq.NvLinkInterfaces = buildNVLinkInterfaces(nicoMachine.Spec, instanceTypeCapabilities)
 
 	labels := mergeLabels(
-		map[string]string{
-			"cluster.x-k8s.io/cluster-name": clusterName,
-			"cluster.x-k8s.io/machine-name": name,
-		},
 		nicoMachine.Spec.Labels,
+		map[string]string{
+			clusterv1.ClusterNameLabel: clusterName,
+			instanceMachineNameLabel:   name,
+			instanceNamespaceLabel:     nicoMachine.Namespace,
+		},
 	)
 	if labels != nil {
 		createReq.SetLabels(labels)
