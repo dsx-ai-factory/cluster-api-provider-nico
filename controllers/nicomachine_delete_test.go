@@ -20,6 +20,7 @@ import (
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
+	nicomachine "github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nicomachine"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
@@ -36,12 +37,14 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 	)
 	key := client.ObjectKey{Namespace: testNamespace, Name: testMachine}
 
-	seedInstance := func(server *fake.Server, labels map[string]string) {
+	ownedLabels := map[string]string{clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID}
+
+	seedInstance := func(server *fake.Server, site string, labels map[string]string) {
 		instance := nicosdk.NewInstance()
 		instance.SetId("instance-1")
 		instance.SetName(machineID)
 		instance.SetVpcId(vpcID)
-		instance.SetSiteId(siteID)
+		instance.SetSiteId(site)
 		instance.SetStatus(nicosdk.INSTANCESTATUS_READY)
 		instance.SetLabels(labels)
 		server.SeedInstance(orgID, instance, 0)
@@ -97,7 +100,7 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 		server := fake.New()
 		httpServer := httptest.NewServer(server.Handler())
 		ginkgo.DeferCleanup(httpServer.Close)
-		seedInstance(server, map[string]string{clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID})
+		seedInstance(server, siteID, ownedLabels)
 		r, c := newReconciler(httpServer.URL, "creds-orphan", true, true)
 
 		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
@@ -115,11 +118,39 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 		gomega.Expect(server.InstanceCount()).To(gomega.BeZero())
 	})
 
+	ginkgo.It("finds an instance at its VPC's site when that differs from the configured site", func(ctx ginkgo.SpecContext) {
+		server := fake.New()
+		httpServer := httptest.NewServer(server.Handler())
+		ginkgo.DeferCleanup(httpServer.Close)
+		seedInstance(server, "vpc-site", ownedLabels)
+		r, c := newReconciler(httpServer.URL, "creds-vpc-site", true, true)
+
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nicoMachine := &infrav1.NicoMachine{}
+		gomega.Expect(c.Get(ctx, key, nicoMachine)).To(gomega.Succeed())
+		gomega.Expect(nicoMachine.Status.InstanceID).To(gomega.Equal("instance-1"))
+	})
+
+	ginkgo.It("stamps ownership labels over conflicting spec.labels", func() {
+		machine := &infrav1.NicoMachine{Spec: infrav1.NicoMachineSpec{
+			VPCID:      vpcID,
+			Interfaces: []infrav1.NicoMachineInterface{{SubnetID: "subnet-1"}},
+			Labels:     map[string]string{clusterv1.ClusterNameLabel: "other", instanceMachineNameLabel: "other", "team": "a"},
+		}}
+
+		req, err := buildInstanceCreateRequest(machineID, "tenant-1", machine, clusterID, "#cloud-config", nicomachine.InstanceTypeCapabilities{}, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(req.GetLabels()).To(gomega.Equal(map[string]string{
+			clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID, "team": "a",
+		}))
+	})
+
 	ginkgo.It("leaves a same-named instance without this machine's labels", func(ctx ginkgo.SpecContext) {
 		server := fake.New()
 		httpServer := httptest.NewServer(server.Handler())
 		ginkgo.DeferCleanup(httpServer.Close)
-		seedInstance(server, nil)
+		seedInstance(server, siteID, nil)
 		r, c := newReconciler(httpServer.URL, "creds-foreign", true, true)
 
 		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})

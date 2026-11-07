@@ -540,7 +540,7 @@ func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachin
 	}
 
 	if nicoMachine.Status.InstanceID == "" {
-		found, err := r.adoptOrphanedInstance(ctx, nicoClient, ownerMachine, cluster, nicoCluster, nicoMachine)
+		found, err := r.adoptOrphanedInstance(ctx, nicoClient, ownerMachine, cluster, nicoMachine)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("delete NicoMachine: %w", err)
 		}
@@ -572,14 +572,14 @@ func (r *NicoMachineReconciler) adoptOrphanedInstance(
 	nicoClient nico.API,
 	ownerMachine *clusterv1.Machine,
 	cluster *clusterv1.Cluster,
-	nicoCluster *infrav1.NicoCluster,
 	nicoMachine *infrav1.NicoMachine,
 ) (bool, error) {
 	lookupCtx, lookupSpan := telemetry.StartStage(ctx, "capnico.lookup_instance")
+	// The lookup omits the configured site because NICo places an instance at its
+	// VPC's site, which can differ from it. The labels below still decide ownership.
 	instance, err := nicoClient.FindInstanceByName(lookupCtx, nico.InstanceLookup{
 		Name:              ownerMachine.Name,
 		VPCID:             nicoMachine.Spec.VPCID,
-		SiteID:            nicoCluster.Spec.SiteID,
 		ExcludeTerminated: true,
 	})
 	if errors.Is(err, nico.ErrNotFound) {
@@ -1085,6 +1085,9 @@ func machineReadyRequeueAfter(nicoMachine infrav1.NicoMachine) time.Duration {
 	return machineReadyRequeue + deterministicJitter(string(nicoMachine.UID), machineReadyJitterWindow)
 }
 
+// buildInstanceCreateRequest builds the create request for a NicoMachine. Its
+// ownership labels win over spec.labels because deletion uses them to recognize
+// an instance whose create outlived a lost response or status patch.
 func buildInstanceCreateRequest(
 	name string,
 	tenantID string,
@@ -1162,11 +1165,11 @@ func buildInstanceCreateRequest(
 	createReq.NvLinkInterfaces = buildNVLinkInterfaces(nicoMachine.Spec, instanceTypeCapabilities)
 
 	labels := mergeLabels(
+		nicoMachine.Spec.Labels,
 		map[string]string{
 			clusterv1.ClusterNameLabel: clusterName,
 			instanceMachineNameLabel:   name,
 		},
-		nicoMachine.Spec.Labels,
 	)
 	if labels != nil {
 		createReq.SetLabels(labels)
