@@ -37,7 +37,7 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 	)
 	key := client.ObjectKey{Namespace: testNamespace, Name: testMachine}
 
-	ownedLabels := map[string]string{clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID}
+	ownedLabels := map[string]string{clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID, instanceNamespaceLabel: testNamespace}
 
 	seedInstance := func(server *fake.Server, site string, labels map[string]string) {
 		instance := nicosdk.NewInstance()
@@ -118,6 +118,19 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 		gomega.Expect(server.InstanceCount()).To(gomega.BeZero())
 	})
 
+	ginkgo.It("leaves another namespace's instance with the same Cluster and Machine names", func(ctx ginkgo.SpecContext) {
+		server := fake.New()
+		httpServer := httptest.NewServer(server.Handler())
+		ginkgo.DeferCleanup(httpServer.Close)
+		seedInstance(server, siteID, map[string]string{clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID, instanceNamespaceLabel: "other-namespace"})
+		r, c := newReconciler(httpServer.URL, "creds-other-namespace", true, true)
+
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(gone(ctx, c)).To(gomega.BeTrue())
+		gomega.Expect(server.InstanceCount()).To(gomega.Equal(1))
+	})
+
 	ginkgo.It("finds an instance at its VPC's site when that differs from the configured site", func(ctx ginkgo.SpecContext) {
 		server := fake.New()
 		httpServer := httptest.NewServer(server.Handler())
@@ -133,16 +146,16 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 	})
 
 	ginkgo.It("stamps ownership labels over conflicting spec.labels", func() {
-		machine := &infrav1.NicoMachine{Spec: infrav1.NicoMachineSpec{
+		machine := &infrav1.NicoMachine{ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace}, Spec: infrav1.NicoMachineSpec{
 			VPCID:      vpcID,
 			Interfaces: []infrav1.NicoMachineInterface{{SubnetID: "subnet-1"}},
-			Labels:     map[string]string{clusterv1.ClusterNameLabel: "other", instanceMachineNameLabel: "other", "team": "a"},
+			Labels:     map[string]string{clusterv1.ClusterNameLabel: "other", instanceMachineNameLabel: "other", instanceNamespaceLabel: "other", "team": "a"},
 		}}
 
 		req, err := buildInstanceCreateRequest(machineID, "tenant-1", machine, clusterID, "#cloud-config", nicomachine.InstanceTypeCapabilities{}, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(req.GetLabels()).To(gomega.Equal(map[string]string{
-			clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID, "team": "a",
+			clusterv1.ClusterNameLabel: clusterID, instanceMachineNameLabel: machineID, instanceNamespaceLabel: testNamespace, "team": "a",
 		}))
 	})
 

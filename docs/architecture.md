@@ -193,10 +193,11 @@ instance.
 A create can outlive a lost response or status patch, so an empty
 `status.instanceID` does not prove that no instance exists. When the owner
 `Machine` has bootstrap data, delete looks up the instance by name in the VPC
-and releases it if it carries the `cluster.x-k8s.io/cluster-name` and
-`cluster.x-k8s.io/machine-name` labels for this machine. These labels take
-precedence over `spec.labels` at create. A same-named instance without them is
-left alone. This lookup needs working credentials, so the finalizer stays in
+and releases it if it carries the `cluster.x-k8s.io/cluster-name`,
+`cluster.x-k8s.io/machine-name`, and `nico.nvidia.com/namespace` labels for this
+machine. These labels take precedence over `spec.labels` at create. A same-named
+instance without all three is left alone, including one from another namespace
+and one created before the namespace label existed. This lookup needs working credentials, so the finalizer stays in
 place until they are available.
 
 `NicoCluster` holds its own finalizer and refuses to release it while any

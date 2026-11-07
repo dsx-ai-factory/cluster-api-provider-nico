@@ -16,6 +16,7 @@ instances:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
+      nico.nvidia.com/namespace: default
       nvke.nvidia.com/machine-id: machine-id-1
       nvke.nvidia.com/site-id: site-1
       nvke.nvidia.com/site-name: fake-site
@@ -35,6 +36,7 @@ requests:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
+      nico.nvidia.com/namespace: default
     machineId: machine-id-1
     name: machine-1
     tenantId: tenant-1
@@ -50,6 +52,7 @@ requests:
     labels:
       cluster.x-k8s.io/cluster-name: cluster-1
       cluster.x-k8s.io/machine-name: machine-1
+      nico.nvidia.com/namespace: default
       nvke.nvidia.com/machine-id: machine-id-1
       nvke.nvidia.com/site-id: site-1
       nvke.nvidia.com/site-name: fake-site
