@@ -190,6 +190,14 @@ instance records, so both `Terminated` and not-found count as released. Do not
 remove the finalizer while `status.instanceID` can still refer to a live
 instance.
 
+A create can outlive a lost response or status patch, so an empty
+`status.instanceID` does not prove that no instance exists. When the owner
+`Machine` has bootstrap data, delete looks up the instance by name and releases
+it if it carries the `cluster.x-k8s.io/cluster-name` and
+`cluster.x-k8s.io/machine-name` labels for this machine. A same-named instance
+without those labels is left alone. This lookup needs working credentials, so
+the finalizer stays in place until they are available.
+
 `NicoCluster` holds its own finalizer and refuses to release it while any
 `NicoMachine` remains in the same namespace carrying a matching
 `cluster.x-k8s.io/cluster-name` label.
