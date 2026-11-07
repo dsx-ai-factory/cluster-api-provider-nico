@@ -596,7 +596,8 @@ func (r *NicoMachineReconciler) adoptOrphanedInstance(
 
 	labels := instance.GetLabels()
 	if labels[clusterv1.ClusterNameLabel] != cluster.Name || labels[instanceMachineNameLabel] != ownerMachine.Name ||
-		labels[instanceNamespaceLabel] != nicoMachine.Namespace {
+		labels[instanceNamespaceLabel] != nicoMachine.Namespace ||
+		(nicoMachine.Spec.ProviderID != "" && nicoMachine.Spec.ProviderID != nico.ProviderID(instance.GetId())) {
 		ctrl.LoggerFrom(ctx).Info("leaving same-named NICo instance this machine did not create", "instanceID", instance.GetId())
 		return false, nil
 	}

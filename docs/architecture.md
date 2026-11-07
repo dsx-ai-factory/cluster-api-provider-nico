@@ -197,7 +197,8 @@ and releases it if it carries the `cluster.x-k8s.io/cluster-name`,
 `cluster.x-k8s.io/machine-name`, and `nico.nvidia.com/namespace` labels for this
 machine. These labels take precedence over `spec.labels` at create. A same-named
 instance without all three is left alone, including one from another namespace
-and one created before the namespace label existed. This lookup needs working credentials, so the finalizer stays in
+and one created before the namespace label existed. When `spec.providerID` is
+set, the instance must also be the one it names. This lookup needs working credentials, so the finalizer stays in
 place until they are available.
 
 `NicoCluster` holds its own finalizer and refuses to release it while any

@@ -20,6 +20,7 @@ import (
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/fake"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 	nicomachine "github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nicomachine"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
@@ -92,6 +93,13 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 		return &NicoMachineReconciler{Client: c, Scheme: scheme}, c
 	}
 
+	setProviderID := func(ctx context.Context, c client.Client, providerID string) {
+		nicoMachine := &infrav1.NicoMachine{}
+		gomega.Expect(c.Get(ctx, key, nicoMachine)).To(gomega.Succeed())
+		nicoMachine.Spec.ProviderID = providerID
+		gomega.Expect(c.Update(ctx, nicoMachine)).To(gomega.Succeed())
+	}
+
 	gone := func(ctx context.Context, c client.Client) bool {
 		return apierrors.IsNotFound(c.Get(ctx, key, &infrav1.NicoMachine{}))
 	}
@@ -129,6 +137,35 @@ var _ = ginkgo.Describe("NicoMachine deletion with an empty status.instanceID", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(gone(ctx, c)).To(gomega.BeTrue())
 		gomega.Expect(server.InstanceCount()).To(gomega.Equal(1))
+	})
+
+	ginkgo.It("leaves an owned-looking instance that spec.providerID does not name", func(ctx ginkgo.SpecContext) {
+		server := fake.New()
+		httpServer := httptest.NewServer(server.Handler())
+		ginkgo.DeferCleanup(httpServer.Close)
+		seedInstance(server, siteID, ownedLabels)
+		r, c := newReconciler(httpServer.URL, "creds-other-provider-id", true, true)
+		setProviderID(ctx, c, nico.ProviderID("imported-instance"))
+
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(gone(ctx, c)).To(gomega.BeTrue())
+		gomega.Expect(server.InstanceCount()).To(gomega.Equal(1))
+	})
+
+	ginkgo.It("recovers an instance when only spec.providerID was saved", func(ctx ginkgo.SpecContext) {
+		server := fake.New()
+		httpServer := httptest.NewServer(server.Handler())
+		ginkgo.DeferCleanup(httpServer.Close)
+		seedInstance(server, siteID, ownedLabels)
+		r, c := newReconciler(httpServer.URL, "creds-same-provider-id", true, true)
+		setProviderID(ctx, c, nico.ProviderID("instance-1"))
+
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nicoMachine := &infrav1.NicoMachine{}
+		gomega.Expect(c.Get(ctx, key, nicoMachine)).To(gomega.Succeed())
+		gomega.Expect(nicoMachine.Status.InstanceID).To(gomega.Equal("instance-1"))
 	})
 
 	ginkgo.It("finds an instance at its VPC's site when that differs from the configured site", func(ctx ginkgo.SpecContext) {
