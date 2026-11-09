@@ -1092,6 +1092,7 @@ func machineReadyRequeueAfter(nicoMachine infrav1.NicoMachine) time.Duration {
 	return machineReadyRequeue + deterministicJitter(string(nicoMachine.UID), machineReadyJitterWindow)
 }
 
+// buildInstanceCreateRequest returns the NICo create request for nicoMachine.
 func buildInstanceCreateRequest(
 	name string,
 	tenantID string,

@@ -262,6 +262,7 @@ func TestClientFindInstanceByNameSkipsTerminatedRecordsWhenExcluded(t *testing.T
 	assert.Equal(t, "instance-old", any.GetId())
 }
 
+// TestClientFindInstanceByNameSearchesLaterPages finds a live instance behind a full page of terminated ones.
 func TestClientFindInstanceByNameSearchesLaterPages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -283,6 +284,7 @@ func TestClientFindInstanceByNameSearchesLaterPages(t *testing.T) {
 	assert.Equal(t, "instance-live", instance.GetId())
 }
 
+// TestClientFindInstanceByNameSkipsCandidatesMatchRejects returns the first candidate that Match accepts.
 func TestClientFindInstanceByNameSkipsCandidatesMatchRejects(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
