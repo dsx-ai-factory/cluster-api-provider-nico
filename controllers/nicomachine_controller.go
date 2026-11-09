@@ -1089,9 +1089,6 @@ func machineReadyRequeueAfter(nicoMachine infrav1.NicoMachine) time.Duration {
 	return machineReadyRequeue + deterministicJitter(string(nicoMachine.UID), machineReadyJitterWindow)
 }
 
-// buildInstanceCreateRequest builds the create request for a NicoMachine. Its
-// ownership labels win over spec.labels because deletion uses them to recognize
-// an instance whose create outlived a lost response or status patch.
 func buildInstanceCreateRequest(
 	name string,
 	tenantID string,
