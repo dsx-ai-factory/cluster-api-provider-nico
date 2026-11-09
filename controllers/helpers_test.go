@@ -24,8 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -344,28 +342,6 @@ func dumpWorkloadNodes(ctx context.Context, workloadClient client.Client) (strin
 		return "", fmt.Errorf("encode workload cluster Nodes: %w", err)
 	}
 	return string(out), nil
-}
-
-func workloadKubeconfigWithExecProvider(server string) ([]byte, error) {
-	const contextName = "exec"
-	return clientcmd.Write(clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{
-			contextName: {Server: server},
-		},
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			contextName: {
-				Exec: &clientcmdapi.ExecConfig{
-					APIVersion:      "client.authentication.k8s.io/v1",
-					Command:         "must-not-run",
-					InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
-				},
-			},
-		},
-		Contexts: map[string]*clientcmdapi.Context{
-			contextName: {Cluster: contextName, AuthInfo: contextName},
-		},
-		CurrentContext: contextName,
-	})
 }
 
 // startReconcilers runs both reconcilers against the case's API server.
