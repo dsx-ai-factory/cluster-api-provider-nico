@@ -608,6 +608,7 @@ func (r *NicoMachineReconciler) adoptOrphanedInstance(
 	return true, nil
 }
 
+// completeMachineDeletion marks deletion complete and removes the finalizer.
 func completeMachineDeletion(ctx context.Context, nicoMachine *infrav1.NicoMachine) {
 	ctrl.LoggerFrom(ctx).Info("removing finalizer")
 	conditions.Set(nicoMachine, metav1.Condition{
