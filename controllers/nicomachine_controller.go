@@ -583,6 +583,16 @@ func (r *NicoMachineReconciler) adoptOrphanedInstance(
 		Name:              ownerMachine.Name,
 		VPCID:             nicoMachine.Spec.VPCID,
 		ExcludeTerminated: true,
+		Match: func(candidate *nicosdk.Instance) bool {
+			labels := candidate.GetLabels()
+			owned := labels[clusterv1.ClusterNameLabel] == cluster.Name && labels[instanceMachineNameLabel] == ownerMachine.Name &&
+				labels[instanceNamespaceLabel] == nicoMachine.Namespace &&
+				(nicoMachine.Spec.ProviderID == "" || nicoMachine.Spec.ProviderID == nico.ProviderID(candidate.GetId()))
+			if !owned {
+				ctrl.LoggerFrom(ctx).Info("leaving same-named NICo instance this machine did not create", "instanceID", candidate.GetId())
+			}
+			return owned
+		},
 	})
 	if errors.Is(err, nico.ErrNotFound) {
 		telemetry.EndStage(lookupSpan, "not_found", nil)
@@ -593,14 +603,6 @@ func (r *NicoMachineReconciler) adoptOrphanedInstance(
 		return false, fmt.Errorf("failed to find instance before finalizer removal: %w", err)
 	}
 	telemetry.EndStage(lookupSpan, "found", nil)
-
-	labels := instance.GetLabels()
-	if labels[clusterv1.ClusterNameLabel] != cluster.Name || labels[instanceMachineNameLabel] != ownerMachine.Name ||
-		labels[instanceNamespaceLabel] != nicoMachine.Namespace ||
-		(nicoMachine.Spec.ProviderID != "" && nicoMachine.Spec.ProviderID != nico.ProviderID(instance.GetId())) {
-		ctrl.LoggerFrom(ctx).Info("leaving same-named NICo instance this machine did not create", "instanceID", instance.GetId())
-		return false, nil
-	}
 
 	ctrl.LoggerFrom(ctx).Info("adopting orphaned NICo instance for release", "instanceID", instance.GetId())
 	nicoMachine.Status.InstanceID = instance.GetId()

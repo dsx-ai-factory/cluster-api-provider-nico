@@ -283,6 +283,25 @@ func TestClientFindInstanceByNameSearchesLaterPages(t *testing.T) {
 	assert.Equal(t, "instance-live", instance.GetId())
 }
 
+func TestClientFindInstanceByNameSkipsCandidatesMatchRejects(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":"instance-other","name":"machine-1","status":"Ready"},
+			{"id":"instance-mine","name":"machine-1","status":"Ready"}
+		]`))
+	}))
+	defer server.Close()
+
+	instance, err := newStaticTokenClient(t, server.URL).FindInstanceByName(context.Background(), InstanceLookup{
+		Name:  "machine-1",
+		Match: func(candidate *nicosdk.Instance) bool { return candidate.GetId() == "instance-mine" },
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "instance-mine", instance.GetId())
+}
+
 func TestClientFindInstanceByNameReturnsNotFoundWhenOnlyTerminatedRemains(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
