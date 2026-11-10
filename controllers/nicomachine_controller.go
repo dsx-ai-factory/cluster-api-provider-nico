@@ -328,7 +328,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					SiteID: nicoCluster.Spec.SiteID,
 				})
 				if err != nil {
-					err = fmt.Errorf("%w; recovery lookup failed: %v", createErr, err)
+					err = errors.Join(createErr, fmt.Errorf("recovery lookup failed: %w", err))
 				}
 			}
 			if err != nil {
