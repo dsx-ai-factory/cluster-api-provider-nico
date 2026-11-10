@@ -457,7 +457,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if ip := firstIPv4FromInstance(instance); ip != "" {
+	ip := firstIPv4FromInstance(instance)
+	if ip == "" && nicoMachine.Spec.AutoNetwork {
+		// NICo returns no interfaces for an auto-networked instance; the host's address is on its machine.
+		ip = machineIPv4(ctx, nicoClient, instance.GetMachineId())
+	}
+	if ip != "" {
 		nicoMachine.Status.Addresses = []clusterv1.MachineAddress{{
 			Type:    clusterv1.MachineInternalIP,
 			Address: ip,
@@ -1035,8 +1040,8 @@ func buildInstanceCreateRequest(
 	instanceTypeCapabilities nicomachine.InstanceTypeCapabilities,
 	defaultPhoneHomeEnabled bool,
 ) (*nicosdk.InstanceCreateRequest, error) {
-	if len(nicoMachine.Spec.Interfaces) == 0 {
-		return nil, fmt.Errorf("spec.interfaces must contain at least one entry")
+	if nicoMachine.Spec.AutoNetwork == (len(nicoMachine.Spec.Interfaces) > 0) {
+		return nil, fmt.Errorf("exactly one of spec.autoNetwork or spec.interfaces must be set")
 	}
 	if err := instanceTypeCapabilities.ValidatePartitionSupport(nicoMachine.Spec); err != nil {
 		return nil, err
@@ -1072,6 +1077,9 @@ func buildInstanceCreateRequest(
 
 	createReq := nicosdk.NewInstanceCreateRequest(name, tenantID, nicoMachine.Spec.VPCID)
 	createReq.SetInterfaces(interfaces)
+	if nicoMachine.Spec.AutoNetwork {
+		createReq.SetAutoNetwork(true)
+	}
 	createReq.SetDescription("Managed by Cluster API")
 	createReq.SetUserData(bootstrapCloudConfig)
 	if nicoMachine.Spec.InstanceTypeID != "" {

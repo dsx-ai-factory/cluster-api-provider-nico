@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Machine
+metadata:
+  name: machine-1
+  namespace: default
+status:
+  nodeRef:
+    name: node-ref-1
