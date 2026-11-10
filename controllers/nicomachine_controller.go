@@ -179,7 +179,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer) {
 		// Persist the finalizer before creating anything external, so a crash
 		// between create and patch can never orphan an instance.
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	nicoCluster, err := r.resolveNicoCluster(ctx, cluster, &nicoMachine)
@@ -637,10 +637,8 @@ func (r *NicoMachineReconciler) recordInstanceStatusEvents(ctx context.Context, 
 		key := fmt.Sprintf("%s/%s/%s", instance.GetId(), entry.GetStatus(), transitionTime)
 		// The recorder groups different notes with the same reason and action.
 		stateEvent := &eventsv1.Event{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("nico-instance-state-%s.%x", machine.UID, sha256.Sum256([]byte(key))),
-				Namespace: machine.Namespace,
-			},
+			Name:      fmt.Sprintf("nico-instance-state-%s.%x", machine.UID, sha256.Sum256([]byte(key))),
+			Namespace: machine.Namespace,
 			Regarding: corev1.ObjectReference{
 				APIVersion: infrav1.GroupVersion.String(),
 				Kind:       "NicoMachine",
@@ -866,7 +864,7 @@ func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster 
 	if nicoMachine.Spec.SiteID != "" {
 		// A machine's identityRef names a Secret, so the reference omits the kind.
 		return &infrav1.NicoCluster{
-			ObjectMeta: metav1.ObjectMeta{Namespace: nicoMachine.Namespace},
+			Namespace: nicoMachine.Namespace,
 			Spec: infrav1.NicoClusterSpec{
 				SiteID:                  nicoMachine.Spec.SiteID,
 				IdentityRef:             infrav1.NicoClusterIdentityReference{Name: nicoMachine.Spec.IdentityRef.Name},
