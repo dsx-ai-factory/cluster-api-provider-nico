@@ -4,7 +4,7 @@
 
 **Prerequisites:**
 
-- Go 1.26.10, the exact version CI scans with, not a minimum (see `go.mod`)
+- Go 1.27.3, the exact version CI scans with, not a minimum (refer to `go.mod`).
 - Docker (for building the controller image and running e2e tests)
 - [kind](https://kind.sigs.k8s.io/) on your `PATH` for `make tilt-up`, because `ctlptl` invokes it directly
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)

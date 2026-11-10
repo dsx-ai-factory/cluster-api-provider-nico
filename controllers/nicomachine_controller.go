@@ -182,7 +182,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer) {
 		// Persist the finalizer before creating anything external, so a crash
 		// between create and patch can never orphan an instance.
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	nicoCluster, err := r.resolveNicoCluster(ctx, cluster, &nicoMachine)
@@ -460,7 +460,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if ip := firstIPv4FromInstance(instance); ip != "" {
+	ip := firstIPv4FromInstance(instance)
+	if ip == "" && nicoMachine.Spec.AutoNetwork {
+		// NICo returns no interfaces for an auto-networked instance; the host's address is on its machine.
+		ip = machineIPv4(ctx, nicoClient, instance.GetMachineId())
+	}
+	if ip != "" {
 		nicoMachine.Status.Addresses = []clusterv1.MachineAddress{{
 			Type:    clusterv1.MachineInternalIP,
 			Address: ip,
@@ -701,10 +706,8 @@ func (r *NicoMachineReconciler) recordInstanceStatusEvents(ctx context.Context, 
 		key := fmt.Sprintf("%s/%s/%s", instance.GetId(), entry.GetStatus(), transitionTime)
 		// The recorder groups different notes with the same reason and action.
 		stateEvent := &eventsv1.Event{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("nico-instance-state-%s.%x", machine.UID, sha256.Sum256([]byte(key))),
-				Namespace: machine.Namespace,
-			},
+			Name:      fmt.Sprintf("nico-instance-state-%s.%x", machine.UID, sha256.Sum256([]byte(key))),
+			Namespace: machine.Namespace,
 			Regarding: corev1.ObjectReference{
 				APIVersion: infrav1.GroupVersion.String(),
 				Kind:       "NicoMachine",
@@ -930,7 +933,7 @@ func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster 
 	if nicoMachine.Spec.SiteID != "" {
 		// A machine's identityRef names a Secret, so the reference omits the kind.
 		return &infrav1.NicoCluster{
-			ObjectMeta: metav1.ObjectMeta{Namespace: nicoMachine.Namespace},
+			Namespace: nicoMachine.Namespace,
 			Spec: infrav1.NicoClusterSpec{
 				SiteID:                  nicoMachine.Spec.SiteID,
 				IdentityRef:             infrav1.NicoClusterIdentityReference{Name: nicoMachine.Spec.IdentityRef.Name},
@@ -1102,8 +1105,8 @@ func buildInstanceCreateRequest(
 	instanceTypeCapabilities nicomachine.InstanceTypeCapabilities,
 	defaultPhoneHomeEnabled bool,
 ) (*nicosdk.InstanceCreateRequest, error) {
-	if len(nicoMachine.Spec.Interfaces) == 0 {
-		return nil, fmt.Errorf("spec.interfaces must contain at least one entry")
+	if nicoMachine.Spec.AutoNetwork == (len(nicoMachine.Spec.Interfaces) > 0) {
+		return nil, fmt.Errorf("exactly one of spec.autoNetwork or spec.interfaces must be set")
 	}
 	if err := instanceTypeCapabilities.ValidatePartitionSupport(nicoMachine.Spec); err != nil {
 		return nil, err
@@ -1139,6 +1142,9 @@ func buildInstanceCreateRequest(
 
 	createReq := nicosdk.NewInstanceCreateRequest(name, tenantID, nicoMachine.Spec.VPCID)
 	createReq.SetInterfaces(interfaces)
+	if nicoMachine.Spec.AutoNetwork {
+		createReq.SetAutoNetwork(true)
+	}
 	createReq.SetDescription("Managed by Cluster API")
 	createReq.SetUserData(bootstrapCloudConfig)
 	if nicoMachine.Spec.InstanceTypeID != "" {

@@ -592,8 +592,12 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "malformed instance create request")
 		return
 	}
-	if request.GetName() == "" || request.GetTenantId() == "" || request.GetVpcId() == "" || len(request.GetInterfaces()) == 0 {
-		writeError(w, http.StatusBadRequest, "name, tenantId, vpcId, and interfaces are required")
+	if request.GetName() == "" || request.GetTenantId() == "" || request.GetVpcId() == "" {
+		writeError(w, http.StatusBadRequest, "name, tenantId, and vpcId are required")
+		return
+	}
+	if request.GetAutoNetwork() == (len(request.GetInterfaces()) > 0) {
+		writeError(w, http.StatusBadRequest, "exactly one of autoNetwork or interfaces is required")
 		return
 	}
 	if request.HasInstanceTypeId() == request.HasMachineId() {
@@ -665,6 +669,9 @@ func (s *Server) createInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	instance.SetInterfaces(interfaces)
+	if request.GetAutoNetwork() {
+		instance.SetAutoNetwork(true)
+	}
 
 	record := &instanceRecord{org: org, instance: *instance}
 	key := resourceKey(org, id)

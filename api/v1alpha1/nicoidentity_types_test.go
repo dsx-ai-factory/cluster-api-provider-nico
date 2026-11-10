@@ -68,7 +68,7 @@ func TestNicoIdentityAPI(t *testing.T) {
 	require.NoError(t, AddToScheme(scheme))
 	c, err := client.New(config, client.Options{Scheme: scheme})
 	require.NoError(t, err)
-	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "identity-api"}}
+	namespace := &corev1.Namespace{Name: "identity-api"}
 	require.NoError(t, c.Create(ctx, namespace))
 
 	// Accepted objects' initial generation and absent status, finalizers and
@@ -135,8 +135,9 @@ func TestNicoIdentityAPI(t *testing.T) {
 
 	newIdentity := func(name string) *NicoIdentity {
 		return &NicoIdentity{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace.Name},
-			Spec:       NicoIdentitySpec{CredentialsRef: NicoIdentityCredentialsReference{Name: "nico-credentials"}},
+			Name:      name,
+			Namespace: namespace.Name,
+			Spec:      NicoIdentitySpec{CredentialsRef: NicoIdentityCredentialsReference{Name: "nico-credentials"}},
 		}
 	}
 	checked := metav1.NewTime(time.Date(2026, 9, 23, 12, 5, 0, 0, time.UTC))
@@ -226,8 +227,9 @@ func TestNicoIdentityAPI(t *testing.T) {
 
 	t.Run("kubectl get -o wide shows the next check time", func(t *testing.T) {
 		object := &NicoIdentity{
-			ObjectMeta: metav1.ObjectMeta{Name: "next-check", Namespace: namespace.Name},
-			Spec:       NicoIdentitySpec{CredentialsRef: NicoIdentityCredentialsReference{Name: "nico-credentials"}},
+			Name:      "next-check",
+			Namespace: namespace.Name,
+			Spec:      NicoIdentitySpec{CredentialsRef: NicoIdentityCredentialsReference{Name: "nico-credentials"}},
 		}
 		require.NoError(t, c.Create(ctx, object))
 		checked := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
