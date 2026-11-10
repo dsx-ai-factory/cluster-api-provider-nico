@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
@@ -68,6 +69,43 @@ func firstIPv4FromInstance(instance *nicosdk.Instance) string {
 		}
 	}
 	return ""
+}
+
+// firstIPv4FromMachine returns the first IPv4 address on a machine's primary
+// interface, or on any interface when the primary has none.
+func firstIPv4FromMachine(machine *nicosdk.Machine) string {
+	if machine == nil {
+		return ""
+	}
+	var fallback string
+	for _, iface := range machine.GetMachineInterfaces() {
+		for _, ip := range iface.GetIpAddresses() {
+			if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
+				continue
+			}
+			if iface.GetIsPrimary() {
+				return ip
+			}
+			if fallback == "" {
+				fallback = ip
+			}
+		}
+	}
+	return fallback
+}
+
+// machineIPv4 reads a NICo machine's address. A failed read is logged rather
+// than returned: the address is filled in on a later reconcile.
+func machineIPv4(ctx context.Context, nicoClient nico.API, machineID string) string {
+	if machineID == "" {
+		return ""
+	}
+	machine, err := nicoClient.GetMachine(ctx, machineID)
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to get NICo machine for its address", "machineID", machineID)
+		return ""
+	}
+	return firstIPv4FromMachine(machine)
 }
 
 // credentialsSource is the object a NicoCluster's NICo credentials come from: a
