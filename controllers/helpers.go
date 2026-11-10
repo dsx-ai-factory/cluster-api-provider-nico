@@ -72,26 +72,22 @@ func firstIPv4FromInstance(instance *nicosdk.Instance) string {
 }
 
 // firstIPv4FromMachine returns the first IPv4 address on a machine's primary
-// interface, or on any interface when the primary has none.
+// interface, or "" when the primary interface has none.
 func firstIPv4FromMachine(machine *nicosdk.Machine) string {
 	if machine == nil {
 		return ""
 	}
-	var fallback string
 	for _, iface := range machine.GetMachineInterfaces() {
+		if !iface.GetIsPrimary() {
+			continue
+		}
 		for _, ip := range iface.GetIpAddresses() {
-			if parsed := net.ParseIP(ip); parsed == nil || parsed.To4() == nil {
-				continue
-			}
-			if iface.GetIsPrimary() {
+			if parsed := net.ParseIP(ip); parsed != nil && parsed.To4() != nil {
 				return ip
-			}
-			if fallback == "" {
-				fallback = ip
 			}
 		}
 	}
-	return fallback
+	return ""
 }
 
 // machineIPv4 reads a NICo machine's address. A failed read is logged rather
