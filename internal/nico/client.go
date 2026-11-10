@@ -46,10 +46,6 @@ type InstanceLookup struct {
 	// ExcludeTerminated skips released instance records, which NICo retains
 	// under their original name.
 	ExcludeTerminated bool
-
-	// Match, when set, skips candidates it rejects, so the lookup keeps
-	// searching instead of returning the first instance with the name.
-	Match func(*nicosdk.Instance) bool
 }
 
 // NewClient builds a NICo API client from Secret-backed config.
@@ -520,9 +516,6 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 				continue
 			}
 			if lookup.ExcludeTerminated && IsTerminated(&instances[i]) {
-				continue
-			}
-			if lookup.Match != nil && !lookup.Match(&instances[i]) {
 				continue
 			}
 			return &instances[i], nil
