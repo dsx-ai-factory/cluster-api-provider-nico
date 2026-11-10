@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,7 +33,7 @@ func TestNicoMachineNetworkAdmission(t *testing.T) {
 	require.NoError(t, AddToScheme(scheme))
 	c, err := client.New(config, client.Options{Scheme: scheme})
 	require.NoError(t, err)
-	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "machine-network"}}
+	namespace := &corev1.Namespace{Name: "machine-network"}
 	require.NoError(t, c.Create(ctx, namespace))
 
 	subnet := []any{map[string]any{"subnetID": "subnet-1"}}
