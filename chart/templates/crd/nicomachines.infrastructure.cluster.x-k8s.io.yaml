@@ -549,8 +549,8 @@ spec:
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.interfaces) == has(oldSelf.spec.interfaces)
             && (!has(self.spec.interfaces) || self.spec.interfaces == oldSelf.spec.interfaces))'
         - message: spec.autoNetwork is immutable after providerID is set
-          rule: '!has(oldSelf.spec.providerID) || (has(self.spec.autoNetwork) == has(oldSelf.spec.autoNetwork)
-            && (!has(self.spec.autoNetwork) || self.spec.autoNetwork == oldSelf.spec.autoNetwork))'
+          rule: '!has(oldSelf.spec.providerID) || ((has(self.spec.autoNetwork) &&
+            self.spec.autoNetwork) == (has(oldSelf.spec.autoNetwork) && oldSelf.spec.autoNetwork))'
         - message: spec.infinibandInterfaces is immutable after providerID is set
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.infinibandInterfaces)
             == has(oldSelf.spec.infinibandInterfaces) && (!has(self.spec.infinibandInterfaces)
