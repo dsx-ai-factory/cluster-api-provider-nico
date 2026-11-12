@@ -75,6 +75,13 @@ spec:
                 description: AllowUnhealthyMachine allows targeted instance creation
                   on a machine in Error status.
                 type: boolean
+              autoNetwork:
+                description: |-
+                  AutoNetwork lets NICo attach the instance to its VPC instead of through explicit interfaces.
+                  NICo requires it for hosts without a managed DPU, which only a Flat VPC can hold.
+                  The machine's address then comes from the NICo machine rather than the instance.
+                  Exactly one of Interfaces or AutoNetwork must be set.
+                type: boolean
               cloudInitInjectHostname:
                 description: CloudInitInjectHostname prepends hostname directives
                   to the bootstrap cloud-config.
@@ -158,6 +165,7 @@ spec:
                 description: |-
                   Interfaces are the interface attachment requests for the instance.
                   Use subnet-based attachments for Ethernet network virtualization and VPC prefix-based attachments for next-generation networking.
+                  Exactly one of Interfaces or AutoNetwork must be set.
                 items:
                   description: NicoMachineInterface defines one NICo interface attachment
                     request.
@@ -299,12 +307,13 @@ spec:
                 minLength: 1
                 type: string
             required:
-            - interfaces
             - vpcID
             type: object
             x-kubernetes-validations:
             - message: exactly one of instanceTypeID or machineID must be set
               rule: has(self.instanceTypeID) != has(self.machineID)
+            - message: exactly one of autoNetwork or interfaces must be set
+              rule: (has(self.autoNetwork) && self.autoNetwork) != has(self.interfaces)
             - message: infinibandPartitionID and infinibandInterfaces are mutually
                 exclusive
               rule: '!(has(self.infinibandPartitionID) && has(self.infinibandInterfaces))'
@@ -537,7 +546,11 @@ spec:
             has(oldSelf.spec.instanceTypeID) && (!has(self.spec.instanceTypeID) ||
             self.spec.instanceTypeID == oldSelf.spec.instanceTypeID))'
         - message: spec.interfaces is immutable after providerID is set
-          rule: '!has(oldSelf.spec.providerID) || self.spec.interfaces == oldSelf.spec.interfaces'
+          rule: '!has(oldSelf.spec.providerID) || (has(self.spec.interfaces) == has(oldSelf.spec.interfaces)
+            && (!has(self.spec.interfaces) || self.spec.interfaces == oldSelf.spec.interfaces))'
+        - message: spec.autoNetwork is immutable after providerID is set
+          rule: '!has(oldSelf.spec.providerID) || ((has(self.spec.autoNetwork) &&
+            self.spec.autoNetwork) == (has(oldSelf.spec.autoNetwork) && oldSelf.spec.autoNetwork))'
         - message: spec.infinibandInterfaces is immutable after providerID is set
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.infinibandInterfaces)
             == has(oldSelf.spec.infinibandInterfaces) && (!has(self.spec.infinibandInterfaces)

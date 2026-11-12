@@ -60,8 +60,8 @@ same objects, and this provider satisfies them with NICo hardware.
   for all five CRDs and every condition and reason
 - [docs/troubleshooting.md](docs/troubleshooting.md): symptom, cause, and
   fix for problems beyond getting-started.md's stall-reason table
-- [docs/metrics.md](docs/metrics.md): NICo API request metrics, the metrics
-  endpoint, and example Prometheus queries
+- [docs/observability.md](docs/observability.md): NICo API request metrics,
+  Prometheus queries, and distributed tracing configuration.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and the pull-request flow
 - [RELEASE.md](RELEASE.md) — versioning and the Cluster API contract
 - [SECURITY.md](SECURITY.md) — vulnerability reporting

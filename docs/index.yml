@@ -15,8 +15,8 @@ navigation:
     path: api-reference.md
   - page: Troubleshooting
     path: troubleshooting.md
-  - page: Metrics
-    path: metrics.md
+  - page: Observability
+    path: observability.md
   - page: Development
     path: development.md
   - page: Writing Controller Tests

@@ -1,0 +1,9 @@
+machines:
+  resources:
+  - org: org-1
+    resource:
+      id: machine-id-1
+      machineInterfaces:
+      - ipAddresses:
+        - 10.0.0.20
+        isPrimary: true

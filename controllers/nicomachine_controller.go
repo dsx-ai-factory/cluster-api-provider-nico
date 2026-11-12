@@ -5,13 +5,16 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,11 +38,13 @@ import (
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
 	nicomachine "github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nicomachine"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/telemetry"
 
 	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 const (
+	nicoMachineControllerName              = "nicomachine-controller"
 	nicoMachineFinalizer                   = "infrastructure.cluster.x-k8s.io/nicomachine"
 	nicoMachineCredentialsSecretRefIndex   = "nicoMachineCredentialsSecretRef"
 	nicoMachineIdentityRefIndex            = "nicoMachineIdentityRef"
@@ -49,6 +54,8 @@ const (
 	machineReadyRequeue                    = 5 * time.Minute
 	machineReadyJitterWindow               = 1 * time.Minute
 	instanceTypeUnavailableWait            = 2 * time.Minute
+	traceOutcomeWaiting                    = "waiting"
+	lastInstanceStatusEventTimeAnnotation  = "nico.nvidia.com/last-instance-status-event-time"
 
 	// These NVKE label keys are applied to the backing NICo instance so the VM
 	// records carry the same topology identifiers that Kubernetes nodes expose.
@@ -108,6 +115,8 @@ type NicoMachineReconciler struct {
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 
 func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:gocyclo
+	ctx, endTrace := telemetry.StartReconcile(ctx, "NicoMachine", req.Namespace, req.Name)
+	defer func() { endTrace(retErr) }()
 	log := ctrl.LoggerFrom(ctx)
 
 	log.Info("reconciling NicoMachine")
@@ -170,7 +179,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if controllerutil.AddFinalizer(&nicoMachine, nicoMachineFinalizer) {
 		// Persist the finalizer before creating anything external, so a crash
 		// between create and patch can never orphan an instance.
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	nicoCluster, err := r.resolveNicoCluster(ctx, cluster, &nicoMachine)
@@ -200,17 +209,24 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Adopt before the capacity check: a create can outlive a lost response or
 	// status patch, and the orphan's machine would fail that check forever.
 	if nicoMachine.Status.InstanceID == "" && nicoMachine.Spec.ProviderID == "" {
-		instance, err := nicoClient.FindInstanceByName(ctx, nico.InstanceLookup{
+		lookupCtx, lookupSpan := telemetry.StartStage(ctx, "capnico.lookup_instance")
+		instance, err := nicoClient.FindInstanceByName(lookupCtx, nico.InstanceLookup{
 			Name:              ownerMachine.Name,
 			VPCID:             nicoMachine.Spec.VPCID,
 			SiteID:            nicoCluster.Spec.SiteID,
 			ExcludeTerminated: true,
 		})
+		lookupOutcome, lookupErr := "found", err
+		if errors.Is(err, nico.ErrNotFound) {
+			lookupOutcome, lookupErr = "not_found", nil
+		}
+		telemetry.EndStage(lookupSpan, lookupOutcome, lookupErr)
 		if err == nil {
 			log.Info("adopting existing NICo instance", "instanceID", instance.GetId())
 			nicoMachine.Status.InstanceID = instance.GetId()
 			nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
 			r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
+			r.recordInstanceStatusEvents(ctx, &nicoMachine, instance)
 			// Persist providerID and its new generation before a reboot can
 			// interrupt normal status reconciliation.
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
@@ -223,6 +239,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// if we have not yet created a NICo instance for this nicoMachine CR and this is not an NICo instance import
 	if nicoMachine.Status.InstanceID == "" && nicoMachine.Spec.ProviderID == "" {
 		if ownerMachine.Spec.Bootstrap.DataSecretName == nil || *ownerMachine.Spec.Bootstrap.DataSecretName == "" {
+			telemetry.MarkWaiting(ctx, "bootstrap_data")
 			setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, "")
 			return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 		}
@@ -233,6 +250,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Name:      *ownerMachine.Spec.Bootstrap.DataSecretName,
 		}, &bootstrapSecret); err != nil {
 			if apierrors.IsNotFound(err) {
+				telemetry.MarkWaiting(ctx, "bootstrap_data")
 				setMachineProvisionedFalse(&nicoMachine, infrav1.WaitingForBootstrapDataReason, err.Error())
 				return ctrl.Result{RequeueAfter: machineRequeueFast}, nil
 			}
@@ -275,10 +293,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if shouldDefer, err := r.deferForControlPlanePriority(ctx, &nicoMachine, availability.unusedUsable); err != nil {
 				return ctrl.Result{}, err
 			} else if shouldDefer {
+				telemetry.MarkWaiting(ctx, "control_plane_priority")
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
 
 			if !availability.available {
+				telemetry.MarkWaiting(ctx, availability.reason)
 				setMachineProvisionedFalse(&nicoMachine, availability.reason, availability.message)
 				return ctrl.Result{RequeueAfter: instanceTypeUnavailableWait}, nil
 			}
@@ -292,28 +312,38 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		failureDomain := ownerMachine.Spec.FailureDomain
 		log.Info("creating NICo instance", "failureDomain", failureDomain)
-		instance, err := nicoClient.CreateInstance(ctx, *createReq, nico.InstancePlacement{
+		createCtx, createSpan := telemetry.StartStage(ctx, "capnico.create_instance")
+		instance, err := nicoClient.CreateInstance(createCtx, *createReq, nico.InstancePlacement{
 			FailureDomain: failureDomain,
 			LabelKey:      nicoCluster.Spec.FailureDomainLabelKey,
 		})
 		created := err == nil
 		if err != nil {
 			if errors.Is(err, nico.ErrAlreadyExists) {
+				createErr := err
 				log.Info("backing NICo instance already exists, find by name")
-				instance, err = nicoClient.FindInstanceByName(ctx, nico.InstanceLookup{
+				instance, err = nicoClient.FindInstanceByName(createCtx, nico.InstanceLookup{
 					Name:   ownerMachine.Name,
 					VPCID:  nicoMachine.Spec.VPCID,
 					SiteID: nicoCluster.Spec.SiteID,
 				})
+				if err != nil {
+					err = errors.Join(createErr, fmt.Errorf("recovery lookup failed: %w", err))
+				}
 			}
 			if err != nil {
 				if reason, requeueAfter, ok := failureDomainPlacementFailure(err, failureDomain); ok {
 					setMachineProvisionedFalse(&nicoMachine, reason, fmt.Sprintf("failure domain %q: %s", failureDomain, err.Error()))
 					if requeueAfter > 0 {
+						telemetry.MarkWaiting(createCtx, reason)
+						telemetry.EndStage(createSpan, traceOutcomeWaiting, nil)
+						telemetry.MarkWaiting(ctx, reason)
 						return ctrl.Result{RequeueAfter: requeueAfter}, nil
 					}
+					telemetry.EndStage(createSpan, "failed", err)
 					return ctrl.Result{}, fmt.Errorf("failed to place instance in failure domain %q: %w", failureDomain, err)
 				}
+				telemetry.EndStage(createSpan, "failed", err)
 				reason := infrav1.InstanceCreateFailedReason
 				if errors.Is(err, nico.ErrBadRequest) {
 					// NOTE: This reason is not in allowlisted in capacityWaitReasons that prioritize control-plane machines
@@ -323,6 +353,11 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, fmt.Errorf("failed to create or find instance: %w", err)
 			}
 		}
+		createOutcome := "created"
+		if !created {
+			createOutcome = "adopted"
+		}
+		telemetry.EndStage(createSpan, createOutcome, nil)
 
 		nicoMachine.Status.InstanceID = instance.GetId()
 		nicoMachine.Spec.ProviderID = nico.ProviderID(instance.GetId())
@@ -331,6 +366,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		} else {
 			r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
 		}
+		r.recordInstanceStatusEvents(ctx, &nicoMachine, instance)
 
 		// Written before the first poll, so a restart resumes this instance rather
 		// than creating a second one for the same Machine.
@@ -342,7 +378,14 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceNotFoundReason, err.Error())
 		return ctrl.Result{}, nil
 	}
-	instance, err := nicoClient.GetInstance(ctx, instanceID)
+	readinessCtx, readinessSpan := telemetry.StartStage(ctx, "capnico.check_readiness")
+	instance, err := nicoClient.GetInstance(readinessCtx, instanceID)
+	readinessOutcome := "ready"
+	if err == nil && !nico.IsReady(instance) {
+		readinessOutcome = traceOutcomeWaiting
+		telemetry.MarkWaiting(readinessCtx, "instance_not_ready")
+	}
+	telemetry.EndStage(readinessSpan, readinessOutcome, err)
 	if err != nil {
 		if errors.Is(err, nico.ErrNotFound) {
 			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceMissingReason, err.Error())
@@ -376,6 +419,8 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		nicoMachine.Status.InstanceID = instance.GetId()
 		r.instanceEvent(&nicoMachine, "InstanceAdopted", "Adopt", fmt.Sprintf("Adopted NICo instance %s", instance.GetId()))
 	}
+
+	r.recordInstanceStatusEvents(ctx, &nicoMachine, instance)
 
 	requestedDomain := ownerMachine.Spec.FailureDomain
 	observedDomain, err := observeFailureDomain(ctx, nicoClient, &nicoMachine, nicoCluster.Spec.FailureDomainLabelKey, instance, requestedDomain)
@@ -416,7 +461,12 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "failed to apply observed topology labels to NICo instance", "instanceID", instanceID)
 	}
 
-	if ip := firstIPv4FromInstance(instance); ip != "" {
+	ip := firstIPv4FromInstance(instance)
+	if ip == "" && nicoMachine.Spec.AutoNetwork {
+		// NICo returns no interfaces for an auto-networked instance; the host's address is on its machine.
+		ip = machineIPv4(ctx, nicoClient, instance.GetMachineId())
+	}
+	if ip != "" {
 		nicoMachine.Status.Addresses = []clusterv1.MachineAddress{{
 			Type:    clusterv1.MachineInternalIP,
 			Address: ip,
@@ -450,6 +500,7 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return rebootResult, err
 	}
 	if !instanceReady {
+		telemetry.MarkWaiting(ctx, "instance_not_ready")
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, nil
 	}
 
@@ -495,6 +546,9 @@ func (r *NicoMachineReconciler) reconcileDelete(ctx context.Context, ownerMachin
 
 	done, err := r.releaseInstance(ctx, nicoClient, ownerMachine, nicoMachine)
 	if err != nil || !done {
+		if err == nil {
+			telemetry.MarkWaiting(ctx, "instance_teardown")
+		}
 		return ctrl.Result{RequeueAfter: machineRequeueSlow}, err
 	}
 
@@ -517,7 +571,16 @@ func completeMachineDeletion(ctx context.Context, nicoMachine *infrav1.NicoMachi
 // deleting so an instance already released or mid-teardown is not deleted
 // again. NICo retains terminated instance records, so both Terminated and
 // NotFound are complete.
-func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient nico.API, ownerMachine *clusterv1.Machine, nicoMachine *infrav1.NicoMachine) (bool, error) {
+func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient nico.API, ownerMachine *clusterv1.Machine, nicoMachine *infrav1.NicoMachine) (released bool, retErr error) {
+	ctx, span := telemetry.StartStage(ctx, "capnico.release_instance")
+	defer func() {
+		outcome := "released"
+		if !released && retErr == nil {
+			outcome = traceOutcomeWaiting
+			telemetry.MarkWaiting(ctx, "instance_teardown")
+		}
+		telemetry.EndStage(span, outcome, retErr)
+	}()
 	log := ctrl.LoggerFrom(ctx)
 	instanceID := nicoMachine.Status.InstanceID
 
@@ -531,6 +594,7 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	if err != nil {
 		return false, fmt.Errorf("delete NicoMachine: failed to get NICo instance: %w", err)
 	}
+	r.recordInstanceStatusEvents(ctx, nicoMachine, instance)
 
 	switch {
 	case nico.IsTerminated(instance):
@@ -559,6 +623,60 @@ func (r *NicoMachineReconciler) releaseInstance(ctx context.Context, nicoClient 
 	log.Info("requested NICo instance deletion", "instanceID", instanceID)
 
 	return false, nil
+}
+
+func (r *NicoMachineReconciler) recordInstanceStatusEvents(ctx context.Context, machine *infrav1.NicoMachine, instance *nicosdk.Instance) {
+	lastReported, err := time.Parse(time.RFC3339Nano, machine.Annotations[lastInstanceStatusEventTimeAnnotation])
+	if err != nil {
+		lastReported = time.Time{}
+	}
+
+	history := slices.Clone(instance.GetStatusHistory())
+	slices.SortStableFunc(history, func(a, b nicosdk.StatusDetail) int {
+		return a.GetCreated().Compare(b.GetCreated())
+	})
+
+	latest := lastReported
+	for _, entry := range history {
+		created := entry.GetCreated()
+		if entry.GetStatus() == "" || !created.After(lastReported) {
+			continue
+		}
+		transitionTime := created.UTC().Format(time.RFC3339Nano)
+		key := fmt.Sprintf("%s/%s/%s", instance.GetId(), entry.GetStatus(), transitionTime)
+		// The recorder groups different notes with the same reason and action.
+		stateEvent := &eventsv1.Event{
+			Name:      fmt.Sprintf("nico-instance-state-%s.%x", machine.UID, sha256.Sum256([]byte(key))),
+			Namespace: machine.Namespace,
+			Regarding: corev1.ObjectReference{
+				APIVersion: infrav1.GroupVersion.String(),
+				Kind:       "NicoMachine",
+				Namespace:  machine.Namespace,
+				Name:       machine.Name,
+				UID:        machine.UID,
+			},
+			EventTime:           metav1.NewMicroTime(time.Now().UTC()),
+			ReportingController: nicoMachineControllerName,
+			ReportingInstance:   nicoMachineControllerName,
+			Action:              "Observe",
+			Reason:              "InstanceStateObserved",
+			Type:                corev1.EventTypeNormal,
+			Note: fmt.Sprintf("Observed NICo instance %s in %s; NICo transition time: %s.",
+				instance.GetId(), entry.GetStatus(), transitionTime),
+		}
+		if err := r.Create(ctx, stateEvent); err != nil && !apierrors.IsAlreadyExists(err) {
+			ctrl.LoggerFrom(ctx).Error(err, "failed to record NICo instance state event", "instanceID", instance.GetId())
+			return
+		}
+		latest = created
+	}
+
+	if latest.After(lastReported) {
+		if machine.Annotations == nil {
+			machine.Annotations = make(map[string]string)
+		}
+		machine.Annotations[lastInstanceStatusEventTimeAnnotation] = latest.UTC().Format(time.RFC3339Nano)
+	}
 }
 
 func (r *NicoMachineReconciler) instanceEvent(machine *infrav1.NicoMachine, reason, action, message string) {
@@ -607,14 +725,19 @@ func observeFailureDomain(
 	labelKey string,
 	instance *nicosdk.Instance,
 	requestedDomain string,
-) (string, error) {
+) (domain string, retErr error) {
+	ctx, span := telemetry.StartStage(ctx, "capnico.observe_placement")
+	outcome := "observed"
+	defer func() { telemetry.EndStage(span, outcome, retErr) }()
 	machineID := instance.GetMachineId()
 	if machineID == "" || labelKey == "" {
+		outcome = "not_available"
 		return "", nil
 	}
 
 	observed := nicoMachine.Status.FailureDomain
 	if observed != "" && machineID == nicoMachine.Status.MachineID && (requestedDomain == "" || observed == requestedDomain) {
+		outcome = "cached"
 		return observed, nil
 	}
 
@@ -623,6 +746,7 @@ func observeFailureDomain(
 		if requestedDomain != "" {
 			return "", err
 		}
+		outcome = "not_available"
 		ctrl.LoggerFrom(ctx).Error(err, "failed to get NICo machine for topology", "machineID", machineID)
 		return observed, nil
 	}
@@ -749,7 +873,7 @@ func (r *NicoMachineReconciler) resolveNicoCluster(ctx context.Context, cluster 
 	if nicoMachine.Spec.SiteID != "" {
 		// A machine's identityRef names a Secret, so the reference omits the kind.
 		return &infrav1.NicoCluster{
-			ObjectMeta: metav1.ObjectMeta{Namespace: nicoMachine.Namespace},
+			Namespace: nicoMachine.Namespace,
 			Spec: infrav1.NicoClusterSpec{
 				SiteID:                  nicoMachine.Spec.SiteID,
 				IdentityRef:             infrav1.NicoClusterIdentityReference{Name: nicoMachine.Spec.IdentityRef.Name},
@@ -920,8 +1044,8 @@ func buildInstanceCreateRequest(
 	instanceTypeCapabilities nicomachine.InstanceTypeCapabilities,
 	defaultPhoneHomeEnabled bool,
 ) (*nicosdk.InstanceCreateRequest, error) {
-	if len(nicoMachine.Spec.Interfaces) == 0 {
-		return nil, fmt.Errorf("spec.interfaces must contain at least one entry")
+	if nicoMachine.Spec.AutoNetwork == (len(nicoMachine.Spec.Interfaces) > 0) {
+		return nil, fmt.Errorf("exactly one of spec.autoNetwork or spec.interfaces must be set")
 	}
 	if err := instanceTypeCapabilities.ValidatePartitionSupport(nicoMachine.Spec); err != nil {
 		return nil, err
@@ -957,6 +1081,9 @@ func buildInstanceCreateRequest(
 
 	createReq := nicosdk.NewInstanceCreateRequest(name, tenantID, nicoMachine.Spec.VPCID)
 	createReq.SetInterfaces(interfaces)
+	if nicoMachine.Spec.AutoNetwork {
+		createReq.SetAutoNetwork(true)
+	}
 	createReq.SetDescription("Managed by Cluster API")
 	createReq.SetUserData(bootstrapCloudConfig)
 	if nicoMachine.Spec.InstanceTypeID != "" {
@@ -1079,7 +1206,16 @@ type instanceTypeAvailability struct {
 	instanceType *nicosdk.InstanceType
 }
 
-func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (instanceTypeAvailability, error) {
+func instanceTypeAvailable(ctx context.Context, nicoClient nico.API, instanceTypeID string) (availability instanceTypeAvailability, retErr error) {
+	ctx, span := telemetry.StartStage(ctx, "capnico.check_capacity")
+	defer func() {
+		outcome := "available"
+		if !availability.available && retErr == nil {
+			outcome = traceOutcomeWaiting
+			telemetry.MarkWaiting(ctx, availability.reason)
+		}
+		telemetry.EndStage(span, outcome, retErr)
+	}()
 	log := ctrl.LoggerFrom(ctx)
 	instanceType, err := nicoClient.GetInstanceTypeWithAllocationStats(ctx, instanceTypeID)
 	log.V(2).Info("instance type availability check result", "instanceType", instanceType, "err", err)
@@ -1145,7 +1281,7 @@ func (r *NicoMachineReconciler) SetupWithManager(
 	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
 ) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorder("nicomachine-controller")
+		r.Recorder = mgr.GetEventRecorder(nicoMachineControllerName)
 	}
 	if r.APIReader == nil {
 		r.APIReader = mgr.GetAPIReader()

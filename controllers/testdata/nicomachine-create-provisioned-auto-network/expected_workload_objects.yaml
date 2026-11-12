@@ -1,0 +1,4 @@
+- name: machine-1
+  providerID: external://machine-1
+- name: node-ref-1
+  providerID: nico://instance-00000001

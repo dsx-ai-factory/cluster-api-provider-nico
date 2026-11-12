@@ -107,10 +107,17 @@ principal. Reasons can be extended; messages are diagnostic text for people.
 | `True` | `ValidationSucceeded` | Authentication and the current-tenant lookup succeeded. The message says so if TLS certificate verification is disabled. |
 | `False` | `CredentialsNotFound` | The referenced Secret does not exist. |
 | `False` | `InvalidConfiguration` | The Secret lacks required keys or has invalid values. |
-| `False` | `AuthenticationFailed` | The token issuer or NICo rejected the credentials. |
+| `False` | `AuthenticationFailed` | The token issuer answered with HTTP 400 or 401, or NICo rejected the access token. The message says the issuer "rejected the client credentials" for a 401 or a 400 with the `invalid_client` error code, and "rejected the token request" for any other 400, for example for a scope the client is not granted. |
 | `False` | `AccessDenied` | NICo forbade the current-tenant lookup. |
 | `Unknown` | `SecretReadFailed` | The controller could not read the Secret, for example because of RBAC. |
-| `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got an unexpected response. |
+| `Unknown` | `ValidationFailed` | The check timed out, could not connect, failed TLS verification, or got a response that does not establish credential health, such as a server error, rate limit, or HTTP 403 or 404 from the token issuer. |
+
+The controller classifies token issuer answers by HTTP status, so it does not
+depend on the issuer sending an OAuth 2.0 error code. The message names the
+status, for example "Token issuer rejected the client credentials with HTTP
+401." It never includes the issuer's response body. Some issuers also answer a
+request to an unknown path with HTTP 401, so for `AuthenticationFailed` from the
+token issuer, check `tokenURL` as well as `clientID` and `clientSecret`.
 
 Readers select `Ready` by type and compare its `observedGeneration` with
 `metadata.generation`. The controller writes `Ready` in one request and
@@ -354,7 +361,8 @@ reference on the `NicoCluster`.
 | `vpcID` | string, required | The VPC where this provider creates the instance. |
 | `instanceTypeID` | string | The instance type ID to provision. Set exactly one of `instanceTypeID` and `machineID`. |
 | `machineID` | string | The machine ID for targeted instance creation. Set exactly one of `instanceTypeID` and `machineID`. |
-| `interfaces` | list, required, 1 or more items | Interface attachment requests. Use subnet-based attachments for Ethernet network virtualization, and VPC-prefix-based attachments for next-generation networking. Each entry sets exactly one of `subnetID` or `vpcPrefixID`. The `ipAddress` field is only valid with `vpcPrefixID`, and its least-significant host bit must be `1`. |
+| `interfaces` | list, optional, 1 or more items | Interface attachment requests. Use subnet-based attachments for Ethernet network virtualization, and VPC-prefix-based attachments for next-generation networking. Each entry sets exactly one of `subnetID` or `vpcPrefixID`. The `ipAddress` field is only valid with `vpcPrefixID`, and its least-significant host bit must be `1`. Set exactly one of `interfaces` and `autoNetwork`. |
+| `autoNetwork` | boolean, optional | Lets NICo attach the instance to its VPC itself, with no interface requests. NICo requires it for hosts without a managed DPU, which only a Flat VPC can hold. The machine address then comes from the primary interface of the NICo machine. Set exactly one of `interfaces` and `autoNetwork`. |
 | `infinibandInterfaces` | list | One or more InfiniBand Partitions to attach. This field is mutually exclusive with `infinibandPartitionID`. |
 | `infinibandPartitionID` | string | Attaches this partition to every active InfiniBand device the instance type exposes. Use it instead of `infinibandInterfaces` when every device should share one partition. It requires `instanceTypeID`. |
 | `nvLinkInterfaces` | list | One or more NVLink Logical Partitions to attach. This field is mutually exclusive with `nvLinkLogicalPartitionID`. |

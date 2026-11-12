@@ -389,8 +389,10 @@ func validationSecret(endpoint string, oauth bool) *corev1.Secret {
 		data[SecretKeyToken] = []byte("synthetic-token")
 	}
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "credentials", ResourceVersion: "1"},
-		Data:       data,
+		Namespace:       "default",
+		Name:            "credentials",
+		ResourceVersion: "1",
+		Data:            data,
 	}
 }
 

@@ -30,6 +30,7 @@ import (
 
 	infrav1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/nico"
+	"github.com/dsx-ai-factory/cluster-api-provider-nico/internal/telemetry"
 )
 
 const (
@@ -70,6 +71,8 @@ type NicoClusterReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	ctx, endTrace := telemetry.StartReconcile(ctx, "NicoCluster", req.Namespace, req.Name)
+	defer func() { endTrace(retErr) }()
 	log := ctrl.LoggerFrom(ctx)
 
 	log.Info("reconciling NicoCluster")
@@ -86,14 +89,6 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if cluster == nil {
 		log.Info("Waiting for Cluster controller to set OwnerRef on NicoCluster")
 		return reconcile.Result{}, nil
-	}
-
-	if !controllerutil.ContainsFinalizer(&nicoCluster, nicoClusterFinalizer) {
-		controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer)
-		if err := r.Update(ctx, &nicoCluster); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
-		}
-		return ctrl.Result{}, nil
 	}
 
 	patchHelper, err := patch.NewHelper(&nicoCluster, r.Client)
@@ -127,6 +122,10 @@ func (r *NicoClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !nicoCluster.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, cluster, &nicoCluster)
+	}
+
+	if controllerutil.AddFinalizer(&nicoCluster, nicoClusterFinalizer) {
+		return ctrl.Result{}, nil
 	}
 
 	nicoClient, err := r.nicoClientForCluster(ctx, &nicoCluster)

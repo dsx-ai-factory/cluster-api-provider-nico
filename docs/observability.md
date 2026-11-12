@@ -1,10 +1,12 @@
-# Metrics
+# Observability
+
+## Metrics
 
 CAPNICo exposes NICo API request metrics through the controller manager's
 Prometheus endpoint. Use these metrics to inspect request volume, HTTP
 responses, and request latency.
 
-## Metrics Endpoint
+### Metrics Endpoint
 
 The manager serves `/metrics` over HTTP on port 8080 by default. The
 `--metrics-bind-address` flag controls its listen address and defaults to
@@ -29,7 +31,7 @@ For the Helm chart's default HTTP metrics configuration, set
 disable the ServiceMonitor by default. Configure your Prometheus instance to
 select the ServiceMonitor and its namespace.
 
-## NICo API Requests
+### NICo API Requests
 
 CAPNICo registers the following metrics in the manager's metrics registry.
 
@@ -83,7 +85,7 @@ The operation label identifies the SDK API operation.
 | `list_instances` | Look up instances by name. |
 | `list_machines` | List machines for failure-domain discovery. |
 
-## Example Queries
+### Example Queries
 
 Use the following query to calculate requests per second over a 5-minute
 window, grouped by operation and HTTP status.
@@ -104,3 +106,34 @@ histogram_quantile(0.95,
   )
 )
 ```
+
+## Tracing
+
+CAPNICo exports OpenTelemetry Protocol (OTLP) traces over gRPC when you set
+`OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`.
+The traces-specific endpoint takes precedence. Without either variable,
+CAPNICo does not configure a trace exporter.
+
+For Helm installations, use the existing environment overrides. This example
+samples 10% of new traces and follows the sampling decision of parent spans.
+
+```yaml
+manager:
+  envOverrides:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4317
+    OTEL_TRACES_SAMPLER: parentbased_traceidratio
+    OTEL_TRACES_SAMPLER_ARG: "0.1"
+```
+
+`OTEL_SERVICE_NAME` defaults to `capnico-controller`. Sampling uses the
+OpenTelemetry SDK's `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`
+settings. The default sampler is `parentbased_always_on`.
+
+Each reconciliation creates a span with child spans for lifecycle stages and
+NICo HTTP requests. HTTP spans include response-body reading. NICo continues
+the trace when its own tracing is enabled.
+
+Requeues create separate reconciliation spans. Correlate them by resource
+namespace and name. Logs include `traceID` and `spanID` for correlation with
+the current reconciliation. Expected waits use `capnico.outcome=waiting`
+and `capnico.wait_reason` without marking the stage as an error.
