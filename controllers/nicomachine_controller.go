@@ -320,12 +320,16 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		created := err == nil
 		if err != nil {
 			if errors.Is(err, nico.ErrAlreadyExists) {
+				createErr := err
 				log.Info("backing NICo instance already exists, find by name")
 				instance, err = nicoClient.FindInstanceByName(createCtx, nico.InstanceLookup{
 					Name:   ownerMachine.Name,
 					VPCID:  nicoMachine.Spec.VPCID,
 					SiteID: nicoCluster.Spec.SiteID,
 				})
+				if err != nil {
+					err = errors.Join(createErr, fmt.Errorf("recovery lookup failed: %w", err))
+				}
 			}
 			if err != nil {
 				if reason, requeueAfter, ok := failureDomainPlacementFailure(err, failureDomain); ok {
