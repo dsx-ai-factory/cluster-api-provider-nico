@@ -1,0 +1,6 @@
+vpcs:
+  resources:
+  - org: org-1
+    resource:
+      id: vpc-1
+      siteId: site-2
