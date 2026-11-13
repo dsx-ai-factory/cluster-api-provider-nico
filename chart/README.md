@@ -64,6 +64,7 @@ create a Kubernetes registry Secret for kubelet to pull the controller image.
 | `manager.replicas` | `1` | Controller Deployment replicas |
 | `manager.image.repository` | `controller` | Controller image repository |
 | `manager.image.tag` | chart `appVersion` | Controller image tag |
+| `manager.image.digest` | `""` | Controller image digest; the pod pulls by digest |
 | `manager.image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `manager.args` | `--leader-elect` | Controller arguments |
 | `manager.env` | `POD_NAMESPACE` | Controller environment |
@@ -89,6 +90,28 @@ create a Kubernetes registry Secret for kubelet to pull the controller image.
 | `certManager.enabled` | `true` | Required webhook certificate resources. |
 | `prometheus.enabled` | `false` | Install a ServiceMonitor |
 | `networkPolicy.enabled` | `false` | Restrict metrics ingress |
+
+Set `manager.image.digest` to pin the controller image by digest. The chart
+then renders `<repository>:<tag>@<digest>`. The container runtime pulls by
+digest, so the tag, which defaults to the chart `appVersion`, is informational
+only. You can supply the repository at install time and the digest
+separately, which suits packaging that knows the image digest but not the
+registry a site pulls from. The digest must have the form `sha256:` followed by 64 lowercase hexadecimal
+characters. A `manager.image.repository` that already ends in `@<digest>`
+still renders unchanged. A missing, empty, or `null` digest means unset, and
+the chart renders `<repository>:<tag>`. The chart's `values.schema.json`
+rejects a malformed digest, any other non-string digest, and a digest combined
+with such a repository, so `helm lint`, `helm template`, and `helm install`
+all fail on these values. For example:
+
+```bash
+helm upgrade --install capi-provider-nico ./chart \
+  --namespace capnico-system \
+  --create-namespace \
+  --set manager.image.repository=ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller \
+  --set manager.image.digest=sha256:<64-hex-digest> \
+  --wait
+```
 
 `manager.imagePullSecrets` takes precedence when both pull-secret values are
 set. The top-level value remains supported for upgrades from the former

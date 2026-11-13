@@ -25,6 +25,10 @@ manager:
     ## Image tag (defaults to Chart.appVersion if not set)
     ##
     # tag: ""
+    ## Image digest (sha256:<64 hex>). When set, renders repository:tag@digest;
+    ## the pod pulls by digest and the tag is informational only.
+    ##
+    digest: ""
     pullPolicy: IfNotPresent
 
   ## Arguments
