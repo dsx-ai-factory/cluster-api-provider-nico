@@ -1,0 +1,5 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachine
+metadata:
+  name: nicomachine-1
+  namespace: default

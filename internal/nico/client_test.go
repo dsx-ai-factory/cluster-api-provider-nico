@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -259,6 +260,28 @@ func TestClientFindInstanceByNameSkipsTerminatedRecordsWhenExcluded(t *testing.T
 	any, err := client.FindInstanceByName(context.Background(), InstanceLookup{Name: "machine-1"})
 	require.NoError(t, err)
 	assert.Equal(t, "instance-old", any.GetId())
+}
+
+// TestClientFindInstanceByNameSearchesLaterPages finds a live instance behind a full page of terminated ones.
+func TestClientFindInstanceByNameSearchesLaterPages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pageNumber") == "2" {
+			_, _ = w.Write([]byte(`[{"id":"instance-live","name":"machine-1","status":"Ready"}]`))
+			return
+		}
+		records := make([]string, pageSize)
+		for i := range records {
+			records[i] = fmt.Sprintf(`{"id":"instance-old-%d","name":"machine-1","status":"Terminated"}`, i)
+		}
+		_, _ = w.Write([]byte("[" + strings.Join(records, ",") + "]"))
+	}))
+	defer server.Close()
+
+	instance, err := newStaticTokenClient(t, server.URL).FindInstanceByName(context.Background(), InstanceLookup{Name: "machine-1", ExcludeTerminated: true})
+
+	require.NoError(t, err)
+	assert.Equal(t, "instance-live", instance.GetId())
 }
 
 func TestClientFindInstanceByNameReturnsNotFoundWhenOnlyTerminatedRemains(t *testing.T) {
