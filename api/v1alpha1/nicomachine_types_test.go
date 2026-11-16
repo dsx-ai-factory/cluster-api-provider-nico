@@ -67,6 +67,43 @@ func TestNicoMachineNetworkAdmission(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+
+	// Once providerID is set, autoNetwork is compared by value, not presence: a
+	// typed client drops an explicit false because the field is omitempty.
+	updates := []struct {
+		name   string
+		before map[string]any
+		after  map[string]any
+		valid  bool
+	}{
+		{name: "explicit false dropped", before: map[string]any{"interfaces": subnet, "autoNetwork": false}, after: map[string]any{"interfaces": subnet}, valid: true},
+		{name: "explicit false added", before: map[string]any{"interfaces": subnet}, after: map[string]any{"interfaces": subnet, "autoNetwork": false}, valid: true},
+		{name: "autoNetwork turned off", before: map[string]any{"autoNetwork": true}, after: map[string]any{"interfaces": subnet}},
+	}
+	for _, tc := range updates {
+		t.Run("update "+tc.name, func(t *testing.T) {
+			provisioned := func(network map[string]any) map[string]any {
+				spec := map[string]any{"vpcID": "vpc-1", "machineID": "machine-1", "providerID": "nico://instance-1"}
+				maps.Copy(spec, network)
+				return spec
+			}
+			object := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": GroupVersion.String(),
+				"kind":       "NicoMachine",
+				"metadata":   map[string]any{"generateName": "machine-", "namespace": namespace.Name},
+				"spec":       provisioned(tc.before),
+			}}
+			require.NoError(t, c.Create(ctx, object))
+			object.Object["spec"] = provisioned(tc.after)
+			err := c.Update(ctx, object)
+			if !tc.valid {
+				require.True(t, apierrors.IsInvalid(err), "expected admission rejection, got %v", err)
+				require.ErrorContains(t, err, "spec.autoNetwork is immutable after providerID is set")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestNicoMachineStatusTopologyFieldsRoundTrip(t *testing.T) {

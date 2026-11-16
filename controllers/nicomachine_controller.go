@@ -297,6 +297,23 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("failed to build instance create request: %w", err)
 		}
 
+		vpc, err := nicoClient.GetVPC(ctx, nicoMachine.Spec.VPCID)
+		if err != nil {
+			err = fmt.Errorf("failed to get VPC %q before instance creation: %w", nicoMachine.Spec.VPCID, err)
+			setMachineProvisionedFalse(&nicoMachine, nicoErrorReason(err, infrav1.InstanceCreateFailedReason), err.Error())
+			return ctrl.Result{}, err
+		}
+		if vpc.GetSiteId() == "" {
+			err := fmt.Errorf("cannot verify site for VPC %q: site ID is missing", nicoMachine.Spec.VPCID)
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
+			return ctrl.Result{}, err
+		}
+		if vpc.GetSiteId() != nicoCluster.Spec.SiteID {
+			err := fmt.Errorf("VPC %q belongs to site %q, expected site %q", nicoMachine.Spec.VPCID, vpc.GetSiteId(), nicoCluster.Spec.SiteID)
+			setMachineProvisionedFalse(&nicoMachine, infrav1.InstanceCreateRequestInvalidReason, err.Error())
+			return ctrl.Result{}, err
+		}
+
 		failureDomain := ownerMachine.Spec.FailureDomain
 		log.Info("creating NICo instance", "failureDomain", failureDomain)
 		createCtx, createSpan := telemetry.StartStage(ctx, "capnico.create_instance")
@@ -307,12 +324,16 @@ func (r *NicoMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		created := err == nil
 		if err != nil {
 			if errors.Is(err, nico.ErrAlreadyExists) {
+				createErr := err
 				log.Info("backing NICo instance already exists, find by name")
 				instance, err = nicoClient.FindInstanceByName(createCtx, nico.InstanceLookup{
 					Name:   ownerMachine.Name,
 					VPCID:  nicoMachine.Spec.VPCID,
 					SiteID: nicoCluster.Spec.SiteID,
 				})
+				if err != nil {
+					err = errors.Join(createErr, fmt.Errorf("recovery lookup failed: %w", err))
+				}
 			}
 			if err != nil {
 				if reason, requeueAfter, ok := failureDomainPlacementFailure(err, failureDomain); ok {

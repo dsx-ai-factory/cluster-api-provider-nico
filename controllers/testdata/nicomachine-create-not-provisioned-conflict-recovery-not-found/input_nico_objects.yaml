@@ -1,0 +1,10 @@
+instances:
+  resources:
+  - org: org-1
+    resource:
+      id: seeded-other-vpc
+      name: machine-1
+      siteId: site-1
+      status: Ready
+      tenantId: tenant-1
+      vpcId: vpc-other
