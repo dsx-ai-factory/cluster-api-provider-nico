@@ -24,6 +24,7 @@ on:
       - "chart/**"
       - "config/**"
       - "hack/helm-chart-fixups.sh"
+      - "hack/test-chart-image.sh"
       - "hack/release-manifests.sh"
       - ".github/workflows/test-chart.yml"
   workflow_dispatch:
@@ -79,6 +80,9 @@ jobs:
       - name: Lint Helm Chart
         run: |
           helm lint ./chart
+
+      - name: Test chart image rendering
+        run: bash hack/test-chart-image.sh
 
       - name: Install cert-manager
         run: make install-cert-manager

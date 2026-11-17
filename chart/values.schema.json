@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "manager": {
+      "properties": {
+        "image": {
+          "properties": {
+            "digest": {
+              "description": "Controller image digest: empty, or sha256:<64 lowercase hex characters>.",
+              "type": "string",
+              "pattern": "^(sha256:[a-f0-9]{64})?$"
+            }
+          },
+          "if": {
+            "properties": {
+              "digest": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "digest"
+            ]
+          },
+          "then": {
+            "properties": {
+              "repository": {
+                "description": "Must not contain @ when manager.image.digest is set.",
+                "pattern": "^[^@]*$"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
