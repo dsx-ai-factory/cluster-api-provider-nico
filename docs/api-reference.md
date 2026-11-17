@@ -368,6 +368,7 @@ reference on the `NicoCluster`.
 | `nvLinkInterfaces` | list | One or more NVLink Logical Partitions to attach. This field is mutually exclusive with `nvLinkLogicalPartitionID`. |
 | `nvLinkLogicalPartitionID` | string | Attaches this logical partition to every active NVLink device the instance type exposes. Use it instead of `nvLinkInterfaces` when every device should share one partition. It requires `instanceTypeID`. |
 | `sshKeyGroupIDs` | list | The allowed SSH key group IDs for Serial-over-LAN access. |
+| `dpuExtensionServiceDeployments` | list, optional, 1 or more items | Deploys existing data processing unit (DPU) extension service versions when creating the instance. Each entry requires a nonempty `dpuExtensionServiceID` and `version`. |
 | `ipxeScript` | string | The iPXE script used to boot this instance. This field is mutually exclusive with `operatingSystemID`. |
 | `operatingSystemID` | string | The ID of a registered NICo operating system used to boot this instance. This field is mutually exclusive with `ipxeScript`. |
 | `phoneHomeEnabled` | bool | Requests that NICo keep the instance in `Provisioning` until cloud-init's phone-home callback arrives. When unset, NICo uses the operating system's setting, and iPXE machines use `--default-phone-home-enabled`. |
@@ -375,6 +376,27 @@ reference on the `NicoCluster`.
 | `labels` | map | Labels applied to the instance. |
 | `allowUnhealthyMachine` | bool | Allows targeted instance creation on a machine in Error status. |
 | `providerID` | string | Set by the controller to `nico://<instance-id>` after the NICo instance is created. |
+
+To deploy existing DPU extension service versions, configure your machine template as follows.
+NICo validates the referenced services and versions. Omitting the field preserves the NICo default behavior.
+To change deployments after provisioning, create a new template and update your control plane or machine deployment to replace the machines.
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: NicoMachineTemplate
+metadata:
+  name: workers-with-dpu-services
+spec:
+  template:
+    spec:
+      vpcID: "<vpc-id>"
+      instanceTypeID: "<instance-type-id>"
+      interfaces:
+        - subnetID: "<subnet-id>"
+      dpuExtensionServiceDeployments:
+        - dpuExtensionServiceID: "<service-id>"
+          version: "<version>"
+```
 
 The following flag sets the phone-home default for iPXE machines that do not set
 `phoneHomeEnabled`. Machines with `operatingSystemID` use the operating system's
