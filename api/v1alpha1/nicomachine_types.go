@@ -85,6 +85,17 @@ type NicoMachineNVLinkInterface struct {
 	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 }
 
+// NicoMachineDPUExtensionServiceDeployment requests a version of an existing DPU extension service.
+type NicoMachineDPUExtensionServiceDeployment struct {
+	// DPUExtensionServiceID is the ID of the DPU extension service to deploy.
+	// +kubebuilder:validation:MinLength=1
+	DPUExtensionServiceID string `json:"dpuExtensionServiceID"`
+
+	// Version is the version of the DPU extension service to deploy.
+	// +kubebuilder:validation:MinLength=1
+	Version string `json:"version"`
+}
+
 // NicoMachineSpec defines the desired state of NicoMachine.
 // +kubebuilder:validation:XValidation:rule="has(self.instanceTypeID) != has(self.machineID)",message="exactly one of instanceTypeID or machineID must be set"
 // +kubebuilder:validation:XValidation:rule="(has(self.autoNetwork) && self.autoNetwork) != has(self.interfaces)",message="exactly one of autoNetwork or interfaces must be set"
@@ -167,6 +178,11 @@ type NicoMachineSpec struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionID,omitempty"`
+
+	// DPUExtensionServiceDeployments requests DPU extension service versions when creating the instance.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	DPUExtensionServiceDeployments []NicoMachineDPUExtensionServiceDeployment `json:"dpuExtensionServiceDeployments,omitempty"`
 
 	// SSHKeyGroupIDs are the allowed SSH key group IDs for Serial over LAN access.
 	// +optional
@@ -341,6 +357,7 @@ type NicoMachineStatus struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.infinibandPartitionID) == has(oldSelf.spec.infinibandPartitionID) && (!has(self.spec.infinibandPartitionID) || self.spec.infinibandPartitionID == oldSelf.spec.infinibandPartitionID))",message="spec.infinibandPartitionID is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.nvLinkInterfaces) == has(oldSelf.spec.nvLinkInterfaces) && (!has(self.spec.nvLinkInterfaces) || self.spec.nvLinkInterfaces == oldSelf.spec.nvLinkInterfaces))",message="spec.nvLinkInterfaces is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.nvLinkLogicalPartitionID) == has(oldSelf.spec.nvLinkLogicalPartitionID) && (!has(self.spec.nvLinkLogicalPartitionID) || self.spec.nvLinkLogicalPartitionID == oldSelf.spec.nvLinkLogicalPartitionID))",message="spec.nvLinkLogicalPartitionID is immutable after providerID is set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.dpuExtensionServiceDeployments) == has(oldSelf.spec.dpuExtensionServiceDeployments) && (!has(self.spec.dpuExtensionServiceDeployments) || self.spec.dpuExtensionServiceDeployments == oldSelf.spec.dpuExtensionServiceDeployments))",message="spec.dpuExtensionServiceDeployments is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.sshKeyGroupIDs) == has(oldSelf.spec.sshKeyGroupIDs) && (!has(self.spec.sshKeyGroupIDs) || self.spec.sshKeyGroupIDs == oldSelf.spec.sshKeyGroupIDs))",message="spec.sshKeyGroupIDs is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.ipxeScript) == has(oldSelf.spec.ipxeScript) && (!has(self.spec.ipxeScript) || self.spec.ipxeScript == oldSelf.spec.ipxeScript))",message="spec.ipxeScript is immutable after providerID is set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec.providerID) || (has(self.spec.operatingSystemID) == has(oldSelf.spec.operatingSystemID) && (!has(self.spec.operatingSystemID) || self.spec.operatingSystemID == oldSelf.spec.operatingSystemID))",message="spec.operatingSystemID is immutable after providerID is set"
