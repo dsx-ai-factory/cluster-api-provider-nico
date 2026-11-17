@@ -86,6 +86,29 @@ spec:
                 description: CloudInitInjectHostname prepends hostname directives
                   to the bootstrap cloud-config.
                 type: boolean
+              dpuExtensionServiceDeployments:
+                description: DPUExtensionServiceDeployments requests DPU extension
+                  service versions when creating the instance.
+                items:
+                  description: NicoMachineDPUExtensionServiceDeployment requests a
+                    version of an existing DPU extension service.
+                  properties:
+                    dpuExtensionServiceID:
+                      description: DPUExtensionServiceID is the ID of the DPU extension
+                        service to deploy.
+                      minLength: 1
+                      type: string
+                    version:
+                      description: Version is the version of the DPU extension service
+                        to deploy.
+                      minLength: 1
+                      type: string
+                  required:
+                  - dpuExtensionServiceID
+                  - version
+                  type: object
+                minItems: 1
+                type: array
               failureDomainLabelKey:
                 description: |-
                   FailureDomainLabelKey is the NICo Machine label key used for placement.
@@ -568,6 +591,11 @@ spec:
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.nvLinkLogicalPartitionID)
             == has(oldSelf.spec.nvLinkLogicalPartitionID) && (!has(self.spec.nvLinkLogicalPartitionID)
             || self.spec.nvLinkLogicalPartitionID == oldSelf.spec.nvLinkLogicalPartitionID))'
+        - message: spec.dpuExtensionServiceDeployments is immutable after providerID
+            is set
+          rule: '!has(oldSelf.spec.providerID) || (has(self.spec.dpuExtensionServiceDeployments)
+            == has(oldSelf.spec.dpuExtensionServiceDeployments) && (!has(self.spec.dpuExtensionServiceDeployments)
+            || self.spec.dpuExtensionServiceDeployments == oldSelf.spec.dpuExtensionServiceDeployments))'
         - message: spec.sshKeyGroupIDs is immutable after providerID is set
           rule: '!has(oldSelf.spec.providerID) || (has(self.spec.sshKeyGroupIDs) ==
             has(oldSelf.spec.sshKeyGroupIDs) && (!has(self.spec.sshKeyGroupIDs) ||

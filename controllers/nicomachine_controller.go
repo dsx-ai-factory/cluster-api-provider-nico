@@ -1130,6 +1130,16 @@ func buildInstanceCreateRequest(
 
 	createReq.InfinibandInterfaces = buildInfiniBandInterfaces(nicoMachine.Spec, instanceTypeCapabilities)
 	createReq.NvLinkInterfaces = buildNVLinkInterfaces(nicoMachine.Spec, instanceTypeCapabilities)
+	if len(nicoMachine.Spec.DPUExtensionServiceDeployments) > 0 {
+		deployments := make([]nicosdk.DpuExtensionServiceDeploymentRequest, 0, len(nicoMachine.Spec.DPUExtensionServiceDeployments))
+		for _, deployment := range nicoMachine.Spec.DPUExtensionServiceDeployments {
+			req := nicosdk.NewDpuExtensionServiceDeploymentRequest()
+			req.SetDpuExtensionServiceId(deployment.DPUExtensionServiceID)
+			req.SetVersion(deployment.Version)
+			deployments = append(deployments, *req)
+		}
+		createReq.SetDpuExtensionServiceDeployments(deployments)
+	}
 
 	labels := mergeLabels(
 		map[string]string{
