@@ -61,6 +61,7 @@ create a Kubernetes registry Secret for kubelet to pull the controller image.
 
 | Value | Default | Purpose |
 |---|---|---|
+| `namespace.create` | `true` | Create the release Namespace |
 | `manager.replicas` | `1` | Controller Deployment replicas |
 | `manager.image.repository` | `controller` | Controller image repository |
 | `manager.image.tag` | chart `appVersion` | Controller image tag |
@@ -109,6 +110,12 @@ helm upgrade capi-provider-nico <native-chart> \
   --namespace capnico-system \
   --wait
 ```
+
+Set `namespace.create=false` when another component already owns the release
+Namespace -- for example a secrets component that must create it earlier in
+order to land the provider's credentials there before this chart installs. The
+Namespace must already exist in that case; the chart will not create it, and
+`helm install --create-namespace` or an equivalent is required.
 
 CRDs and the provider Namespace carry `helm.sh/resource-policy: keep`. Helm
 uninstall removes the controller and RBAC resources but leaves CRDs and their
