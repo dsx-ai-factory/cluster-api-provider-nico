@@ -1,4 +1,8 @@
-{{- if .Values.namespace.create }}
+{{- /* Not a plain dereference: `helm upgrade --reuse-values` renders these
+     templates against the previous release's values, which predate the
+     namespace map. Absent map or key means create; explicit false is
+     preserved. (dig takes a plain map, so it cannot be given .Values.) */ -}}
+{{- if dig "create" true (.Values.namespace | default dict) }}
 apiVersion: v1
 kind: Namespace
 metadata:
