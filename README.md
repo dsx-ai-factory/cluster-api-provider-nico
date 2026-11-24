@@ -290,6 +290,13 @@ The CAPNICo manager accepts the standard Cluster API provider scope flags:
 Use both flags when running multiple CAPNICo manager instances in one
 management cluster.
 
+You can configure controller concurrency with these manager flags:
+
+* `--nicocluster-concurrency` sets the maximum concurrent `NicoCluster`
+  reconciles. The default is 5.
+* `--nicomachine-concurrency` sets the maximum concurrent `NicoMachine`
+  reconciles. The default is 5.
+
 This release does not publish workload cluster templates yet. Use
 `clusterctl generate cluster --from <template-file-or-url>` with a local
 template when generating clusters.
