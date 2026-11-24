@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -370,13 +371,13 @@ func startReconcilers(
 		Client:         mgr.GetClient(),
 		Scheme:         tc.Scheme,
 		ProviderConfig: providerConfig,
-	}).SetupWithManager(ctx, mgr, wrappers...)).To(gomega.Succeed())
+	}).SetupWithManager(ctx, mgr, controller.Options{}, wrappers...)).To(gomega.Succeed())
 	gomega.Expect((&NicoMachineReconciler{
 		Client:                mgr.GetClient(),
 		Scheme:                tc.Scheme,
 		ProviderConfig:        providerConfig,
 		WorkloadClientFactory: workloadFactory,
-	}).SetupWithManager(ctx, mgr, wrappers...)).To(gomega.Succeed())
+	}).SetupWithManager(ctx, mgr, controller.Options{}, wrappers...)).To(gomega.Succeed())
 
 	tc.StartManager(ctx, mgr)
 }
