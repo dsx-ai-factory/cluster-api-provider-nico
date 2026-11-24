@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -57,6 +58,8 @@ func main() {
 	var leaderElect bool
 	var watchNamespace string
 	var watchFilterValue string
+	var nicoClusterConcurrency int
+	var nicoMachineConcurrency int
 
 	defaultProviderNamespace := os.Getenv(podNamespaceEnvVar)
 	if defaultProviderNamespace == "" {
@@ -88,6 +91,9 @@ func main() {
 			"The label key is cluster.x-k8s.io/watch-filter. "+
 			"If unspecified, the controller watches all objects.",
 	)
+
+	flag.IntVar(&nicoClusterConcurrency, "nicocluster-concurrency", 5, "Number of NicoClusters to process simultaneously.")
+	flag.IntVar(&nicoMachineConcurrency, "nicomachine-concurrency", 5, "Number of NicoMachines to process simultaneously.")
 
 	providerConfig := nico.ProviderConfig{
 		Credentials: types.NamespacedName{
@@ -173,7 +179,7 @@ func main() {
 		Scheme:           mgr.GetScheme(),
 		ProviderConfig:   providerConfig,
 		WatchFilterValue: watchFilterValue,
-	}).SetupWithManager(ctx, mgr); err != nil {
+	}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: nicoClusterConcurrency}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoCluster")
 		os.Exit(1)
 	}
@@ -183,7 +189,7 @@ func main() {
 		Scheme:           mgr.GetScheme(),
 		ProviderConfig:   providerConfig,
 		WatchFilterValue: watchFilterValue,
-	}).SetupWithManager(ctx, mgr); err != nil {
+	}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: nicoMachineConcurrency}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NicoMachine")
 		os.Exit(1)
 	}

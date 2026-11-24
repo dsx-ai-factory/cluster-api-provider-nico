@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -344,6 +345,7 @@ func clusterReadyRequeueAfter(nicoCluster infrav1.NicoCluster) time.Duration {
 func (r *NicoClusterReconciler) SetupWithManager(
 	ctx context.Context,
 	mgr ctrl.Manager,
+	options controller.Options,
 	wrappers ...func(reconcile.Reconciler) reconcile.Reconciler,
 ) error {
 	if r.APIReader == nil {
@@ -368,6 +370,7 @@ func (r *NicoClusterReconciler) SetupWithManager(
 	predicateLog := ctrl.LoggerFrom(ctx).WithValues("controller", "NicoCluster")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoCluster{}).
+		WithOptions(options).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), predicateLog, r.WatchFilterValue)).
 		Watches(
 			&clusterv1.Cluster{},

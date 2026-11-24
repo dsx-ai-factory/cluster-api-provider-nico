@@ -41,7 +41,7 @@ envtests, read [Writing Controller Tests](writing-tests.md). When something is
 not converging, check [Troubleshooting](troubleshooting.md), and for the full
 field list of each CRD, check [API Reference](api-reference.md).
 
-Other reference material lives next to the code it describes.
+Other reference material.
 
 - The [contributing guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/CONTRIBUTING.md)
   describes the development environment and the pull request flow.
