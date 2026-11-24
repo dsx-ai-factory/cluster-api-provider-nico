@@ -23,6 +23,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -1357,6 +1358,8 @@ func (r *NicoMachineReconciler) SetupWithManager(
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.NicoMachine{}).
+		// Zero keeps the controller-runtime default of one worker.
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.ProviderConfig.NicoMachineConcurrency}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
 		// When a control-plane machine claims shared instance-type capacity, wake
 		// unscheduled machines using the same instance type so they can retry promptly.

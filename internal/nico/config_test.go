@@ -181,3 +181,40 @@ func TestProviderConfigIdentityValidationTimeout(t *testing.T) {
 		}
 	})
 }
+
+func TestProviderConfigNicoMachineConcurrency(t *testing.T) {
+	parse := func(t *testing.T, args ...string) ProviderConfig {
+		t.Helper()
+		var cfg ProviderConfig
+		fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+		cfg.BindFlags(fs)
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("Parse(%q) error = %v", args, err)
+		}
+		return cfg
+	}
+
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{
+		{want: 1},
+		{args: []string{"--nicomachine-concurrency=10"}, want: 10},
+	} {
+		cfg := parse(t, tc.args...)
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("args %q: Validate() error = %v", tc.args, err)
+		}
+		if cfg.NicoMachineConcurrency != tc.want {
+			t.Fatalf("args %q: NicoMachineConcurrency = %d, want %d", tc.args, cfg.NicoMachineConcurrency, tc.want)
+		}
+	}
+
+	const want = "--nicomachine-concurrency must be positive"
+	for _, arg := range []string{"--nicomachine-concurrency=0", "--nicomachine-concurrency=-1"} {
+		cfg := parse(t, arg)
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: Validate() error = %v, want it to contain %q", arg, err, want)
+		}
+	}
+}

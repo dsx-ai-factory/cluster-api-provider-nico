@@ -290,6 +290,22 @@ The CAPNICo manager accepts the standard Cluster API provider scope flags:
 Use both flags when running multiple CAPNICo manager instances in one
 management cluster.
 
+### Controller concurrency
+
+The CAPNICo manager reconciles one `NicoMachine` at a time by default. Set
+`--nicomachine-concurrency` to reconcile several at the same time, which
+shortens the time to provision or delete many machines at once.
+
+Each worker makes its own NICo API calls, so the value also bounds the
+concurrent requests that `NicoMachine` reconciliation sends to NICo. Raise it
+in steps and watch the NICo API request metrics described in
+[Observability](docs/observability.md).
+
+NICo assigns machines to instances, so concurrent creates never share a
+machine. A create that loses the last free machine of its failure domain reports
+`FailureDomainUnavailable` and retries. A create that NICo rejects because of a
+concurrent request reports `InstanceCreateFailed` and retries.
+
 This release does not publish workload cluster templates yet. Use
 `clusterctl generate cluster --from <template-file-or-url>` with a local
 template when generating clusters.

@@ -66,6 +66,12 @@ type ProviderConfig struct {
 	// DefaultPhoneHomeEnabled enables phone-home for iPXE NicoMachines that do
 	// not set spec.phoneHomeEnabled. Operating system machines use the OS setting.
 	DefaultPhoneHomeEnabled bool
+
+	// NicoMachineConcurrency is the number of NicoMachines reconciled at the
+	// same time. Each worker makes its own NICo API calls, so the value also
+	// bounds the concurrent requests that NicoMachine reconciliation sends to
+	// NICo.
+	NicoMachineConcurrency int
 }
 
 // BindFlags binds the provider-level configuration to fs. The current values of
@@ -81,6 +87,9 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 	if p.IdentityValidationTimeout == 0 {
 		p.IdentityValidationTimeout = DefaultCredentialValidationTimeout
 	}
+	if p.NicoMachineConcurrency == 0 {
+		p.NicoMachineConcurrency = 1
+	}
 	fs.StringVar(&p.Credentials.Namespace, "provider-credentials-namespace", p.Credentials.Namespace,
 		"Namespace of the provider-level NICo credentials Secret used when a NicoCluster does not set spec.identityRef.")
 	fs.StringVar(&p.Credentials.Name, "provider-credentials-secret-name", p.Credentials.Name,
@@ -93,13 +102,18 @@ func (p *ProviderConfig) BindFlags(fs *flag.FlagSet) {
 		"Maximum duration of one NicoIdentity credential check, from token acquisition through the current-tenant read.")
 	fs.BoolVar(&p.DefaultPhoneHomeEnabled, "default-phone-home-enabled", p.DefaultPhoneHomeEnabled,
 		"Enable NICo phone-home for iPXE NicoMachines that do not set spec.phoneHomeEnabled. NicoMachines with spec.operatingSystemID use the operating system's setting.")
+	fs.IntVar(&p.NicoMachineConcurrency, "nicomachine-concurrency", p.NicoMachineConcurrency,
+		"Number of NicoMachines to reconcile at the same time. It also bounds the concurrent NICo API requests that NicoMachine reconciliation sends.")
 }
 
-// Validate reports provider settings that cannot work. It checks only the
-// NicoIdentity settings, so existing flag combinations keep their behavior.
+// Validate reports provider settings that cannot work. It checks only settings
+// whose defaults pass, so existing flag combinations keep their behavior.
 func (p ProviderConfig) Validate() error {
 	if p.IdentityValidationTimeout <= 0 {
 		return fmt.Errorf("--provider-identity-validation-timeout must be positive, got %s", p.IdentityValidationTimeout)
+	}
+	if p.NicoMachineConcurrency <= 0 {
+		return fmt.Errorf("--nicomachine-concurrency must be positive, got %d", p.NicoMachineConcurrency)
 	}
 	return nil
 }
