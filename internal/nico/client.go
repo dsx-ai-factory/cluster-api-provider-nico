@@ -485,40 +485,45 @@ func (c *Client) FindInstanceByName(ctx context.Context, lookup InstanceLookup) 
 	if err != nil {
 		return nil, err
 	}
-	req := c.api.InstanceAPI.
-		GetAllInstance(authCtx, c.orgID).
-		Name(lookup.Name).
-		PageSize(pageSize)
+	for pageNumber := int32(1); ; pageNumber++ {
+		req := c.api.InstanceAPI.
+			GetAllInstance(authCtx, c.orgID).
+			Name(lookup.Name).
+			PageNumber(pageNumber).
+			PageSize(pageSize)
 
-	if lookup.VPCID != "" {
-		req = req.VpcId(lookup.VPCID)
-	}
-	if lookup.SiteID != "" {
-		req = req.SiteId(lookup.SiteID)
-	}
+		if lookup.VPCID != "" {
+			req = req.VpcId(lookup.VPCID)
+		}
+		if lookup.SiteID != "" {
+			req = req.SiteId(lookup.SiteID)
+		}
 
-	started := time.Now()
-	instances, resp, err := req.Execute()
-	c.metrics.observe("list_instances", time.Since(started), resp)
-	if err != nil {
-		// A retained Terminated record in the page fails the SDK's enum decode for
-		// the whole list, so recover it the same way GetInstance does.
-		recovered, ok := decodeTerminatedInstances(err)
-		if !ok || resp == nil || resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-			return nil, normalizeError(ctx, resp, err)
+		started := time.Now()
+		instances, resp, err := req.Execute()
+		c.metrics.observe("list_instances", time.Since(started), resp)
+		if err != nil {
+			// A retained Terminated record in the page fails the SDK's enum decode for
+			// the whole list, so recover it the same way GetInstance does.
+			recovered, ok := decodeTerminatedInstances(err)
+			if !ok || resp == nil || resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+				return nil, normalizeError(ctx, resp, err)
+			}
+			instances = recovered
 		}
-		instances = recovered
+		for i := range instances {
+			if instances[i].GetName() != lookup.Name {
+				continue
+			}
+			if lookup.ExcludeTerminated && IsTerminated(&instances[i]) {
+				continue
+			}
+			return &instances[i], nil
+		}
+		if len(instances) < pageSize {
+			return nil, ErrNotFound
+		}
 	}
-	for i := range instances {
-		if instances[i].GetName() != lookup.Name {
-			continue
-		}
-		if lookup.ExcludeTerminated && IsTerminated(&instances[i]) {
-			continue
-		}
-		return &instances[i], nil
-	}
-	return nil, ErrNotFound
 }
 
 func ProviderID(instanceID string) string {
