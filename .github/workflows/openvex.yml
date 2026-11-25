@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: OpenVEX
+
+on:
+  pull_request:
+    paths:
+      - .openvex.json
+      - hack/validate-openvex.*
+      - .github/workflows/openvex.yml
+      - .github/tests/test_openvex.py
+  push:
+    branches: [main]
+    paths:
+      - .openvex.json
+      - hack/validate-openvex.*
+      - .github/workflows/openvex.yml
+      - .github/tests/test_openvex.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate reviewed OpenVEX dispositions
+        run: bash hack/validate-openvex.sh
+      - name: Test validation rejects invalid dispositions
+        run: python3 .github/tests/test_openvex.py

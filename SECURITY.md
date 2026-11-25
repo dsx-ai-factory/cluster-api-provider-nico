@@ -59,6 +59,31 @@ to once a report is confirmed; PSIRT owns the disclosure date.
 Dependency vulnerabilities are picked up by Dependabot and follow the same
 targets, measured from the date a fixed upstream version becomes available.
 
+## Vulnerability Dispositions
+
+Record evidence that a finding does not affect a shipped controller image in
+[`.openvex.json`](.openvex.json). Each product names an exact platform manifest
+digest. A disposition for an older release does not automatically apply to a
+different image or a new release.
+
+Before adding a disposition, verify the advisory's affected functions against
+the release source and the shipped binary for every listed platform. Include
+the evidence in `impact_statement`, and use a supported OpenVEX status and
+justification. Do not classify a reachable vulnerability as `not_affected`
+because an upgrade is planned. Refer to the
+[v0.2.0 assessment](docs/security-assessment-v0.2.0.md) for the initial evidence
+and the comparison between container scans, Dependabot, and govulncheck.
+
+After changing statements, increment the document `version`, update its UTC
+`timestamp`, and run `bash hack/validate-openvex.sh`. CI validates the document.
+Re-review statements when the controller's dependencies, build process, or
+network interfaces change. Retain evidence for older digests while they remain
+supported, and retire their statements when those images leave support.
+
+The document records reviewed evidence. It does not itself suppress scan
+findings or publish signed attestations. Consumers must enforce the product
+digest scope and complete their own review before applying a disposition.
+
 ## Vulnerability exceptions
 
 Not every finding from Dependabot, govulncheck, or Grype can be fixed by the
