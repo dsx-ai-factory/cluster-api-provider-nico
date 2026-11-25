@@ -1,0 +1,309 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/dsx-ai-factory/cluster-api-provider-nico/.openvex.json",
+  "author": "NVIDIA CAPNICo maintainers",
+  "role": "document creator",
+  "timestamp": "2026-11-25T14:54:25Z",
+  "version": 2,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "GHSA-2v4p-qf9q-27wj",
+        "description": "CVE-2026-84445: denial of service in gRPC-Go xDS servers."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The /manager binaries embed google.golang.org/grpc v1.83.1 through outbound OpenTelemetry trace export. Neither binary contains google.golang.org/grpc/xds server symbols. The release source does not instantiate xds.NewGRPCServer, and its ./cmd dependency graph excludes google.golang.org/grpc/xds. The vulnerable xDS server routing interceptor is not present. govulncheck v1.6.0 source analysis reports this advisory at module/package level without a reachable vulnerable symbol."
+    },
+    {
+      "vulnerability": {
+        "name": "GO-2026-6860",
+        "description": "CVE-2026-78661: quadratic complexity in golang.org/x/net/html tree parsing."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The /manager binaries embed golang.org/x/net v0.61.0. Neither binary contains html.Parse, html.ParseFragment, html.ParseWithOptions, or html.ParseFragmentWithOptions symbols. The release source imports html only through html/charset via Gomega matchers; charset uses html.NewTokenizer, not the affected tree-construction functions. govulncheck v1.6.0 source analysis reports this advisory at module/package level without a reachable vulnerable symbol."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97043",
+        "description": "GO-2026-6848: Escaped quotes in cgo linker directives in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go and cmd/compile while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97039",
+        "description": "GO-2026-6852: pkg-config flag sanitization in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97038",
+        "description": "GO-2026-6853: Object-file and linker-input validation in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97037",
+        "description": "GO-2026-6854: Split linker flags and linker-script injection in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97036",
+        "description": "GO-2026-6855: Darwin linker plugin injection in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97035",
+        "description": "GO-2026-6856: Compiler flag validation in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97034",
+        "description": "GO-2026-6857: GCC spec-file handling in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-97033",
+        "description": "GO-2026-6858: Compiler and linker path validation in Go build tools."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "This advisory affects cmd/go while building malicious packages. Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 platform manifests identified in products. The final image copies /manager and license files into distroless/static:nonroot; it does not ship the Go compiler or go command and does not compile packages at runtime. Both extracted /manager binaries report CGO_ENABLED=0. The embedded Go 1.26.10 build version explains the scanner match but does not include the affected build-tool implementation in the runtime image. This disposition covers the shipped images only; upgrading the builder separately addresses build-environment exposure."
+    },
+    {
+      "vulnerability": {
+        "name": "GO-2026-6859",
+        "description": "CVE-2026-97054: concurrent HTTP/1 response-header access when a MaxBytesReader body limit is exceeded."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 manifests identified in products. The net/http maxBytesReader.Read implementation is present, so this is not a code-absence disposition. The affected behavior requires exceeding a MaxBytesReader limit while the handler reads the request body concurrently with response-header writes. The controller-runtime v0.25.2 admission webhook reads its body synchronously through io.LimitedReader before writing a response. Inspection of the controller dependency closure found no non-standard-library references to MaxBytesReader or MaxBytesHandler. The remaining net/http OPTIONS * path sets its header and drains a limited body synchronously in the request handler. No triggering concurrent body-read/header-write execution path was identified. Generic reachable net/http symbols reported by govulncheck do not establish this required concurrency pattern."
+    },
+    {
+      "vulnerability": {
+        "name": "GO-2026-6866",
+        "description": "CVE-2026-97045: incorrect foreign-namespace handling in golang.org/x/net/html rendering."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 manifests identified in products. Neither extracted /manager binary contains golang.org/x/net/html.Render or childTextNodesAreLiteral symbols. The release source imports html through html/charset via Gomega matchers; charset uses html.NewTokenizer rather than rendering HTML trees. govulncheck v1.6.0 source and binary analysis report module/package presence without an affected Render symbol. The vulnerable rendering implementation is absent from the shipped binaries."
+    },
+    {
+      "vulnerability": {
+        "name": "GO-2026-6975",
+        "description": "GHSA-rrfc-gjm9-cgrj: bounded memory-allocation amplification in OpenTelemetry W3C baggage parsing."
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:d81073776eec3a2f0c8e9982d545d2f3dfd7c74d64af84920f7a25cc80c74df2"
+          }
+        },
+        {
+          "@id": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95",
+          "identifiers": {
+            "purl": "pkg:oci/controller@sha256:a4d49603b27f15f6142219d459b2b71e93b68e2e65f6d75dd4ec2401feac3d95"
+          }
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Reviewed the linux/amd64 and linux/arm64 controller v0.2.0 manifests identified in products. internal/telemetry/tracing.go explicitly installs propagation.TraceContext{} and does not enable propagation.Baggage. Its HTTP instrumentation wraps an outbound transport. Neither extracted /manager binary contains baggage.Parse or propagation.Baggage.Extract symbols, and govulncheck v1.6.0 reports no reachable affected parsing symbol. The upstream trigger requires parsing attacker-controlled W3C baggage, which the reviewed controller configuration does not do. Re-review this disposition if baggage propagation or extraction is introduced."
+    }
+  ]
+}
