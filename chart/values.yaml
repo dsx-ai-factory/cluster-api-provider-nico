@@ -11,6 +11,17 @@
 ##
 imagePullSecrets: []
 
+## The release Namespace (.Release.Namespace).
+##
+namespace:
+  ## Create the Namespace as part of this chart. Set to false when another
+  ## component already owns it -- for example a secrets component that must
+  ## create it earlier in order to land the provider's credentials there
+  ## before this chart installs. The Namespace must already exist in that
+  ## case; this chart does not create it.
+  ##
+  create: true
+
 ## Configure the controller manager deployment
 ##
 manager:
