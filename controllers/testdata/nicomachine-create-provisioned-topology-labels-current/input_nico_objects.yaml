@@ -1,0 +1,21 @@
+instances:
+  resources:
+  - org: org-1
+    resource:
+      id: seeded-1
+      interfaces:
+      - ipAddresses:
+        - 10.0.0.10
+        subnetId: subnet-1
+      labels:
+        nvke.nvidia.com/machine-id: machine-id-1
+        nvke.nvidia.com/site-id: site-1
+        nvke.nvidia.com/site-name: fake-site
+        nvke.nvidia.com/vpc-id: vpc-1
+        nvke.nvidia.com/vpc-name: fake-vpc
+      machineId: machine-id-1
+      name: machine-1
+      siteId: site-1
+      status: Ready
+      tenantId: tenant-1
+      vpcId: vpc-1

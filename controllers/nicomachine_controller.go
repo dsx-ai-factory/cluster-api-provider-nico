@@ -65,13 +65,6 @@ const (
 	labelKeySiteName  = "nvke.nvidia.com/site-name"
 	labelKeyVPCID     = "nvke.nvidia.com/vpc-id"
 	labelKeyVPCName   = "nvke.nvidia.com/vpc-name"
-
-	// To be removed when the rename migrations are complete
-	legacyLabelKeyMachineID = "nke.nvidia.com/machine-id"
-	legacyLabelKeySiteID    = "nke.nvidia.com/site-id"
-	legacyLabelKeySiteName  = "nke.nvidia.com/site-name"
-	legacyLabelKeyVPCID     = "nke.nvidia.com/vpc-id"
-	legacyLabelKeyVPCName   = "nke.nvidia.com/vpc-name"
 )
 
 var nicoMachineOwnedConditions = []string{
@@ -830,26 +823,20 @@ func applyObservedTopologyLabels(ctx context.Context, nicoClient nico.API, insta
 	desired := make(map[string]string)
 	maps.Copy(desired, existing)
 
-	// TODO: Remove these deletes when everything has migrated
 	if nicoMachine.Status.MachineID != "" {
 		desired[labelKeyMachineID] = nicoMachine.Status.MachineID
-		delete(desired, legacyLabelKeyMachineID)
 	}
 	if nicoMachine.Status.SiteID != "" {
 		desired[labelKeySiteID] = nicoMachine.Status.SiteID
-		delete(desired, legacyLabelKeySiteID)
 	}
 	if name := normalizeLabelValue(nicoMachine.Status.SiteName); name != "" {
 		desired[labelKeySiteName] = name
-		delete(desired, legacyLabelKeySiteName)
 	}
 	if nicoMachine.Status.VPCID != "" {
 		desired[labelKeyVPCID] = nicoMachine.Status.VPCID
-		delete(desired, legacyLabelKeyVPCID)
 	}
 	if name := normalizeLabelValue(nicoMachine.Status.VPCName); name != "" {
 		desired[labelKeyVPCName] = name
-		delete(desired, legacyLabelKeyVPCName)
 	}
 
 	if !needsLabelUpdate(existing, desired) {
