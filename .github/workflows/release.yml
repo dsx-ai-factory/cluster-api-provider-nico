@@ -215,7 +215,7 @@ jobs:
 
       # By digest, so this runs on an amd64 runner for either architecture.
       - name: Generate SPDX SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           image: ${{ needs.promote-ghcr.outputs.image }}@${{ needs.promote-ghcr.outputs[format('digest_{0}', matrix.arch)] }}
           format: spdx-json
@@ -247,7 +247,7 @@ jobs:
 
       - name: Run Grype
         id: scan
-        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        uses: anchore/scan-action@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
         with:
           image: ${{ needs.promote-ghcr.outputs.image }}@${{ needs.promote-ghcr.outputs[format('digest_{0}', matrix.arch)] }}
           severity-cutoff: medium
@@ -273,7 +273,7 @@ jobs:
 
       - name: Upload SARIF
         if: always() && steps.scan.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: grype-release-${{ matrix.arch }}
@@ -534,7 +534,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
 
